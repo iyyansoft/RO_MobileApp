@@ -1,0 +1,694 @@
+{
+  "eight@gmail.com": {
+    "id": "DEALER_1789641028379_3fcbe138",
+    "name": "User Eight",
+    "mobile": "9988776654",
+    "email": "eight@gmail.com",
+    "passwordHash": "$2b$10$5m9WTb8FKKwmAYn4k6BkGulOd03PAp8kf0fLT0ixmEoRX1Iw1WKLK",
+    "address": "Plot 10, Industrial Estate, Chennai",
+    "business": "User Eight Aqua Wholesale",
+    "owner": "User Eight",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-17T10:30:28.379Z",
+    "addresses": [
+      {
+        "id": "ADDR_DEF_1789715435579",
+        "label": "Main Warehouse & Hub",
+        "businessName": "User Eight Aqua Wholesale",
+        "street": "Plot 10, Industrial Estate, Chennai",
+        "city": "Ambattur, Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9988776654",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789715435582_365",
+        "label": "Branch Godown",
+        "businessName": "User Eight Aqua Wholesale",
+        "street": "12 Industrial Bypass Road",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600058",
+        "phone": "9988776654",
+        "isDefault": true
+      }
+    ]
+  },
+  "priya@gmail.com": {
+    "id": "DEALER_1789641507935_e293f90c",
+    "name": "Priya Angel",
+    "mobile": "9876543210",
+    "email": "priya@gmail.com",
+    "passwordHash": "$2b$10$UqCMFGMGvpHCLbN5/CyL5O.4EZaQ90TS15DKG9NZwO5Qe/IwnxRLa",
+    "address": "Plot 42, Ambattur Industrial Estate, Chennai - 600058",
+    "business": "Priya Aqua Wholesale",
+    "owner": "Priya Angel",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-17T10:38:27.935Z",
+    "addresses": [
+      {
+        "id": "ADDR_DEF_1789715350736",
+        "label": "Main Warehouse & Hub",
+        "businessName": "Priya Aqua Wholesale",
+        "street": "Plot 42, Ambattur Industrial Estate, Chennai - 600058",
+        "city": "Ambattur, Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9876543210",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789715350740_383",
+        "label": "Branch Godown",
+        "businessName": "Priya Aqua Wholesale",
+        "street": "12 Industrial Bypass Road",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600058",
+        "phone": "9876543210",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789722426469_450",
+        "label": "Branch Office",
+        "businessName": "Priya Wholesale RO",
+        "street": "Door No 45, Main Road",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600028",
+        "phone": "9876543210",
+        "isDefault": true
+      },
+      {
+        "id": "ADDR_1789728776584_705",
+        "label": "Branch Office",
+        "businessName": "Priya Aqua Wholesale - Salem Hub",
+        "street": "12 Salem Bypass Road",
+        "city": "Salem",
+        "state": "Tamil Nadu",
+        "pincode": "636001",
+        "phone": "9876543210",
+        "isDefault": false
+      }
+    ],
+    "rewardsHistory": [
+      {
+        "orderId": "RO-ORD-714794-624",
+        "orderAmount": 10620,
+        "pointsEarned": 530,
+        "date": "2026-09-19T04:38:34.795Z"
+      }
+    ],
+    "rewardPoints": 530
+  },
+  "priya_test_1789712539216@gmail.com": {
+    "id": "DEALER_1789712539513_8fba1af0",
+    "name": "Priya Angel Updated",
+    "mobile": "9948593725",
+    "email": "priya_test_1789712539216@gmail.com",
+    "passwordHash": "$2b$10$o5po5OlMadHLvbuFx3NdF.7poYoA0fWNBeZ.UgfawPKHlWkvEbEa6",
+    "address": "Plot 44, SIDCO Industrial Complex, Ambattur",
+    "business": "Priya Aqua Solutions Pvt Ltd",
+    "owner": "Priya Angel Updated",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-18T06:22:19.513Z",
+    "addresses": [
+      {
+        "id": "ADDR_1789712539666_770",
+        "label": "Main Warehouse",
+        "businessName": "Priya Aqua Solutions Pvt Ltd",
+        "street": "Plot 44, SIDCO Complex",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9948593725",
+        "isDefault": true
+      }
+    ]
+  },
+  "priya_test_1789713288160@gmail.com": {
+    "id": "DEALER_1789713288276_db639683",
+    "name": "Priya Angel Updated",
+    "mobile": "9864642119",
+    "email": "priya_test_1789713288160@gmail.com",
+    "passwordHash": "$2b$10$L/ea5Tj80Zga5DzUPMgfUOzHV7rd8NorKEJDz9Ygm0WI2gHxKRG0W",
+    "address": "Plot 44, SIDCO Industrial Complex, Ambattur",
+    "business": "Priya Aqua Solutions Pvt Ltd",
+    "owner": "Priya Angel Updated",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-18T06:34:48.276Z",
+    "addresses": [
+      {
+        "id": "ADDR_1789713288519_90",
+        "label": "Main Warehouse",
+        "businessName": "Priya Aqua Solutions Pvt Ltd",
+        "street": "Plot 44, SIDCO Complex",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9864642119",
+        "isDefault": true
+      }
+    ]
+  },
+  "testdealer_1789716026296@gmail.com": {
+    "id": "DEALER_1789716026417_d088b946",
+    "name": "Section Test Dealer Updated",
+    "mobile": "9272660452",
+    "email": "testdealer_1789716026296@gmail.com",
+    "passwordHash": "$2b$10$4rrSoqaO0/k2pdUTaQAg4eCxafpdqfknzmQK7kzHESuZsPSavneJu",
+    "address": "Plot 55, SIDCO Estate, Chennai - 600098",
+    "business": "Section Aqua Wholesale Pvt Ltd",
+    "owner": "Section Test Dealer Updated",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-18T07:20:26.417Z",
+    "addresses": [
+      {
+        "id": "ADDR_DEF_1789716026603",
+        "label": "Main Warehouse & Hub",
+        "businessName": "Section Aqua Wholesale Pvt Ltd",
+        "street": "Plot 55, SIDCO Estate, Chennai - 600098",
+        "city": "Ambattur, Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9272660452",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789716026608_71",
+        "label": "Branch Godown",
+        "businessName": "Section Aqua Wholesale Pvt Ltd",
+        "street": "12 Industrial Bypass Road",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600058",
+        "phone": "9272660452",
+        "isDefault": true
+      }
+    ]
+  },
+  "priyaangel61003@gmail.com": {
+    "id": "DEALER_1789716639652_40f534fb",
+    "name": "Angel",
+    "mobile": "9025725248",
+    "email": "priyaangel61003@gmail.com",
+    "passwordHash": "$2b$10$1fqgtTldIld2plzRQ9lVj.ZmpSzkTDEzrdF1R28Ljw0hxzymumq2m",
+    "address": "salem",
+    "business": "Angel Aqua Wholesale",
+    "owner": "Angel",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-18T07:30:39.653Z",
+    "addresses": [
+      {
+        "id": "ADDR_DEF_1789716855125",
+        "label": "Main Warehouse & Hub",
+        "businessName": "Angel Aqua Wholesale",
+        "street": "salem",
+        "city": "Ambattur, Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9025725248",
+        "isDefault": true
+      }
+    ]
+  },
+  "testdealer_1789717238731@gmail.com": {
+    "id": "DEALER_1789717238883_540d5c17",
+    "name": "Section Test Dealer Updated",
+    "mobile": "9255444493",
+    "email": "testdealer_1789717238731@gmail.com",
+    "passwordHash": "$2b$10$5AxYw6bYFcNPD./Yl5KO/O42cbEf6PYI5eioC3JnQlqkoNYDOE472",
+    "address": "Plot 55, SIDCO Estate, Chennai - 600098",
+    "business": "Section Aqua Wholesale Pvt Ltd",
+    "owner": "Section Test Dealer Updated",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-18T07:40:38.883Z",
+    "addresses": [
+      {
+        "id": "ADDR_DEF_1789717239130",
+        "label": "Main Warehouse & Hub",
+        "businessName": "Section Aqua Wholesale Pvt Ltd",
+        "street": "Plot 55, SIDCO Estate, Chennai - 600098",
+        "city": "Ambattur, Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9255444493",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789717239134_441",
+        "label": "Branch Godown",
+        "businessName": "Section Aqua Wholesale Pvt Ltd",
+        "street": "12 Industrial Bypass Road",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600058",
+        "phone": "9255444493",
+        "isDefault": true
+      }
+    ]
+  },
+  "test_dealer_salem@gmail.com": {
+    "id": "DEALER_1789725226419_581da56b",
+    "name": "Salem Dealer",
+    "mobile": "9123456780",
+    "email": "test_dealer_salem@gmail.com",
+    "passwordHash": "$2b$10$BdDZBPXQPEvnv.mgysuX/etsfbgowjnO9tgQrs9DvrIPY2qa4BKH.",
+    "address": "Door 12, Junction Main Road, Salem - 636001",
+    "business": "Salem Dealer Aqua Wholesale",
+    "owner": "Salem Dealer",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-18T09:53:46.420Z",
+    "addresses": [
+      {
+        "id": "ADDR_DEF_1789725226445",
+        "label": "Main Warehouse & Hub",
+        "businessName": "Salem Dealer Aqua Wholesale",
+        "street": "Door 12, Junction Main Road, Salem - 636001",
+        "city": "Ambattur, Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9123456780",
+        "isDefault": true
+      },
+      {
+        "id": "ADDR_1789725226451_984",
+        "label": "Branch Office",
+        "businessName": "Salem Aqua Wholesale - Chennai Branch",
+        "street": "Plot 45, SIDCO Estate, Ambattur",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9123456780",
+        "isDefault": false
+      }
+    ]
+  },
+  "salem_dealer_1789728554203@gmail.com": {
+    "id": "DEALER_1789728554353_12cf64b8",
+    "name": "Salem Dealer",
+    "mobile": "9120067661",
+    "email": "salem_dealer_1789728554203@gmail.com",
+    "passwordHash": "$2b$10$QsyedxlZcWvYIBtHOa5uluFNIr5uldqSz63YgPDp/ayxhk4JdVzoC",
+    "address": "Door 12, Junction Main Road, Salem - 636001",
+    "business": "Salem Dealer Aqua Wholesale",
+    "owner": "Salem Dealer",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-18T10:49:14.353Z",
+    "addresses": [
+      {
+        "id": "ADDR_DEF_1789728554371",
+        "label": "Main Warehouse & Hub",
+        "businessName": "Salem Dealer Aqua Wholesale",
+        "street": "Door 12, Junction Main Road, Salem - 636001",
+        "city": "Ambattur, Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9120067661",
+        "isDefault": true
+      },
+      {
+        "id": "ADDR_1789728554377_997",
+        "label": "Branch Office",
+        "businessName": "Salem Aqua Wholesale - Chennai Branch",
+        "street": "Plot 45, SIDCO Estate, Ambattur",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "phone": "9120067661",
+        "isDefault": false
+      }
+    ]
+  },
+  "vigneshkasi106@gmail.com": {
+    "id": "DEALER_1789729443043_44459708",
+    "name": "Vikki",
+    "mobile": "9025725247",
+    "email": "vigneshkasi106@gmail.com",
+    "passwordHash": "$2b$10$MXqgw3HgkdNbmPQvTQjBauhTSUMkdqoWPW57dRmGTGoGGzGv2AYFO",
+    "address": "Edapadi, Salem",
+    "business": "Vikki Aqua Wholesale",
+    "owner": "Vikki",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-18T11:04:03.043Z",
+    "addresses": [
+      {
+        "id": "ADDR_DEF_1789729494627",
+        "fullName": "Vikki",
+        "phone": "9025725247",
+        "businessName": "Vikki Aqua Wholesale",
+        "street": "Edapadi, Salem",
+        "area": "",
+        "city": "Salem",
+        "state": "Tamil Nadu",
+        "pincode": "636001",
+        "addressType": "Office",
+        "label": "Main Warehouse & Hub",
+        "isDefault": true
+      },
+      {
+        "id": "ADDR_1789801059779_150",
+        "fullName": "Vikki",
+        "phone": "9025725247",
+        "businessName": "Vikki Aqua Wholesale",
+        "street": "18/1, Cheran street, Salem",
+        "area": "",
+        "city": "Salem",
+        "state": "Tamil Nadu",
+        "pincode": "000006",
+        "gstNumber": "",
+        "addressType": "Office",
+        "label": "Office",
+        "isDefault": false
+      }
+    ],
+    "rewardsHistory": [
+      {
+        "orderId": "RO-ORD-120188-189",
+        "orderAmount": 1153,
+        "pointsEarned": 55,
+        "date": "2026-09-19T06:58:40.189Z"
+      },
+      {
+        "orderId": "RO-ORD-720432-817",
+        "orderAmount": 377,
+        "pointsEarned": 15,
+        "date": "2026-09-19T06:02:00.433Z"
+      },
+      {
+        "orderId": "RO-ORD-970409-208",
+        "orderAmount": 1153,
+        "pointsEarned": 55,
+        "date": "2026-09-19T05:32:50.411Z"
+      }
+    ],
+    "rewardPoints": 125
+  },
+  "addr_test_1789799201999@gmail.com": {
+    "id": "DEALER_1789799202238_731a74d6",
+    "name": "Salem Wholesale Dealer",
+    "mobile": "9756996695",
+    "email": "addr_test_1789799201999@gmail.com",
+    "passwordHash": "$2b$10$sOzWgBYgsLaIfCEH7C205.GEjQK52fNxMfuAmrkdbeI56EjXf51g2",
+    "address": "Door 45, Junction Main Road, Salem - 636001",
+    "business": "Salem Wholesale Dealer Aqua Wholesale",
+    "owner": "Salem Wholesale Dealer",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-19T06:26:42.238Z",
+    "addresses": [
+      {
+        "id": "ADDR_SIGNUP_1789799202238",
+        "fullName": "Salem Wholesale Dealer",
+        "phone": "9756996695",
+        "businessName": "Salem Wholesale Dealer Aqua Wholesale",
+        "street": "Door 45, Junction Main Road, Salem - 636001",
+        "area": "",
+        "city": "Salem",
+        "state": "Tamil Nadu",
+        "pincode": "636001",
+        "addressType": "Office",
+        "label": "Primary Sign-up Address",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789799202281_689",
+        "fullName": "Salem Dealer - Chennai Branch",
+        "phone": "9756996695",
+        "businessName": "Salem Aqua Wholesale - Chennai Hub",
+        "street": "Plot 88, SIDCO Industrial Estate",
+        "area": "Ambattur",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "gstNumber": "33AAACB1234C1Z5",
+        "addressType": "Warehouse",
+        "label": "Warehouse",
+        "isDefault": true
+      }
+    ],
+    "rewardsHistory": [
+      {
+        "orderId": "RO-ORD-202294-526",
+        "orderAmount": 19647,
+        "pointsEarned": 980,
+        "date": "2026-09-19T06:26:42.295Z"
+      }
+    ],
+    "rewardPoints": 980
+  },
+  "instant_user_1789978722220@gmail.com": {
+    "id": "DEALER_1789978722653_5c9cf1af",
+    "name": "Instant Dealer Test",
+    "mobile": "9245522841",
+    "email": "instant_user_1789978722220@gmail.com",
+    "passwordHash": "$2b$10$4KuZWSE3LlLGrthw.KR8UeLkRfqfYQTLOLGcYiOgJ0XDYuvV53Rpm",
+    "address": "100 Water Works Road, Salem - 636001",
+    "business": "Instant Dealer Test Aqua Wholesale",
+    "owner": "Instant Dealer Test",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-21T08:18:42.653Z",
+    "addresses": [
+      {
+        "id": "ADDR_SIGNUP_1789978722653",
+        "fullName": "Instant Dealer Test",
+        "phone": "9245522841",
+        "businessName": "Instant Dealer Test Aqua Wholesale",
+        "street": "100 Water Works Road, Salem - 636001",
+        "area": "",
+        "city": "Salem",
+        "state": "Tamil Nadu",
+        "pincode": "636001",
+        "addressType": "Office",
+        "label": "Main Warehouse & Hub",
+        "isDefault": true
+      }
+    ]
+  },
+  "angel@gmail.com": {
+    "id": "DEALER_1789980285645_636a4bbb",
+    "name": "ABC",
+    "mobile": "9876543215",
+    "email": "angel@gmail.com",
+    "passwordHash": "$2b$10$gezMe2fYPEKPmRXd49FICu9btExOLDLcmh6PnYaIDCsrTLAcUng0q",
+    "address": "Salem",
+    "business": "ABC Aqua Wholesale",
+    "owner": "ABC",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-21T08:44:45.645Z",
+    "addresses": [
+      {
+        "id": "ADDR_SIGNUP_1789980285645",
+        "fullName": "ABC",
+        "phone": "9876543215",
+        "businessName": "ABC Aqua Wholesale",
+        "street": "Salem",
+        "area": "",
+        "city": "Salem",
+        "state": "Tamil Nadu",
+        "pincode": "636001",
+        "addressType": "Office",
+        "label": "Main Warehouse & Hub",
+        "isDefault": true
+      }
+    ],
+    "rewardsHistory": [
+      {
+        "orderId": "RO-ORD-560282-908",
+        "orderAmount": 19647,
+        "pointsEarned": 980,
+        "date": "2026-09-21T11:36:00.284Z"
+      }
+    ],
+    "rewardPoints": 980
+  },
+  "testdealer_1789985264223@gmail.com": {
+    "id": "DEALER_1789985264386_c7932ee8",
+    "name": "Section Test Dealer Updated",
+    "mobile": "9601400355",
+    "email": "testdealer_1789985264223@gmail.com",
+    "passwordHash": "$2b$10$ZaoNiO/e/z9khLhiyWOojOGPpTBey1Oyn84ChGOlQcai8Qq9AJqj.",
+    "address": "Plot 55, SIDCO Estate, Chennai - 600098",
+    "business": "Section Aqua Wholesale Pvt Ltd",
+    "owner": "Section Test Dealer Updated",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-21T10:07:44.386Z",
+    "addresses": [
+      {
+        "id": "ADDR_SIGNUP_1789985264386",
+        "fullName": "Section Test Dealer",
+        "phone": "9601400355",
+        "businessName": "Section Test Dealer Aqua Wholesale",
+        "street": "Plot 55, SIDCO Estate, Chennai",
+        "area": "",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "addressType": "Office",
+        "label": "Main Warehouse & Hub",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789985264643_516",
+        "fullName": "Section Test Dealer Updated",
+        "phone": "9601400355",
+        "businessName": "Section Aqua Wholesale Pvt Ltd",
+        "street": "12 Industrial Bypass Road",
+        "area": "",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600058",
+        "gstNumber": "",
+        "addressType": "Warehouse",
+        "label": "Branch Godown",
+        "isDefault": true
+      }
+    ]
+  },
+  "testdealer_1789986512212@gmail.com": {
+    "id": "DEALER_1789986512401_483b6575",
+    "name": "Section Test Dealer Updated",
+    "mobile": "9673100601",
+    "email": "testdealer_1789986512212@gmail.com",
+    "passwordHash": "$2b$10$HbQCRfe28YDE7azN/3A5R.AtzSxKM0tUSav4SW/MGdSWveZzAcwBm",
+    "address": "Plot 55, SIDCO Estate, Chennai - 600098",
+    "business": "Section Aqua Wholesale Pvt Ltd",
+    "owner": "Section Test Dealer Updated",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-21T10:28:32.402Z",
+    "addresses": [
+      {
+        "id": "ADDR_SIGNUP_1789986512402",
+        "fullName": "Section Test Dealer",
+        "phone": "9673100601",
+        "businessName": "Section Test Dealer Aqua Wholesale",
+        "street": "Plot 55, SIDCO Estate, Chennai",
+        "area": "",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "addressType": "Office",
+        "label": "Main Warehouse & Hub",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789986512656_391",
+        "fullName": "Section Test Dealer Updated",
+        "phone": "9673100601",
+        "businessName": "Section Aqua Wholesale Pvt Ltd",
+        "street": "12 Industrial Bypass Road",
+        "area": "",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600058",
+        "gstNumber": "",
+        "addressType": "Warehouse",
+        "label": "Branch Godown",
+        "isDefault": true
+      }
+    ]
+  },
+  "testdealer_1789986976716@gmail.com": {
+    "id": "DEALER_1789986976871_20634078",
+    "name": "Section Test Dealer Updated",
+    "mobile": "9328545209",
+    "email": "testdealer_1789986976716@gmail.com",
+    "passwordHash": "$2b$10$wSZGsm8VhHT0ptNAcgLCEOQMVU1Hv0PgIicQOBS46DpODUH4A0QD2",
+    "address": "Plot 55, SIDCO Estate, Chennai - 600098",
+    "business": "Section Aqua Wholesale Pvt Ltd",
+    "owner": "Section Test Dealer Updated",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-21T10:36:16.871Z",
+    "addresses": [
+      {
+        "id": "ADDR_SIGNUP_1789986976871",
+        "fullName": "Section Test Dealer",
+        "phone": "9328545209",
+        "businessName": "Section Test Dealer Aqua Wholesale",
+        "street": "Plot 55, SIDCO Estate, Chennai",
+        "area": "",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "addressType": "Office",
+        "label": "Main Warehouse & Hub",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789986977122_107",
+        "fullName": "Section Test Dealer Updated",
+        "phone": "9328545209",
+        "businessName": "Section Aqua Wholesale Pvt Ltd",
+        "street": "12 Industrial Bypass Road",
+        "area": "",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600058",
+        "gstNumber": "",
+        "addressType": "Warehouse",
+        "label": "Branch Godown",
+        "isDefault": true
+      }
+    ]
+  },
+  "testdealer_1789987685567@gmail.com": {
+    "id": "DEALER_1789987685692_256eaf0b",
+    "name": "Section Test Dealer Updated",
+    "mobile": "9517156028",
+    "email": "testdealer_1789987685567@gmail.com",
+    "passwordHash": "$2b$10$js9i/XpX4fzcO202Z9psPOL.W17EHVsmi6X2nTJHHdnAjacqNLjC.",
+    "address": "Plot 55, SIDCO Estate, Chennai - 600098",
+    "business": "Section Aqua Wholesale Pvt Ltd",
+    "owner": "Section Test Dealer Updated",
+    "status": "approved",
+    "isApproved": true,
+    "createdAt": "2026-09-21T10:48:05.692Z",
+    "addresses": [
+      {
+        "id": "ADDR_SIGNUP_1789987685692",
+        "fullName": "Section Test Dealer",
+        "phone": "9517156028",
+        "businessName": "Section Test Dealer Aqua Wholesale",
+        "street": "Plot 55, SIDCO Estate, Chennai",
+        "area": "",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600098",
+        "addressType": "Office",
+        "label": "Main Warehouse & Hub",
+        "isDefault": false
+      },
+      {
+        "id": "ADDR_1789987685871_696",
+        "fullName": "Section Test Dealer Updated",
+        "phone": "9517156028",
+        "businessName": "Section Aqua Wholesale Pvt Ltd",
+        "street": "12 Industrial Bypass Road",
+        "area": "",
+        "city": "Chennai",
+        "state": "Tamil Nadu",
+        "pincode": "600058",
+        "gstNumber": "",
+        "addressType": "Warehouse",
+        "label": "Branch Godown",
+        "isDefault": true
+      }
+    ]
+  }
+}

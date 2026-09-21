@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RO Wholesale Admin - Dealer Approvals</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    :root {
+      --primary-blue: #0F62FE;
+      --primary-dark: #0A2B5A;
+      --bg-light: #F8FAFC;
+      --surface: #FFFFFF;
+      --border: #E2E8F0;
+      --text-main: #0F172A;
+      --text-muted: #64748B;
+      --success: #10B981;
+      --warning: #F59E0B;
+      --danger: #EF4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      background-color: #F1F5F9;
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
+
+    .admin-container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* Top Navigation Bar */
+    .admin-header {
+      background: var(--surface);
+      border-radius: 20px;
+      padding: 20px 24px;
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 20px rgba(0, 50, 150, 0.05);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .admin-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .admin-logo-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #0F62FE 0%, #0052EC 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 900;
+      box-shadow: 0 4px 12px rgba(15, 98, 254, 0.3);
+    }
+
+    .admin-title-group h1 {
+      font-size: 20px;
+      font-weight: 850;
+      color: var(--primary-dark);
+      letter-spacing: -0.3px;
+    }
+
+    .admin-title-group p {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .btn-portal-link {
+      background: #EFF6FF;
+      color: var(--primary-blue);
+      border: 1px solid rgba(15, 98, 254, 0.25);
+      padding: 10px 18px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-portal-link:hover {
+      background: var(--primary-blue);
+      color: white;
+    }
+
+    /* Stats Grid Cards */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border-radius: 18px;
+      padding: 20px;
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .stat-info span {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stat-info h2 {
+      font-size: 28px;
+      font-weight: 900;
+      margin-top: 4px;
+      color: var(--text-main);
+    }
+
+    .stat-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .stat-icon.total { background: #EFF6FF; color: var(--primary-blue); }
+    .stat-icon.pending { background: #FEF3C7; color: var(--warning); }
+    .stat-icon.approved { background: #D1FAE5; color: var(--success); }
+    .stat-icon.rejected { background: #FEE2E2; color: var(--danger); }
+
+    /* Controls Header: Search & Filter */
+    .table-controls {
+      background: var(--surface);
+      border-radius: 18px;
+      padding: 16px 20px;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 16px;
+    }
+
+    .search-box {
+      flex: 1;
+      min-width: 260px;
+      position: relative;
+    }
+
+    .search-box i {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .search-box input {
+      width: 100%;
+      height: 42px;
+      background: #F8FAFC;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0 14px 0 40px;
+      font-size: 13.5px;
+      font-weight: 500;
+      outline: none;
+    }
+
+    .search-box input:focus {
+      border-color: var(--primary-blue);
+      background: white;
+    }
+
+    .filter-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .filter-btn {
+      background: #F1F5F9;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .filter-btn.active {
+      background: var(--primary-blue);
+      color: white;
+    }
+
+    .btn-refresh {
+      background: #F1F5F9;
+      border: 1px solid var(--border);
+      color: var(--primary-dark);
+      width: 42px;
+      height: 42px;
+      border-radius: 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 15px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-refresh:hover {
+      background: #E2E8F0;
+    }
+
+    /* Dealers List Cards Container */
+    .dealers-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .dealer-card {
+      background: var(--surface);
+      border-radius: 18px;
+      padding: 20px;
+      border: 1px solid var(--border);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      transition: all 0.2s ease;
+    }
+
+    .dealer-card:hover {
+      box-shadow: 0 6px 20px rgba(0, 50, 150, 0.06);
+    }
+
+    .dealer-details {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex: 1;
+      min-width: 280px;
+    }
+
+    .dealer-avatar {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background: #EFF6FF;
+      color: var(--primary-blue);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      font-weight: 850;
+      flex-shrink: 0;
+      border: 2px solid rgba(15, 98, 254, 0.2);
+    }
+
+    .dealer-main-info h3 {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--text-main);
+    }
+
+    .dealer-main-info p {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .dealer-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 220px;
+    }
+
+    .meta-item {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .meta-item i {
+      color: var(--primary-blue);
+      width: 14px;
+    }
+
+    .status-badge {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-badge.approved { background: #D1FAE5; color: #047857; }
+    .status-badge.pending { background: #FEF3C7; color: #B45309; }
+    .status-badge.rejected { background: #FEE2E2; color: #B91C1C; }
+
+    .action-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-act {
+      padding: 9px 16px;
+      border-radius: 12px;
+      font-size: 12.5px;
+      font-weight: 800;
+      border: none;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-act.approve {
+      background: #10B981;
+      color: white;
+      box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+    }
+    .btn-act.approve:hover { background: #059669; }
+
+    .btn-act.reject {
+      background: #EF4444;
+      color: white;
+      box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+    }
+    .btn-act.reject:hover { background: #DC2626; }
+
+    .btn-act.reset {
+      background: #F1F5F9;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .btn-act.reset:hover { background: #E2E8F0; color: var(--text-main); }
+
+    /* Empty State */
+    .empty-state {
+      background: var(--surface);
+      border-radius: 18px;
+      padding: 40px;
+      text-align: center;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .empty-state i {
+      font-size: 40px;
+      margin-bottom: 12px;
+      color: #94A3B8;
+    }
+
+    /* Toast Notification */
+    #toastNotice {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #0F172A;
+      color: white;
+      padding: 14px 22px;
+      border-radius: 14px;
+      font-size: 13.5px;
+      font-weight: 700;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      display: none;
+      z-index: 1000;
+      align-items: center;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="admin-container">
+    
+    <!-- Top Header Navigation -->
+    <header class="admin-header">
+      <div class="admin-brand">
+        <div class="admin-logo-badge">RO</div>
+        <div class="admin-title-group">
+          <h1>RO Wholesale Admin Portal</h1>
+          <p>Manage Wholesale Dealer Registrations & Account Status Approvals</p>
+        </div>
+      </div>
+      <a href="/" target="_blank" class="btn-portal-link">
+        <i class="fas fa-store"></i> Open Dealer Mobile Portal
+      </a>
+    </header>
+
+    <!-- Stat Summary Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-info">
+          <span>Total Dealers</span>
+          <h2 id="cntTotal">0</h2>
+        </div>
+        <div class="stat-icon total"><i class="fas fa-users"></i></div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-info">
+          <span>Pending Approval</span>
+          <h2 id="cntPending">0</h2>
+        </div>
+        <div class="stat-icon pending"><i class="fas fa-clock"></i></div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-info">
+          <span>Approved Dealers</span>
+          <h2 id="cntApproved">0</h2>
+        </div>
+        <div class="stat-icon approved"><i class="fas fa-user-check"></i></div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-info">
+          <span>Rejected Applications</span>
+          <h2 id="cntRejected">0</h2>
+        </div>
+        <div class="stat-icon rejected"><i class="fas fa-user-times"></i></div>
+      </div>
+    </div>
+
+    <!-- Table Search & Filters -->
+    <div class="table-controls">
+      <div class="search-box">
+        <i class="fas fa-search"></i>
+        <input type="text" id="searchInput" placeholder="Search by Dealer Name, Email, or Mobile...">
+      </div>
+      
+      <div class="filter-pills">
+        <button class="filter-btn active" data-filter="all">All Dealers</button>
+        <button class="filter-btn" data-filter="pending">Pending</button>
+        <button class="filter-btn" data-filter="approved">Approved</button>
+        <button class="filter-btn" data-filter="rejected">Rejected</button>
+      </div>
+
+      <button class="btn-refresh" id="btnRefresh" title="Refresh List">
+        <i class="fas fa-sync-alt"></i>
+      </button>
+    </div>
+
+    <!-- Dealers List Container -->
+    <div id="dealersListContainer" class="dealers-grid">
+      <!-- Dynamically populated by JS -->
+    </div>
+
+  </div>
+
+  <!-- Toast Notice -->
+  <div id="toastNotice">
+    <i class="fas fa-check-circle" style="color: #10B981;"></i>
+    <span id="toastMsg">Status updated successfully</span>
+  </div>
+
+  <script>
+    let allDealers = [];
+    let currentFilter = 'all';
+
+    async function fetchDealers() {
+      try {
+        const res = await fetch('/api/admin/dealers');
+        const data = await res.json();
+        if (data.success) {
+          allDealers = data.dealers;
+          updateStats();
+          renderDealers();
+        }
+      } catch (err) {
+        showToast('⚠️ Error connecting to server', '#EF4444');
+      }
+    }
+
+    function updateStats() {
+      const total = allDealers.length;
+      const pending = allDealers.filter(d => d.status === 'pending').length;
+      const approved = allDealers.filter(d => d.status === 'approved').length;
+      const rejected = allDealers.filter(d => d.status === 'rejected').length;
+
+      document.getElementById('cntTotal').textContent = total;
+      document.getElementById('cntPending').textContent = pending;
+      document.getElementById('cntApproved').textContent = approved;
+      document.getElementById('cntRejected').textContent = rejected;
+    }
+
+    function renderDealers() {
+      const container = document.getElementById('dealersListContainer');
+      const searchVal = document.getElementById('searchInput').value.trim().toLowerCase();
+
+      let filtered = allDealers.filter(d => {
+        const matchesFilter = (currentFilter === 'all') || (d.status === currentFilter);
+        const matchesSearch = !searchVal || 
+          (d.name && d.name.toLowerCase().includes(searchVal)) ||
+          (d.email && d.email.toLowerCase().includes(searchVal)) ||
+          (d.mobile && d.mobile.includes(searchVal));
+        return matchesFilter && matchesSearch;
+      });
+
+      if (filtered.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <i class="fas fa-folder-open"></i>
+            <h3>No Dealers Found</h3>
+            <p>No dealer applications match your search or selected filter.</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = filtered.map(d => {
+        const initial = (d.name || d.email || 'D').charAt(0).toUpperCase();
+        let badgeHtml = '';
+        if (d.status === 'approved') {
+          badgeHtml = `<span class="status-badge approved"><i class="fas fa-check-circle"></i> Approved</span>`;
+        } else if (d.status === 'rejected') {
+          badgeHtml = `<span class="status-badge rejected"><i class="fas fa-times-circle"></i> Rejected</span>`;
+        } else {
+          badgeHtml = `<span class="status-badge pending"><i class="fas fa-clock"></i> Pending Approval</span>`;
+        }
+
+        return `
+          <div class="dealer-card">
+            <div class="dealer-details">
+              <div class="dealer-avatar">${initial}</div>
+              <div class="dealer-main-info">
+                <h3>${escapeHtml(d.name || 'Wholesale Dealer')}</h3>
+                <p>${escapeHtml(d.business || 'Aqua Wholesale Dealer')}</p>
+              </div>
+            </div>
+
+            <div class="dealer-meta">
+              <div class="meta-item"><i class="fas fa-envelope"></i> ${escapeHtml(d.email)}</div>
+              <div class="meta-item"><i class="fas fa-phone"></i> ${escapeHtml(d.mobile || 'N/A')}</div>
+              <div class="meta-item"><i class="fas fa-map-marker-alt"></i> ${escapeHtml(d.address || 'Address registered')}</div>
+            </div>
+
+            <div>
+              ${badgeHtml}
+            </div>
+
+            <div class="action-group">
+              ${d.status !== 'approved' ? `
+                <button class="btn-act approve" onclick="setStatus('${d.email}', 'approved')">
+                  <i class="fas fa-check"></i> Approve Dealer
+                </button>
+              ` : ''}
+              ${d.status !== 'rejected' ? `
+                <button class="btn-act reject" onclick="setStatus('${d.email}', 'rejected')">
+                  <i class="fas fa-ban"></i> Reject
+                </button>
+              ` : ''}
+              ${d.status !== 'pending' ? `
+                <button class="btn-act reset" onclick="setStatus('${d.email}', 'pending')">
+                  <i class="fas fa-undo"></i> Reset to Pending
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function setStatus(email, newStatus) {
+      try {
+        const res = await fetch('/api/admin/set-status', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, status: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`🎉 Dealer ${email} updated to ${newStatus.toUpperCase()}`);
+          fetchDealers();
+        } else {
+          showToast(`⚠️ ${data.error}`, '#EF4444');
+        }
+      } catch (err) {
+        showToast('⚠️ Error updating status', '#EF4444');
+      }
+    }
+
+    function showToast(msg, bg = '#0F172A') {
+      const toast = document.getElementById('toastNotice');
+      const toastMsg = document.getElementById('toastMsg');
+      toastMsg.textContent = msg;
+      toast.style.display = 'flex';
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 3000);
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>"']/g, function(m) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[m];
+      });
+    }
+
+    // Filter Buttons Listener
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentFilter = btn.getAttribute('data-filter');
+        renderDealers();
+      });
+    });
+
+    // Search Input Listener
+    document.getElementById('searchInput').addEventListener('input', renderDealers);
+
+    // Refresh Button Listener
+    document.getElementById('btnRefresh').addEventListener('click', () => {
+      fetchDealers();
+      showToast('🔄 Refreshed dealer list');
+    });
+
+    // Initial Load
+    fetchDealers();
+  </script>
+</body>
+</html>
