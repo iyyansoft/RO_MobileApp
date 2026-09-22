@@ -18,12 +18,21 @@ class ApiException implements Exception {
 class ApiClient {
   final Dio _dio;
 
+  // Deployed Railway Production Backend Base URL Configuration
+  // Supports --dart-define=API_BASE_URL=http://127.0.0.1:8080/api/ for local testing
+  static String get defaultBaseUrl {
+    return const String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: 'https://romobileapp-production.up.railway.app/api/',
+    );
+  }
+
   ApiClient({
-    String baseUrl = 'https://api.ro-wholesale.com/v1/', // Dummy production URL
+    String? baseUrl,
     List<Interceptor>? interceptors,
   }) : _dio = Dio(
           BaseOptions(
-            baseUrl: baseUrl,
+            baseUrl: baseUrl ?? defaultBaseUrl,
             connectTimeout: const Duration(seconds: 15),
             receiveTimeout: const Duration(seconds: 15),
             headers: {
