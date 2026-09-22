@@ -1,58 +1,14 @@
 const fs = require('fs');
 const path = require('path');
-const mysql = require('d:/RO_Mobile_App/node_modules/mysql2/promise');
-require('d:/RO_Mobile_App/node_modules/dotenv').config({ path: 'd:/RO_Mobile_App/.env' });
+const mysql = require('mysql2/promise');
 
-async function runJsonToMysqlMigration() {
+const rootDir = path.join(__dirname, '..');
+require('dotenv').config({ path: path.join(rootDir, '.env') });
+
+async function runMigrationWithPool(pool) {
   console.log('================================================================');
   console.log('📦 RO WHOLESALE DEALER APP - JSON TO MYSQL MIGRATION SCRIPT');
   console.log('================================================================\n');
-
-  const dbConfig = {
-    host: process.env.DB_HOST || '127.0.0.1',
-    port: parseInt(process.env.DB_PORT || '3307', 10),
-    user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
-    database: process.env.DB_NAME || 'ro_wholesale_db'
-  };
-
-  console.log(`Connecting to MySQL DB: ${dbConfig.database} on ${dbConfig.host}:${dbConfig.port}...`);
-
-  let pool;
-  try {
-    // 1. Ensure database exists
-    const rootConn = await mysql.createConnection({
-      host: dbConfig.host,
-      port: dbConfig.port,
-      user: dbConfig.user,
-      password: dbConfig.password
-    });
-    await rootConn.query(`CREATE DATABASE IF NOT EXISTS \`${dbConfig.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;`);
-    await rootConn.end();
-
-    // 2. Initialize connection pool
-    pool = mysql.createPool({
-      ...dbConfig,
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
-
-    console.log('✅ Connected to MySQL Database Pool.');
-
-    // 3. Ensure tables exist by running schema.sql
-    const schemaSql = fs.readFileSync('d:/RO_Mobile_App/schema.sql', 'utf8');
-    const statements = schemaSql.split(/;\s*$/m).map(s => s.trim()).filter(s => s.length > 0);
-    for (const stmt of statements) {
-      if (stmt.toLowerCase().startsWith('create database') || stmt.toLowerCase().startsWith('use ')) continue;
-      await pool.query(stmt);
-    }
-    console.log('✅ MySQL schema verified (all 9 tables ready).\n');
-
-  } catch (err) {
-    console.error('❌ Failed to connect or initialize MySQL schema:', err.message);
-    process.exit(1);
-  }
 
   // Tracking Counts
   const jsonCounts = { users: 0, addresses: 0, products: 0, orders: 0, orderItems: 0, rewards: 0 };
@@ -84,14 +40,17 @@ async function runJsonToMysqlMigration() {
     }
 
     // Extract products array from app.js / catalog definition
-    const appJsContent = fs.readFileSync('d:/RO_Mobile_App/web_preview/app.js', 'utf8');
-    const match = appJsContent.match(/const catalogProducts = (\[[\s\S]*?\]);/);
+    const appJsPath = path.join(rootDir, 'web_preview', 'app.js');
     let catalogProducts = [];
-    if (match && match[1]) {
-      try {
-        catalogProducts = eval(match[1]);
-      } catch (e) {
-        console.warn('Notice parsing catalogProducts from app.js:', e.message);
+    if (fs.existsSync(appJsPath)) {
+      const appJsContent = fs.readFileSync(appJsPath, 'utf8');
+      const match = appJsContent.match(/const catalogProducts = (\[[\s\S]*?\]);/);
+      if (match && match[1]) {
+        try {
+          catalogProducts = eval(match[1]);
+        } catch (e) {
+          console.warn('Notice parsing catalogProducts from app.js:', e.message);
+        }
       }
     }
 
@@ -135,9 +94,10 @@ async function runJsonToMysqlMigration() {
   // ==========================================================================
   console.log('\n--- 2. Migrating Users & Addresses ---');
   let usersData = {};
-  if (fs.existsSync('d:/RO_Mobile_App/users_db.json')) {
+  const usersDbPath = path.join(rootDir, 'users_db.json');
+  if (fs.existsSync(usersDbPath)) {
     try {
-      usersData = JSON.parse(fs.readFileSync('d:/RO_Mobile_App/users_db.json', 'utf8'));
+      usersData = JSON.parse(fs.readFileSync(usersDbPath, 'utf8'));
     } catch (e) {
       console.error('Error reading users_db.json:', e.message);
     }
@@ -217,9 +177,10 @@ async function runJsonToMysqlMigration() {
   // ==========================================================================
   console.log('\n--- 3. Migrating Orders & Line Items ---');
   let ordersData = {};
-  if (fs.existsSync('d:/RO_Mobile_App/orders_db.json')) {
+  const ordersDbPath = path.join(rootDir, 'orders_db.json');
+  if (fs.existsSync(ordersDbPath)) {
     try {
-      ordersData = JSON.parse(fs.readFileSync('d:/RO_Mobile_App/orders_db.json', 'utf8'));
+      ordersData = JSON.parse(fs.readFileSync(ordersDbPath, 'utf8'));
     } catch (e) {
       console.error('Error reading orders_db.json:', e.message);
     }
@@ -359,6 +320,7 @@ async function runJsonToMysqlMigration() {
     const [[{ uCount }]] = await pool.query('SELECT COUNT(*) as uCount FROM users');
     const [[{ aCount }]] = await pool.query('SELECT COUNT(*) as aCount FROM user_addresses');
     const [[{ pCount }]] = await pool.query('SELECT COUNT(*) as pCount FROM products');
+    const [[{ cCount }]] = await pool.query('SELECT COUNT(*) as cCount FROM categories');
     const [[{ oCount }]] = await pool.query('SELECT COUNT(*) as oCount FROM orders');
     const [[{ iCount }]] = await pool.query('SELECT COUNT(*) as iCount FROM order_items');
     const [[{ rCount }]] = await pool.query('SELECT COUNT(*) as rCount FROM rewards_history');
@@ -366,6 +328,7 @@ async function runJsonToMysqlMigration() {
     mysqlCounts.users = uCount;
     mysqlCounts.addresses = aCount;
     mysqlCounts.products = pCount;
+    mysqlCounts.categories = cCount;
     mysqlCounts.orders = oCount;
     mysqlCounts.orderItems = iCount;
     mysqlCounts.rewards = rCount;
@@ -373,21 +336,28 @@ async function runJsonToMysqlMigration() {
     console.log(`Users:        JSON = ${jsonCounts.users} | MySQL = ${mysqlCounts.users} | Match: ${jsonCounts.users === mysqlCounts.users ? '✅ MATCH' : '⚠️ DIFFERENCE'}`);
     console.log(`Addresses:    JSON = ${jsonCounts.addresses} | MySQL = ${mysqlCounts.addresses} | Match: ${jsonCounts.addresses === mysqlCounts.addresses ? '✅ MATCH' : '⚠️ DIFFERENCE'}`);
     console.log(`Products:     JSON = ${jsonCounts.products} | MySQL = ${mysqlCounts.products} | Match: ${jsonCounts.products === mysqlCounts.products ? '✅ MATCH' : '⚠️ DIFFERENCE'}`);
+    console.log(`Categories:   MySQL = ${mysqlCounts.categories}`);
     console.log(`Orders:       JSON = ${jsonCounts.orders} | MySQL = ${mysqlCounts.orders} | Match: ${jsonCounts.orders === mysqlCounts.orders ? '✅ MATCH' : '⚠️ DIFFERENCE'}`);
     console.log(`Order Items:  JSON = ${jsonCounts.orderItems} | MySQL = ${mysqlCounts.orderItems} | Match: ${jsonCounts.orderItems === mysqlCounts.orderItems ? '✅ MATCH' : '⚠️ DIFFERENCE'}`);
     console.log(`Rewards Logs: JSON = ${jsonCounts.rewards} | MySQL = ${mysqlCounts.rewards} | Match: ${jsonCounts.rewards === mysqlCounts.rewards ? '✅ MATCH' : '⚠️ DIFFERENCE'}`);
 
-    if (migrationErrors.length === 0) {
-      console.log('\n🎉 ALL DATA MIGRATED WITH 100% SUCCESS AND ZERO ERRORS!');
-    } else {
-      console.log(`\n⚠️ MIGRATION COMPLETED WITH ${migrationErrors.length} ERRORS:`);
-      console.log(JSON.stringify(migrationErrors, null, 2));
-    }
+    return mysqlCounts;
   } catch (err) {
     console.error('Error fetching MySQL counts:', err.message);
+    throw err;
   }
+}
 
+async function runStandaloneMigration() {
+  const dbPool = require('../db');
+  await runMigrationWithPool(dbPool.pool);
   process.exit(0);
 }
 
-runJsonToMysqlMigration();
+if (require.main === module) {
+  runStandaloneMigration();
+}
+
+module.exports = {
+  runMigrationWithPool
+};

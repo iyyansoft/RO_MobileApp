@@ -56,13 +56,37 @@ async function ensureSchema() {
   }
 }
 
-// Helper function to test DB connection & ensure schema DDL
+// Helper function to safely execute data migration if products/users are empty
+async function ensureDataMigration() {
+  try {
+    const [[{ pCount }]] = await pool.query('SELECT COUNT(*) as pCount FROM products');
+    const [[{ uCount }]] = await pool.query('SELECT COUNT(*) as uCount FROM users');
+
+    if (pCount >= 20 && uCount >= 17) {
+      console.log(`✅ [MYSQL DATA] Railway MySQL already populated (Products: ${pCount}, Users: ${uCount}). Skipping migration.`);
+      return true;
+    }
+
+    console.log('📦 [MYSQL DATA] Running automatic one-time JSON -> Railway MySQL Data Migration...');
+    const migrationScript = require('./scripts/migrate_json_to_mysql');
+    if (typeof migrationScript.runMigrationWithPool === 'function') {
+      await migrationScript.runMigrationWithPool(pool);
+    }
+    return true;
+  } catch (err) {
+    console.error('❌ [MYSQL DATA NOTICE] Error during data migration:', err.message);
+    return false;
+  }
+}
+
+// Helper function to test DB connection & ensure schema DDL & data migration
 async function testConnection() {
   try {
     const connection = await pool.getConnection();
     console.log('✅ [MYSQL DB] Successfully connected to MySQL database pool');
     connection.release();
     await ensureSchema();
+    await ensureDataMigration();
     return true;
   } catch (err) {
     console.error('❌ [MYSQL DB] Error connecting to MySQL database:', err.message);
@@ -73,5 +97,6 @@ async function testConnection() {
 module.exports = {
   pool,
   testConnection,
-  ensureSchema
+  ensureSchema,
+  ensureDataMigration
 };
