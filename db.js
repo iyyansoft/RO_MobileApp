@@ -79,14 +79,20 @@ async function ensureDataMigration() {
   }
 }
 
-// Helper function to test DB connection & ensure schema DDL & data migration
+// Helper function to test DB connection & ensure schema DDL
 async function testConnection() {
   try {
     const connection = await pool.getConnection();
     console.log('✅ [MYSQL DB] Successfully connected to MySQL database pool');
     connection.release();
-    await ensureSchema();
-    await ensureDataMigration();
+
+    if (process.env.AUTO_APPLY_SCHEMA === 'true') {
+      console.log('⚙️ [MYSQL SCHEMA] AUTO_APPLY_SCHEMA is enabled. Running non-destructive schema checks...');
+      await ensureSchema();
+    } else {
+      console.log('ℹ️ [MYSQL SCHEMA] Automatic schema execution skipped (AUTO_APPLY_SCHEMA!=true).');
+    }
+
     return true;
   } catch (err) {
     console.error('❌ [MYSQL DB] Error connecting to MySQL database:', err.message);

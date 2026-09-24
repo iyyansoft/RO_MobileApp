@@ -13,7 +13,26 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'RO_WHOLESALE_SECRET_KEY_2026';
 
-app.use(cors());
+// Production-safe CORS configuration
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+  : [
+      'https://romobileapp-production.up.railway.app',
+      'http://localhost:8080',
+      'http://127.0.0.1:8080'
+    ];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow native Flutter mobile requests, Postman, or same-origin requests with no Origin header
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
+  credentials: true
+}));
 app.use(express.json());
 
 // Serve static frontend files from web_preview directory
@@ -130,6 +149,20 @@ function parseAddressString(rawAddress) {
     state: 'Tamil Nadu',
     pincode: pincode
   };
+}
+
+// Helper: Safely generate a unique 10-digit mobile number for OTP auto-registration
+async function generateUniqueMobile(conn) {
+  let attempts = 0;
+  while (attempts < 10) {
+    const candidate = `98${Math.floor(10000000 + Math.random() * 90000000)}`;
+    const [rows] = await conn.query(`SELECT id FROM users WHERE mobile = ? LIMIT 1`, [candidate]);
+    if (rows.length === 0) {
+      return candidate;
+    }
+    attempts++;
+  }
+  return `9${Date.now().toString().slice(-9)}`;
 }
 
 // MySQL Helper: Lookup User by Email or Mobile Number
@@ -299,15 +332,16 @@ app.post('/api/auth/verify-otp', async (req, res) => {
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
+        const autoMobile = await generateUniqueMobile(conn);
         await conn.query(
           `INSERT INTO users (id, email, mobile, name, password_hash, business_name, owner_name, address, status, is_approved, reward_points)
-           VALUES (?, ?, '9876543210', ?, '', ?, ?, 'Wholesale Dealer Hub', 'approved', 1, 0)`,
-          [newUserId, cleanEmail, defaultName, `${defaultName} Enterprises`, defaultName]
+           VALUES (?, ?, ?, ?, '', ?, ?, 'Wholesale Dealer Hub', 'approved', 1, 0)`,
+          [newUserId, cleanEmail, autoMobile, defaultName, `${defaultName} Enterprises`, defaultName]
         );
         await conn.query(
           `INSERT INTO user_addresses (id, user_id, label, business_name, street, city, state, pincode, phone, is_default)
-           VALUES (?, ?, 'Main Warehouse', ?, 'Wholesale Dealer Hub', 'Chennai', 'Tamil Nadu', '600098', '9876543210', 1)`,
-          [`ADDR_${Date.now()}`, newUserId, `${defaultName} Enterprises`]
+           VALUES (?, ?, 'Main Warehouse', ?, 'Wholesale Dealer Hub', 'Chennai', 'Tamil Nadu', '600098', ?, 1)`,
+          [`ADDR_${Date.now()}`, newUserId, `${defaultName} Enterprises`, autoMobile]
         );
         await conn.commit();
       } catch (e) {
