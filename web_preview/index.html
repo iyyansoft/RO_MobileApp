@@ -1820,37 +1820,55 @@
 
     /* Product Details Page Overlay - 100% Mobile First */
     .product-modal-overlay {
-      position: fixed;
+      position: absolute;
       top: 0;
       left: 0;
       right: 0;
       bottom: 0;
+      width: 100%;
+      height: 100%;
+      max-width: 430px;
+      margin: 0 auto;
       background-color: var(--bg-page);
       z-index: 10000;
       display: flex;
-      justify-content: center;
-      align-items: center;
+      flex-direction: column;
+      justify-content: flex-start;
+      align-items: stretch;
+      border-radius: inherit;
+      overflow: hidden;
+      box-sizing: border-box;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
       animation: fadeIn 0.2s ease-out;
+    }
+
+    .product-modal-overlay ::-webkit-scrollbar,
+    .product-modal-container ::-webkit-scrollbar,
+    .product-modal-body::-webkit-scrollbar {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
     }
 
     .product-modal-container {
       background-color: var(--bg-surface);
       width: 100%;
-      max-width: 480px;
       height: 100%;
-      max-height: 100vh;
       border-radius: 0;
       display: flex;
       flex-direction: column;
       position: relative;
       overflow: hidden;
       box-shadow: none;
+      box-sizing: border-box;
+      -ms-overflow-style: none;
+      scrollbar-width: none;
       animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
     .product-modal-header {
-      height: 54px;
-      padding: 0 16px;
+      padding: 38px 16px 12px 16px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -2893,6 +2911,12 @@
                 <span class="inline-error" id="errLoginPass" style="font-size: 10.5px; color: #EF4444; font-weight: 600; margin-top: 3px; display: none;">Please enter your password</span>
               </div>
 
+              <!-- General Login Error Display Banner -->
+              <div id="errLoginGeneral" style="font-size: 11.5px; color: #DC2626; font-weight: 600; padding: 9px 12px; background: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 8px; margin-top: 2px; display: none; align-items: center; gap: 7px;">
+                <i class="fas fa-exclamation-circle" style="font-size: 12px; color: #EF4444;"></i>
+                <span id="errLoginGeneralText"></span>
+              </div>
+
               <!-- Password Login Primary Action Button -->
               <button type="submit" class="btn-auth-primary" id="btnLoginSubmit" style="width: 100%; height: 44px; background: linear-gradient(135deg, #0052EC 0%, #0066FF 100%); color: #FFFFFF; border: none; border-radius: 10px; font-size: 13.5px; font-weight: 600; cursor: pointer; box-shadow: 0 6px 18px rgba(0, 82, 236, 0.25); display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease; box-sizing: border-box; margin-top: 2px;">
                 <span>Login</span>
@@ -3261,26 +3285,25 @@
       </div>
 
       <div class="header-actions">
-        <button class="icon-btn-header" aria-label="Search" id="headerSearchBtn" title="Search Wholesale Catalog" onclick="if(window.openSearchModal) window.openSearchModal('');">
+        <button class="icon-btn-header" aria-label="Search" id="headerSearchBtn" title="Search Wholesale Catalog" onclick="if(window.openNewSearch) window.openNewSearch('');">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
             <path d="M15.5 14H14.71L14.43 13.73C15.41 12.59 16 11.11 16 9.5C16 5.91 13.09 3 9.5 3C5.91 3 3 5.91 3 9.5C3 13.09 5.91 16 9.5 16C11.11 16 12.59 15.41 13.73 14.43L14 14.71V15.5L19 20.49L20.49 19L15.5 14ZM9.5 14C7.01 14 5 11.99 5 9.5C5 7.01 7.01 5 9.5 5C11.99 5 14 7.01 14 9.5C14 11.99 11.99 14 9.5 14Z" fill="currentColor"/>
           </svg>
         </button>
-
-        <button class="icon-btn-header" aria-label="Profile Account" id="headerProfileBtn" title="View Profile Account">
+        <button class="icon-btn-header" aria-label="Profile Account" id="headerProfileBtn" title="View Profile Account" onclick="if(window.navigateToScreen) window.navigateToScreen('profile-tab');">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
             <path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12ZM12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z" fill="currentColor"/>
           </svg>
         </button>
-        <button class="icon-btn-header" aria-label="Shopping Cart" id="headerCartBtn">
+        <button class="icon-btn-header" aria-label="Shopping Cart" id="headerCartBtn" onclick="if(window.openModal) window.openModal('cartModal');">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
             <path d="M7 18C5.9 18 5.01 18.9 5.01 20C5.01 21.1 5.9 22 7 22C8.1 22 9 21.1 9 20C9 18.9 8.1 18 7 18ZM17 18C15.9 18 15.01 18.9 15.01 20C15.01 21.1 15.9 22 17 22C18.1 22 19 21.1 19 20C19 18.9 18.1 18 17 18ZM7.17 14.75L7.2 14.63L16.55 12.93C17.3 12.79 17.95 12.32 18.29 11.65L21.88 4.77C22.15 4.29 21.8 3.7 21.25 3.7H6.21L5.27 1.7H1V3.7H3.4L6.6 10.46L5.4 12.64C5.26 12.92 5.19 13.24 5.19 13.57C5.19 14.67 6.09 15.57 7.19 15.57H19V13.57H7.58C7.35 13.57 7.17 13.39 7.17 13.16L7.17 14.75Z" fill="currentColor"/>
           </svg>
           <span class="badge-header" id="headerCartBadge" style="pointer-events: none;">0</span>
         </button>
-        <button class="icon-btn-header" aria-label="Open menu" id="headerMenuBtn" title="Open Navigation Menu">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
-            <path d="M4 7H20M4 12H20M4 17H14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+        <button class="icon-btn-header" aria-label="Categories Menu" id="headerThreeDotsBtn" title="View Product Categories" onclick="if(window.openCategoryMenu) window.openCategoryMenu();">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events: none;">
+            <path d="M12 8C13.1 8 14 7.1 14 6C14 4.9 13.1 4 12 4C10.9 4 10 4.9 10 6C10 7.1 10.9 8 12 8ZM12 10C10.9 10 10 10.9 10 12C10 13.1 10.9 14 12 14C13.1 14 14 13.1 14 12C14 10.9 13.1 10 12 10ZM12 16C10.9 16 10 16.9 10 18C10 19.1 10.9 20 12 20C13.1 20 14 19.1 14 18C14 16.9 13.1 16 12 16Z" fill="currentColor"/>
           </svg>
         </button>
       </div>
@@ -3326,22 +3349,7 @@
           </div>
         </div>
 
-        <!-- 3. SEARCH BAR AND BLUE SQUARE FILTER -->
-        <div class="search-wrapper-container">
-          <div class="search-container">
-            <div class="search-box" onclick="if(window.openSearchModal) window.openSearchModal('');" style="cursor: pointer;">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1-.001.001 0 0 0-.001 0zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" fill="#52677F"/>
-              </svg>
-              <input type="text" class="search-input" placeholder="Search RO systems, membranes, pumps, spares..." onclick="if(window.openSearchModal) window.openSearchModal(this.value);" onfocus="if(window.openSearchModal) window.openSearchModal(this.value);" style="cursor: pointer;">
-            </div>
-            <button class="filter-btn-square" onclick="if(window.openSearchModal) window.openSearchModal('');" title="Open Catalog Search">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M13.5 1.5A1.5 1.5 0 0 0 12 3v0.5H1v2h11v0.5A1.5 1.5 0 0 0 15 6V5h2v-2h-2V3A1.5 1.5 0 0 0 13.5 1.5zM6.5 8.5A1.5 1.5 0 0 0 5 10v0.5H1v2h4v0.5a1.5 1.5 0 0 0 3 0v-0.5h9v-2H8v-0.5A1.5 1.5 0 0 0 6.5 8.5z" fill="white"/>
-              </svg>
-            </button>
-          </div>
-        </div>
+
 
         <!-- 4. SQUARE CATEGORIES -->
         <section class="section-container" style="margin-bottom: 20px;">
@@ -3873,7 +3881,7 @@
               </button>
               <h3 class="catalog-pearl-title">Categories</h3>
             </div>
-            <button class="icon-btn-header" id="catHeaderSearchBtn" aria-label="Search" title="Search Wholesale Catalog" onclick="if(window.openSearchModal) window.openSearchModal('');" style="background: white;"><i class="fas fa-search"></i></button>
+            <button class="icon-btn-header" id="catHeaderSearchBtn" aria-label="Search" title="Search Wholesale Catalog" onclick="if(window.openNewSearch) window.openNewSearch('');" style="background: white; display: none;"><i class="fas fa-search"></i></button>
           </div>
         </div>
 
@@ -4570,13 +4578,14 @@
         </div>
       </div>
       
-      <div class="product-modal-footer">
-        <button class="btn-modal-cart" id="modalAddToCartBtn">
+      <div class="product-modal-footer" style="position: absolute; bottom: 0; left: 0; right: 0; height: 76px; padding: 12px 16px; border-top: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: space-between; gap: 14px; background: #FFFFFF; z-index: 10001; box-shadow: 0 -4px 20px rgba(0,0,0,0.08); box-sizing: border-box; border-bottom-left-radius: inherit; border-bottom-right-radius: inherit;">
+        <div style="display: flex; flex-direction: column; justify-content: center; min-width: 85px;">
+          <span style="font-size: 10px; font-weight: 700; color: #64748B; text-transform: uppercase; letter-spacing: 0.5px;">Dealer Price</span>
+          <span id="modalStickyPrice" style="font-size: 18px; font-weight: 900; color: #0F62FE;">₹850</span>
+        </div>
+        <button class="btn-modal-cart" id="modalAddToCartBtn" style="flex: 1; height: 52px; background: linear-gradient(135deg, #0F62FE 0%, #0043CE 100%); color: #FFFFFF; border: none; border-radius: 16px; font-weight: 850; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 14px rgba(15, 98, 254, 0.3); transition: all 0.2s ease;">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M11 9h2V6h3V4h-3V1h-2v3H8v2h3v3zm-4 9c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2zm-9.83-3.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1v2h2l3.6 7.59-1.35 2.44C4.52 15.37 5.48 17 7 17h12v-2H7.42c-.14 0-.25-.11-.25-.25z"/></svg>
-          Add to Cart
-        </button>
-        <button class="btn-modal-buy" id="modalBuyNowBtn">
-          Buy Now
+          <span>Add to Cart</span>
         </button>
       </div>
     </div> <!-- End .app-container -->
@@ -4683,45 +4692,7 @@
     </div>
   </div>
 
-  <!-- 0. LIGHTNING-FAST INSTANT SEARCH MODAL -->
-  <div id="searchOverlayModal" class="product-modal-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; z-index: 999999; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(12px);">
-    <div class="product-modal-container" style="width: 100%; height: 100%; border-radius: 0; background: #FFFFFF; display: flex; flex-direction: column;">
-      
-      <!-- Top Search Header Input Bar -->
-      <div style="padding: 42px 16px 14px 16px; border-bottom: 1px solid #E2E8F0; display: flex; align-items: center; gap: 12px; background: #FFFFFF;">
-        <button id="closeSearchModal" style="background: #F1F5F9; border: none; width: 36px; height: 36px; min-width: 36px; border-radius: 50%; color: #0F172A; font-size: 15px; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
-          <i class="fas fa-arrow-left"></i>
-        </button>
-        
-        <div style="flex: 1; position: relative; display: flex; align-items: center;">
-          <i class="fas fa-search" style="position: absolute; left: 16px; color: #8B5CF6; font-size: 16px; pointer-events: none; z-index: 2;"></i>
-          <input type="text" id="globalSearchInput" placeholder="Search RO systems, pumps, membranes, filters..." style="width: 100%; height: 48px; background: #FFFFFF; border: 2.5px solid #8B5CF6; border-radius: 26px; padding: 0 40px 0 46px; font-size: 14px; font-weight: 600; color: #0F172A; outline: none; box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.15), 0 4px 16px rgba(139, 92, 246, 0.2); transition: all 0.2s ease;">
-          <button id="clearSearchBtn" style="position: absolute; right: 14px; background: none; border: none; color: #94A3B8; font-size: 15px; cursor: pointer; display: none; padding: 4px; z-index: 2;">
-            <i class="fas fa-times-circle"></i>
-          </button>
-        </div>
-      </div>
 
-      <!-- Quick Popular Search Tags -->
-      <div style="padding: 10px 16px; background: #F8FAFC; border-bottom: 1px solid #F1F5F9; display: flex; align-items: center; gap: 8px; overflow-x: auto; scrollbar-width: none;">
-        <span style="font-size: 10.5px; font-weight: 850; color: #64748B; text-transform: uppercase; white-space: nowrap;">Trending:</span>
-        <button class="search-tag-pill" data-query="purifier" style="background: #FFFFFF; border: 1px solid #CBD5E1; color: #1E293B; padding: 5px 12px; border-radius: 16px; font-size: 11px; font-weight: 750; cursor: pointer; white-space: nowrap;">🔥 RO Systems</button>
-        <button class="search-tag-pill" data-query="membrane" style="background: #FFFFFF; border: 1px solid #CBD5E1; color: #1E293B; padding: 5px 12px; border-radius: 16px; font-size: 11px; font-weight: 750; cursor: pointer; white-space: nowrap;">💧 75 GPD Membrane</button>
-        <button class="search-tag-pill" data-query="pump" style="background: #FFFFFF; border: 1px solid #CBD5E1; color: #1E293B; padding: 5px 12px; border-radius: 16px; font-size: 11px; font-weight: 750; cursor: pointer; white-space: nowrap;">⚡ Booster Pump</button>
-        <button class="search-tag-pill" data-query="filter" style="background: #FFFFFF; border: 1px solid #CBD5E1; color: #1E293B; padding: 5px 12px; border-radius: 16px; font-size: 11px; font-weight: 750; cursor: pointer; white-space: nowrap;">🧪 CTO Filter</button>
-        <button class="search-tag-pill" data-query="tank" style="background: #FFFFFF; border: 1px solid #CBD5E1; color: #1E293B; padding: 5px 12px; border-radius: 16px; font-size: 11px; font-weight: 750; cursor: pointer; white-space: nowrap;">📦 Storage Tank</button>
-      </div>
-
-      <!-- Live Search Results Area -->
-      <div class="product-modal-body" style="padding: 16px; flex: 1; overflow-y: auto; padding-bottom: 40px;">
-        <div id="searchResultsCount" style="font-size: 11px; font-weight: 850; color: #0F62FE; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px;">LIVE WHOLESALE CATALOG RESULTS</div>
-        <div id="globalSearchResultsList" style="display: flex; flex-direction: column; gap: 12px;">
-          <!-- Dynamically populated by app.js -->
-        </div>
-      </div>
-
-    </div>
-  </div>
 
   <!-- 1. NOTIFICATIONS MODAL -->
   <div id="notificationsModal" class="product-modal-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; z-index: 999999; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px);">

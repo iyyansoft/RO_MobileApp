@@ -34,6 +34,13 @@ window.navigateToHomeScreen = function() {
   window.scrollTo(0, 0);
 };
 
+// Global Direct Search Launcher Function
+window.openNewSearch = function(initialQuery = '') {
+  if (typeof openNewSearch === 'function') {
+    openNewSearch(initialQuery);
+  }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   // 1. Theme Toggle
   const themeToggle = document.getElementById('themeToggle');
@@ -836,9 +843,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const passInput = document.getElementById('loginPasswordInput');
     const errId = document.getElementById('errLoginId');
     const errPass = document.getElementById('errLoginPass');
+    const errGeneral = document.getElementById('errLoginGeneral');
+    const errGeneralText = document.getElementById('errLoginGeneralText');
 
     if (errId) errId.style.display = 'none';
     if (errPass) errPass.style.display = 'none';
+    if (errGeneral) errGeneral.style.display = 'none';
 
     const idVal = (idInput?.value || '').trim();
     const passVal = (passInput?.value || '').trim();
@@ -856,10 +866,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const result = await B2BAuthService.loginWithPassword(idVal, passVal);
     if (result.success) {
+      if (errGeneral) errGeneral.style.display = 'none';
       showCategoryToast('🎉 Welcome back! Login successful.');
       navigateToScreen('home-tab');
     } else {
-      showCategoryToast(result.error);
+      if (errGeneral && errGeneralText) {
+        errGeneralText.textContent = result.error || 'Invalid email/mobile or password.';
+        errGeneral.style.display = 'flex';
+      }
+      showCategoryToast(result.error || 'Invalid email/mobile or password.');
     }
   });
 
@@ -2303,6 +2318,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     currentModalProduct = productData;
 
+    const modalStickyPrice = document.getElementById('modalStickyPrice');
+    if (modalStickyPrice) {
+      modalStickyPrice.textContent = productData.price || '₹850';
+    }
+
     if (modalImg) modalImg.src = productData.imgSrc || productData.img || 'purifier.jpg';
     if (modalTitle) modalTitle.textContent = productData.name;
     if (modalBrand) modalBrand.textContent = (productData.brand || 'AQUACLEAN').toUpperCase();
@@ -2394,13 +2414,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Check URL Hash on Load for Direct Navigation (e.g., #boosterpump)
+  // Check URL Hash on Load for Direct Navigation (e.g., #mem_1, #spr_1)
   function checkUrlHashRoute() {
     const hash = window.location.hash.replace('#', '').toLowerCase();
     if (!hash) return;
 
     if (hash === 'home-tab' || hash === 'products-tab' || hash === 'orders-tab' || hash === 'profile-tab') {
       switchTab(hash, false);
+      return;
+    }
+
+    const catalogItem = catalogProducts.find(p => p.id.toLowerCase() === hash || p.sku?.toLowerCase() === hash || hash.includes(p.id.toLowerCase()));
+    if (catalogItem) {
+      openProductDetails(catalogItem, false);
       return;
     }
 
@@ -2696,7 +2722,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.openModal = openModal;
   window.closeModal = closeModal;
-  window.openSearchModal = openSearchModal;
   window.openNotificationsModal = function() {
     openModal('notificationsModal');
   };
@@ -2704,225 +2729,1024 @@ document.addEventListener('DOMContentLoaded', () => {
     closeModal('notificationsModal');
   };
 
-  // 1. Lightning-Fast Instant Search Modal & Live Search Engine
-  function openSearchModal(initialQuery = '') {
-    const appContainer = document.querySelector('.app-container');
-    if (appContainer) appContainer.scrollTop = 0;
-
-    openModal('searchOverlayModal');
-    
-    const input = document.getElementById('globalSearchInput');
-    if (input) {
-      input.value = initialQuery;
-      // Auto-place blinking cursor directly inside search input
-      const triggerFocus = () => {
-        try {
-          input.focus();
-          input.setSelectionRange(input.value.length, input.value.length);
-        } catch(e) {}
-      };
-      triggerFocus();
-      setTimeout(triggerFocus, 60);
-      renderSearchResults(initialQuery);
-    }
-  }
-
-  function renderSearchResults(query) {
-    const listElem = document.getElementById('globalSearchResultsList');
-    const countElem = document.getElementById('searchResultsCount');
-    const clearBtn = document.getElementById('clearSearchBtn');
-
-    if (!listElem) return;
-
-    const q = (query || '').trim().toLowerCase();
-    const singularQ = q.endsWith('s') && q.length > 2 ? q.slice(0, -1) : q;
-
-    if (clearBtn) {
-      clearBtn.style.display = q.length > 0 ? 'block' : 'none';
-    }
-
-    const matchedProducts = catalogProducts.filter(p => {
-      if (!q) return true;
-      const name = p.name.toLowerCase();
-      const brand = p.brand.toLowerCase();
-      const category = p.category.toLowerCase();
-      const desc = p.desc.toLowerCase();
-      const sku = p.sku.toLowerCase();
-
-      return name.includes(q) || name.includes(singularQ) ||
-             brand.includes(q) || brand.includes(singularQ) ||
-             category.includes(q) || category.includes(singularQ) ||
-             desc.includes(q) || desc.includes(singularQ) ||
-             sku.includes(q);
-    });
-
-    if (countElem) {
-      countElem.textContent = q ? `${matchedProducts.length} PRODUCTS FOUND FOR "${query}"` : `WHOLESALE CATALOG (${catalogProducts.length} ITEMS LIVE)`;
-    }
-
-    if (matchedProducts.length === 0) {
-      listElem.innerHTML = `
-        <div style="text-align: center; padding: 40px 16px; color: #64748B;">
-          <i class="fas fa-search" style="font-size: 36px; color: #CBD5E1; margin-bottom: 12px; display: block;"></i>
-          <h4 style="font-size: 15px; font-weight: 800; color: #1E293B; margin-bottom: 4px;">No products match "${query}"</h4>
-          <p style="font-size: 12px; color: #64748B;">Try searching for "purifier", "membrane", "pump", "filter", or "tank".</p>
-        </div>
-      `;
+  // 1. Mobile Full-Screen App Search Implementation
+  function openNewSearch(initialQuery = '') {
+    let existingOverlay = document.getElementById('newDynamicSearchOverlay');
+    if (existingOverlay) {
+      const inp = existingOverlay.querySelector('#newDynamicSearchInput');
+      if (inp) {
+        if (initialQuery) inp.value = initialQuery;
+        inp.focus();
+      }
       return;
     }
 
-    listElem.innerHTML = matchedProducts.map(p => `
-      <div class="search-result-item" data-id="${p.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px; border-radius: 16px; background: #F8FAFC; border: 1px solid #E2E8F0; cursor: pointer; transition: all 0.2s ease;">
-        <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
-          <div style="width: 50px; height: 50px; border-radius: 12px; background: white; border: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
-            <img src="${p.img}" alt="${p.name}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+    const targetParent = document.querySelector('.app-container') || document.body;
+    const isInsideContainer = !!document.querySelector('.app-container');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'newDynamicSearchOverlay';
+    overlay.style.cssText = `
+      position: ${isInsideContainer ? 'absolute' : 'fixed'};
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      max-width: 430px;
+      margin: 0 auto;
+      z-index: 2147483647;
+      background: #FFFFFF;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-sizing: border-box;
+      border-radius: inherit;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      animation: mobileSearchFadeIn 0.2s ease-out;
+    `;
+
+    if (!document.getElementById('newMobileSearchAnimStyle')) {
+      const styleElem = document.createElement('style');
+      styleElem.id = 'newMobileSearchAnimStyle';
+      styleElem.textContent = `
+        @keyframes mobileSearchFadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .mobile-search-card:active {
+          transform: scale(0.98);
+        }
+        #newDynamicSearchOverlay ::-webkit-scrollbar,
+        #newDynamicSearchOverlay *::-webkit-scrollbar,
+        .mobile-search-tag-chip::-webkit-scrollbar {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
+      `;
+      document.head.appendChild(styleElem);
+    }
+
+    // Top Mobile Search Header Bar: [ ← ] [ 🔍 Search products... ] [ X ]
+    const isPhoneFrame = isInsideContainer && window.innerWidth > 480;
+    const headerBar = document.createElement('div');
+    headerBar.style.cssText = `
+      padding: ${isPhoneFrame ? '38px' : '12px'} 14px 10px 14px;
+      border-bottom: 1px solid #F1F5F9;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #FFFFFF;
+      flex-shrink: 0;
+    `;
+
+    const backBtn = document.createElement('button');
+    backBtn.id = 'newMobileSearchBackBtn';
+    backBtn.title = 'Back';
+    backBtn.innerHTML = '<i class="fas fa-arrow-left"></i>';
+    backBtn.style.cssText = `
+      width: 38px;
+      height: 38px;
+      min-width: 38px;
+      border-radius: 50%;
+      background: #F1F5F9;
+      border: none;
+      color: #0F172A;
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.2s ease;
+    `;
+
+    const inputWrapper = document.createElement('div');
+    inputWrapper.style.cssText = `
+      flex: 1;
+      position: relative;
+      display: flex;
+      align-items: center;
+    `;
+
+    const searchIcon = document.createElement('i');
+    searchIcon.className = 'fas fa-search';
+    searchIcon.style.cssText = `
+      position: absolute;
+      left: 14px;
+      color: #8B5CF6;
+      font-size: 15px;
+      pointer-events: none;
+      z-index: 2;
+    `;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.id = 'newDynamicSearchInput';
+    input.placeholder = 'Search products...';
+    input.value = initialQuery;
+    input.style.cssText = `
+      width: 100%;
+      height: 52px;
+      background: #FFFFFF;
+      border: 2px solid #A855F7;
+      border-radius: 16px;
+      padding: 0 38px 0 42px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #0F172A;
+      outline: none;
+      box-shadow: 0 0 0 4px rgba(168, 85, 247, 0.18), 0 4px 12px rgba(168, 85, 247, 0.12);
+      transition: all 0.2s ease;
+      box-sizing: border-box;
+    `;
+
+    const clearBtn = document.createElement('button');
+    clearBtn.id = 'newDynamicClearBtn';
+    clearBtn.title = 'Clear input';
+    clearBtn.innerHTML = '<i class="fas fa-times-circle"></i>';
+    clearBtn.style.cssText = `
+      position: absolute;
+      right: 12px;
+      background: none;
+      border: none;
+      color: #94A3B8;
+      font-size: 16px;
+      cursor: pointer;
+      display: none;
+      padding: 4px;
+      z-index: 2;
+    `;
+
+    inputWrapper.appendChild(searchIcon);
+    inputWrapper.appendChild(input);
+    inputWrapper.appendChild(clearBtn);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'newMobileSearchCloseBtn';
+    closeBtn.title = 'Close Search';
+    closeBtn.innerHTML = '<i class="fas fa-times"></i>';
+    closeBtn.style.cssText = `
+      width: 38px;
+      height: 38px;
+      min-width: 38px;
+      border-radius: 50%;
+      background: #F1F5F9;
+      border: none;
+      color: #475569;
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.2s ease;
+    `;
+
+    headerBar.appendChild(backBtn);
+    headerBar.appendChild(inputWrapper);
+    headerBar.appendChild(closeBtn);
+
+    // Trending Categories Row (Single Row Horizontal Scroll)
+    const trendingContainer = document.createElement('div');
+    trendingContainer.style.cssText = `
+      padding: 10px 14px;
+      background: #F8FAFC;
+      border-bottom: 1px solid #F1F5F9;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-shrink: 0;
+    `;
+
+    const trendingLabel = document.createElement('span');
+    trendingLabel.style.cssText = `
+      font-size: 10px;
+      font-weight: 850;
+      color: #64748B;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    `;
+    trendingLabel.textContent = 'TRENDING';
+
+    const chipsRow = document.createElement('div');
+    chipsRow.className = 'mobile-search-tag-chip';
+    chipsRow.style.cssText = `
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      overflow-x: auto;
+      white-space: nowrap;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      flex: 1;
+      padding-bottom: 2px;
+    `;
+
+    const chipsData = [
+      { query: 'filter', label: '🧪 Filters' },
+      { query: 'pump', label: '⚡ Booster Pump' },
+      { query: 'membrane', label: '💧 Membrane' },
+      { query: 'pipe', label: '📏 Tubing & Pipes' },
+      { query: 'spare', label: '📦 Spare Parts' }
+    ];
+
+    chipsData.forEach(chip => {
+      const chipBtn = document.createElement('button');
+      chipBtn.className = 'mobile-chip-btn';
+      chipBtn.setAttribute('data-query', chip.query);
+      chipBtn.style.cssText = `
+        background: #FFFFFF;
+        border: 1px solid #CBD5E1;
+        color: #1E293B;
+        padding: 6px 13px;
+        border-radius: 20px;
+        font-size: 11.5px;
+        font-weight: 750;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+        transition: all 0.2s ease;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      `;
+      chipBtn.textContent = chip.label;
+      chipsRow.appendChild(chipBtn);
+    });
+
+    trendingContainer.appendChild(trendingLabel);
+    trendingContainer.appendChild(chipsRow);
+
+    // Results Area
+    const resultsArea = document.createElement('div');
+    resultsArea.style.cssText = `
+      padding: 14px;
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #FFFFFF;
+    `;
+
+    const resultsHeader = document.createElement('div');
+    resultsHeader.style.cssText = `
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 4px;
+    `;
+
+    const catalogTitle = document.createElement('div');
+    catalogTitle.style.cssText = `
+      font-size: 10px;
+      font-weight: 850;
+      color: #0F62FE;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    `;
+    catalogTitle.textContent = 'WHOLESALE CATALOG';
+
+    const countBadge = document.createElement('div');
+    countBadge.id = 'newSearchResultsCount';
+    countBadge.style.cssText = `
+      font-size: 11px;
+      font-weight: 800;
+      color: #475569;
+    `;
+
+    resultsHeader.appendChild(catalogTitle);
+    resultsHeader.appendChild(countBadge);
+
+    const resultsList = document.createElement('div');
+    resultsList.id = 'newSearchResultsList';
+    resultsList.style.cssText = `
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-bottom: 24px;
+    `;
+
+    resultsArea.appendChild(resultsHeader);
+    resultsArea.appendChild(resultsList);
+
+    overlay.appendChild(headerBar);
+    overlay.appendChild(trendingContainer);
+    overlay.appendChild(resultsArea);
+
+    targetParent.appendChild(overlay);
+    document.body.style.overflow = 'hidden';
+
+    function executeSearch(query) {
+      const q = (query || '').trim().toLowerCase();
+      clearBtn.style.display = q.length > 0 ? 'block' : 'none';
+
+      chipsRow.querySelectorAll('.mobile-chip-btn').forEach(btn => {
+        const cQuery = btn.getAttribute('data-query');
+        if (q && (q === cQuery || q.includes(cQuery) || cQuery.includes(q))) {
+          btn.style.background = '#8B5CF6';
+          btn.style.color = '#FFFFFF';
+          btn.style.borderColor = '#8B5CF6';
+        } else {
+          btn.style.background = '#FFFFFF';
+          btn.style.color = '#1E293B';
+          btn.style.borderColor = '#CBD5E1';
+        }
+      });
+
+      const singularQ = q.endsWith('s') && q.length > 2 ? q.slice(0, -1) : q;
+      const pluralQ = q.endsWith('s') ? q : q + 's';
+      const tokens = [q, singularQ, pluralQ];
+
+      const products = typeof catalogProducts !== 'undefined' ? catalogProducts : [];
+
+      const matchedProducts = products.filter(p => {
+        if (!q) return true;
+        const name = (p.name || '').toLowerCase();
+        const brand = (p.brand || '').toLowerCase();
+        const category = (p.category || '').toLowerCase();
+        const catName = (p.categoryName || '').toLowerCase();
+        const desc = (p.desc || p.description || '').toLowerCase();
+        const sku = (p.sku || '').toLowerCase();
+
+        const isFilter = q === 'filter' || q === 'filters' || q.startsWith('filter');
+        const isPump = q === 'pump' || q === 'pumps' || q.startsWith('pump') || q.includes('booster');
+        const isMembrane = q === 'membrane' || q === 'membranes' || q.startsWith('membrane');
+        const isPipe = q === 'pipe' || q === 'pipes' || q.includes('tubing');
+        const isSpare = q === 'spare' || q === 'spares' || q.includes('part');
+        const isAccessory = q === 'accessory' || q === 'accessories' || q.includes('fitting');
+
+        if (isFilter && (category.includes('filter') || catName.includes('filter') || name.includes('filter'))) return true;
+        if (isPump && (category.includes('pump') || catName.includes('pump') || name.includes('pump'))) return true;
+        if (isMembrane && (category.includes('membrane') || catName.includes('membrane') || name.includes('membrane'))) return true;
+        if (isPipe && (category.includes('pipe') || catName.includes('pipe') || name.includes('pipe') || name.includes('tubing'))) return true;
+        if (isSpare && (category.includes('spare') || catName.includes('spare') || category.includes('part') || catName.includes('part') || name.includes('spare') || name.includes('part'))) return true;
+        if (isAccessory && (category.includes('accessory') || catName.includes('accessory') || category.includes('connector') || catName.includes('connector') || name.includes('fitting'))) return true;
+
+        return tokens.some(t => t && (
+          name.includes(t) || brand.includes(t) || category.includes(t) || catName.includes(t) || desc.includes(t) || sku.includes(t)
+        ));
+      });
+
+      countBadge.textContent = q ? `${matchedProducts.length} ITEMS FOUND FOR "${query.toUpperCase()}"` : `${products.length} ITEMS LIVE`;
+
+      if (matchedProducts.length === 0) {
+        resultsList.innerHTML = `
+          <div style="text-align: center; padding: 40px 16px; color: #64748B;">
+            <i class="fas fa-search" style="font-size: 32px; color: #CBD5E1; margin-bottom: 10px; display: block;"></i>
+            <h4 style="font-size: 14px; font-weight: 800; color: #1E293B; margin-bottom: 4px;">No products match "${query}"</h4>
+            <p style="font-size: 11.5px; color: #64748B;">Try searching for "filter", "pump", "membrane", "pipe", or "spare".</p>
           </div>
-          <div style="flex: 1; min-width: 0;">
-            <div style="font-size: 8.5px; font-weight: 850; color: #0F62FE; text-transform: uppercase;">${p.brand}</div>
-            <div style="font-size: 12.5px; font-weight: 800; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${p.name}</div>
-            <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
-              <span style="font-size: 13.5px; font-weight: 900; color: #0F62FE;">₹${p.price.toLocaleString()}</span>
-              <span style="font-size: 9px; color: #64748B; font-weight: 700;">${p.moq}</span>
+        `;
+        return;
+      }
+
+      resultsList.innerHTML = matchedProducts.map(p => `
+        <div class="mobile-search-card" data-id="${p.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px; border-radius: 16px; background: #F8FAFC; border: 1px solid #E2E8F0; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
+            <div style="width: 50px; height: 50px; border-radius: 12px; background: #FFFFFF; border: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; padding: 4px;">
+              <img src="${p.img}" alt="${p.name}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 9px; font-weight: 850; color: #0F62FE; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">${p.brand || 'GENERIC'}</div>
+              <div style="font-size: 12.5px; font-weight: 800; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px;">${p.name}</div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 14px; font-weight: 900; color: #0F62FE;">₹${typeof p.price === 'number' ? p.price.toLocaleString('en-IN') : p.price}</span>
+                <span style="font-size: 10px; color: #64748B; font-weight: 700; background: #E2E8F0; padding: 2px 6px; border-radius: 6px;">${p.moq ? (p.moq.startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ: 1 Unit'}</span>
+              </div>
             </div>
           </div>
+          <button class="mobile-search-add-btn" data-id="${p.id}" style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #0F62FE 0%, #0043CE 100%); color: white; border: none; font-size: 18px; font-weight: 900; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 3px 10px rgba(15, 98, 254, 0.3); margin-left: 10px;">
+            +
+          </button>
         </div>
-        <button class="search-add-btn" data-id="${p.id}" style="width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(135deg, #0F62FE 0%, #0043CE 100%); color: white; border: none; font-size: 16px; font-weight: 900; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 4px 12px rgba(15, 98, 254, 0.25);">
-          +
-        </button>
-      </div>
-    `).join('');
+      `).join('');
 
-    listElem.querySelectorAll('.search-result-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        const pId = item.getAttribute('data-id');
-        if (e.target.closest('.search-add-btn')) {
-          e.stopPropagation();
-          const targetAddBtn = e.target.closest('.search-add-btn');
-          const pData = catalogProducts.find(x => x.id === pId);
-          if (pData) {
-            addProductToCart({
-              sku: pData.sku || pData.id,
-              name: pData.name,
-              brand: pData.brand,
-              price: typeof pData.price === 'number' ? `₹${pData.price.toLocaleString('en-IN')}` : pData.price,
-              moq: pData.moq,
-              imgSrc: pData.img
-            }, targetAddBtn);
+      resultsList.querySelectorAll('.mobile-search-card').forEach(item => {
+        item.addEventListener('click', (e) => {
+          const pId = item.getAttribute('data-id');
+          if (e.target.closest('.mobile-search-add-btn')) {
+            e.stopPropagation();
+            const pData = products.find(x => x.id === pId);
+            if (pData && typeof addProductToCart === 'function') {
+              addProductToCart({
+                sku: pData.sku || pData.id,
+                name: pData.name,
+                brand: pData.brand,
+                price: typeof pData.price === 'number' ? `₹${pData.price.toLocaleString('en-IN')}` : pData.price,
+                moq: pData.moq,
+                imgSrc: pData.img
+              }, e.target.closest('.mobile-search-add-btn'));
+            }
+            return;
           }
-          return;
-        }
 
-        closeModal('searchOverlayModal');
-        openProductDetails(pId);
+          closeNewSearch();
+          if (typeof openProductDetails === 'function') {
+            openProductDetails(pId);
+          }
+        });
+      });
+    }
+
+    input.addEventListener('input', (e) => executeSearch(e.target.value));
+
+    clearBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      input.value = '';
+      executeSearch('');
+      input.focus();
+    });
+
+    function closeNewSearch() {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+      document.body.style.overflow = '';
+      if (window.location.hash !== '#home-tab') {
+        window.location.hash = '#home-tab';
+      }
+    }
+
+    backBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      closeNewSearch();
+    });
+
+    closeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      closeNewSearch();
+    });
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        closeNewSearch();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    chipsRow.querySelectorAll('.mobile-chip-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const q = btn.getAttribute('data-query') || '';
+        input.value = q;
+        executeSearch(q);
+        input.focus();
       });
     });
+
+    executeSearch(initialQuery);
+
+    requestAnimationFrame(() => {
+      input.focus();
+    });
+    setTimeout(() => {
+      input.focus();
+    }, 50);
   }
 
-  // RO Subcategory Hub Handlers
-  document.getElementById('closeRoCatModal')?.addEventListener('click', () => {
-    closeModal('roCategoriesSubModal');
-  });
+  // Mobile Category Menu (Three-Dots Click)
+  function openCategoryMenu() {
+    let existingOverlay = document.getElementById('categoryBottomSheetOverlay');
+    if (existingOverlay) {
+      if (typeof window.closeCategoryMenu === 'function') window.closeCategoryMenu();
+      return;
+    }
 
-  document.querySelectorAll('.ro-subcategory-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const catKey = card.getAttribute('data-category') || 'systems';
-      const title = card.getAttribute('data-title') || 'RO Products';
-      closeModal('roCategoriesSubModal');
-      showCategoryToast(`Opening ${title}`);
-      navigateToScreen('products-tab');
-      filterProductsByCategory(catKey, title);
+    const targetParent = document.querySelector('.app-container') || document.body;
+    const isInsideContainer = !!document.querySelector('.app-container');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'categoryBottomSheetOverlay';
+    overlay.style.cssText = `
+      position: ${isInsideContainer ? 'absolute' : 'fixed'};
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      max-width: 430px;
+      margin: 0 auto;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(4px);
+      z-index: 2147483646;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      overflow: hidden;
+      animation: catOverlayFadeIn 0.2s ease-out;
+    `;
+
+    const sheet = document.createElement('div');
+    sheet.id = 'categoryBottomSheetPanel';
+    sheet.style.cssText = `
+      background: #FFFFFF;
+      border-top-left-radius: 24px;
+      border-top-right-radius: 24px;
+      padding: 16px 16px 28px 16px;
+      max-height: 80%;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.25);
+      animation: catSheetSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    `;
+
+    if (!document.getElementById('categorySheetAnimStyle')) {
+      const styleElem = document.createElement('style');
+      styleElem.id = 'categorySheetAnimStyle';
+      styleElem.textContent = `
+        @keyframes catOverlayFadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes catSheetSlideUp {
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
+        }
+        .cat-item-row:active {
+          background-color: #EEF2FF !important;
+          transform: scale(0.99);
+        }
+      `;
+      document.head.appendChild(styleElem);
+    }
+
+    const handleBar = document.createElement('div');
+    handleBar.style.cssText = `
+      width: 36px;
+      height: 4px;
+      background: #CBD5E1;
+      border-radius: 4px;
+      margin: 0 auto 12px auto;
+    `;
+
+    const header = document.createElement('div');
+    header.style.cssText = `
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #F1F5F9;
+      margin-bottom: 10px;
+    `;
+
+    const title = document.createElement('h3');
+    title.style.cssText = `
+      font-size: 16px;
+      font-weight: 850;
+      color: #0F172A;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    `;
+    title.innerHTML = '<i class="fas fa-th-large" style="color: #0F62FE;"></i> Categories';
+
+    const closeBtn = document.createElement('button');
+    closeBtn.id = 'closeCategoryMenuBtn';
+    closeBtn.title = 'Close Categories Menu';
+    closeBtn.innerHTML = '<i class="fas fa-times"></i>';
+    closeBtn.style.cssText = `
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: #F1F5F9;
+      border: none;
+      color: #475569;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease;
+    `;
+
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    const listContainer = document.createElement('div');
+    listContainer.style.cssText = `
+      overflow-y: auto;
+      max-height: 60vh;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 2px;
+      -webkit-overflow-scrolling: touch;
+    `;
+
+    const categoriesList = [
+      { key: 'all', name: 'All Products', icon: '📦', badge: 'Full Wholesale Catalog' },
+      { key: 'systems', name: 'RO Systems', icon: '💧', badge: 'Domestic & Commercial' },
+      { key: 'membranes', name: 'Membranes', icon: '🧪', badge: '75 GPD - 8040 Industrial' },
+      { key: 'filters', name: 'Filters', icon: '⚡', badge: 'Spun, Carbon, Sediment' },
+      { key: 'pipes', name: 'Pipes & Tubing', icon: '📏', badge: 'Food Grade PU / PE' },
+      { key: 'pumps', name: 'Booster Pumps', icon: '⚙️', badge: '75 GPD - 300 GPD Heavy Duty' },
+      { key: 'spares', name: 'Spare Parts & Valves', icon: '🔩', badge: 'FR, SMPS, SV, Auto-Cut' },
+      { key: 'accessories', name: 'Accessories & Fittings', icon: '🔌', badge: 'Quick Connectors & Kits' }
+    ];
+
+    categoriesList.forEach(cat => {
+      const itemRow = document.createElement('div');
+      itemRow.className = 'cat-item-row';
+      itemRow.setAttribute('data-category', cat.key);
+      itemRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px;
+        border-radius: 14px;
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      `;
+
+      itemRow.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <span style="font-size: 20px; width: 28px; text-align: center;">${cat.icon}</span>
+          <div>
+            <div style="font-size: 13.5px; font-weight: 800; color: #0F172A;">${cat.name}</div>
+            <div style="font-size: 10.5px; color: #64748B; font-weight: 600;">${cat.badge}</div>
+          </div>
+        </div>
+        <i class="fas fa-chevron-right" style="font-size: 12px; color: #94A3B8;"></i>
+      `;
+
+      itemRow.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeCategoryMenu();
+        openDedicatedCategoryView(cat.key, cat.name);
+      });
+
+      listContainer.appendChild(itemRow);
     });
-  });
 
-  // Universal Top Header & Icon Buttons Event Delegation
+    sheet.appendChild(handleBar);
+    sheet.appendChild(header);
+    sheet.appendChild(listContainer);
+    overlay.appendChild(sheet);
+    targetParent.appendChild(overlay);
+
+    function closeCategoryMenu() {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+    }
+
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        closeCategoryMenu();
+      }
+    });
+
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeCategoryMenu();
+    });
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        closeCategoryMenu();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    window.closeCategoryMenu = closeCategoryMenu;
+  }
+
+  window.openCategoryMenu = openCategoryMenu;
+
+  // Dedicated Category Products View (Screen View from Three-Dots Menu)
+  function openDedicatedCategoryView(categoryKey, categoryTitle) {
+    let existingOverlay = document.getElementById('dedicatedCategoryViewOverlay');
+    if (existingOverlay && existingOverlay.parentNode) {
+      existingOverlay.parentNode.removeChild(existingOverlay);
+    }
+
+    const targetParent = document.querySelector('.app-container') || document.body;
+    const isInsideContainer = !!document.querySelector('.app-container');
+
+    const overlay = document.createElement('div');
+    overlay.id = 'dedicatedCategoryViewOverlay';
+    overlay.style.cssText = `
+      position: ${isInsideContainer ? 'absolute' : 'fixed'};
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      max-width: 430px;
+      margin: 0 auto;
+      z-index: 2147483645;
+      background: #FFFFFF;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-sizing: border-box;
+      border-radius: inherit;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      animation: catViewFadeIn 0.2s ease-out;
+    `;
+
+    if (!document.getElementById('dedicatedCatViewAnimStyle')) {
+      const styleElem = document.createElement('style');
+      styleElem.id = 'dedicatedCatViewAnimStyle';
+      styleElem.textContent = `
+        @keyframes catViewFadeIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .dedicated-cat-card:active {
+          transform: scale(0.98);
+        }
+        #dedicatedCategoryViewOverlay ::-webkit-scrollbar,
+        #dedicatedCategoryViewOverlay *::-webkit-scrollbar {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+        }
+      `;
+      document.head.appendChild(styleElem);
+    }
+
+    // Top Header Bar
+    const isPhoneFrame = isInsideContainer && window.innerWidth > 480;
+    const headerBar = document.createElement('div');
+    headerBar.style.cssText = `
+      padding: ${isPhoneFrame ? '38px' : '14px'} 14px 12px 14px;
+      border-bottom: 1px solid #F1F5F9;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: #FFFFFF;
+      flex-shrink: 0;
+    `;
+
+    const backBtn = document.createElement('button');
+    backBtn.id = 'dedicatedCatBackBtn';
+    backBtn.title = 'Back to Home';
+    backBtn.innerHTML = '<i class="fas fa-arrow-left"></i>';
+    backBtn.style.cssText = `
+      width: 38px;
+      height: 38px;
+      min-width: 38px;
+      border-radius: 50%;
+      background: #F1F5F9;
+      border: none;
+      color: #0F172A;
+      font-size: 15px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.2s ease;
+    `;
+
+    const titleElem = document.createElement('div');
+    titleElem.style.cssText = `
+      font-size: 16px;
+      font-weight: 850;
+      color: #0F172A;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    `;
+    titleElem.textContent = categoryTitle || 'Category Products';
+
+    headerBar.appendChild(backBtn);
+    headerBar.appendChild(titleElem);
+
+    // Products Container Area
+    const productsArea = document.createElement('div');
+    productsArea.style.cssText = `
+      padding: 14px;
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #FFFFFF;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    `;
+
+    // Filter Products Logic
+    const key = (categoryKey || 'all').toLowerCase().trim();
+    const products = typeof catalogProducts !== 'undefined' ? catalogProducts : [];
+
+    const matchedProducts = products.filter(p => {
+      if (key === 'all') return true;
+
+      const cat = (p.category || '').toLowerCase();
+      const catName = (p.categoryName || '').toLowerCase();
+      const name = (p.name || '').toLowerCase();
+      const desc = (p.desc || p.description || '').toLowerCase();
+
+      if (key === 'systems' || key.includes('system')) {
+        return cat === 'systems' || catName.includes('system') || name.includes('system') || name.includes('ro plant') || desc.includes('ro system');
+      }
+      if (key === 'membranes' || key.includes('membrane')) {
+        return cat === 'membranes' || catName.includes('membrane') || name.includes('membrane') || desc.includes('membrane');
+      }
+      if (key === 'filters' || key.includes('filter')) {
+        return cat === 'filters' || catName.includes('filter') || name.includes('filter') || desc.includes('filter');
+      }
+      if (key === 'pumps' || key.includes('pump') || key.includes('booster')) {
+        return cat === 'pumps' || catName.includes('pump') || name.includes('pump') || name.includes('booster') || desc.includes('pump');
+      }
+      if (key === 'pipes' || key.includes('pipe') || key.includes('tubing')) {
+        return cat === 'pipes' || catName.includes('pipe') || name.includes('pipe') || name.includes('tubing') || desc.includes('tubing');
+      }
+      if (key === 'spares' || key.includes('spare') || key.includes('part')) {
+        return cat === 'spares' || catName.includes('spare') || catName.includes('part') || name.includes('valve') || name.includes('switch') || name.includes('smps') || name.includes('fr') || name.includes('spare') || desc.includes('valve');
+      }
+      if (key === 'accessories' || key.includes('accessor') || key.includes('fitting')) {
+        return cat === 'accessories' || catName.includes('accessory') || name.includes('fitting') || name.includes('connector') || name.includes('clamp') || desc.includes('fitting');
+      }
+
+      return cat === key || catName.includes(key) || name.includes(key);
+    });
+
+    const resultsHeader = document.createElement('div');
+    resultsHeader.style.cssText = `
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      margin-bottom: 4px;
+    `;
+
+    const subTitle = document.createElement('div');
+    subTitle.style.cssText = `
+      font-size: 10px;
+      font-weight: 850;
+      color: #0F62FE;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    `;
+    subTitle.textContent = (categoryTitle || 'PRODUCTS').toUpperCase();
+
+    const countBadge = document.createElement('div');
+    countBadge.style.cssText = `
+      font-size: 11px;
+      font-weight: 800;
+      color: #475569;
+    `;
+    countBadge.textContent = `${matchedProducts.length} PRODUCTS`;
+
+    resultsHeader.appendChild(subTitle);
+    resultsHeader.appendChild(countBadge);
+
+    const productsList = document.createElement('div');
+    productsList.style.cssText = `
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-bottom: 50px;
+    `;
+
+    if (matchedProducts.length === 0) {
+      productsList.innerHTML = `
+        <div style="text-align: center; padding: 40px 16px; color: #64748B;">
+          <i class="fas fa-boxes" style="font-size: 32px; color: #CBD5E1; margin-bottom: 10px; display: block;"></i>
+          <h4 style="font-size: 14px; font-weight: 800; color: #1E293B; margin-bottom: 4px;">No products in ${categoryTitle}</h4>
+        </div>
+      `;
+    } else {
+      productsList.innerHTML = matchedProducts.map(p => `
+        <div class="dedicated-cat-card" data-id="${p.id}" style="display: flex; align-items: center; justify-content: space-between; padding: 12px; border-radius: 16px; background: #F8FAFC; border: 1px solid #E2E8F0; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;">
+            <div style="width: 50px; height: 50px; border-radius: 12px; background: #FFFFFF; border: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; padding: 4px;">
+              <img src="${p.img}" alt="${p.name}" style="max-width: 100%; max-height: 100%; object-fit: contain;">
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-size: 9px; font-weight: 850; color: #0F62FE; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">${p.brand || 'GENERIC'}</div>
+              <div style="font-size: 12.5px; font-weight: 800; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px;">${p.name}</div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 14px; font-weight: 900; color: #0F62FE;">₹${typeof p.price === 'number' ? p.price.toLocaleString('en-IN') : p.price}</span>
+                <span style="font-size: 10px; color: #64748B; font-weight: 700; background: #E2E8F0; padding: 2px 6px; border-radius: 6px;">${p.moq ? (p.moq.startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ: 1 Unit'}</span>
+              </div>
+            </div>
+          </div>
+          <button class="dedicated-cat-add-btn" data-id="${p.id}" style="width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #0F62FE 0%, #0043CE 100%); color: white; border: none; font-size: 18px; font-weight: 900; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 3px 10px rgba(15, 98, 254, 0.3); margin-left: 10px;">
+            +
+          </button>
+        </div>
+      `).join('');
+
+      productsList.querySelectorAll('.dedicated-cat-card').forEach(item => {
+        item.addEventListener('click', (e) => {
+          const pId = item.getAttribute('data-id');
+          if (e.target.closest('.dedicated-cat-add-btn')) {
+            e.stopPropagation();
+            const pData = products.find(x => x.id === pId);
+            if (pData && typeof addProductToCart === 'function') {
+              addProductToCart({
+                sku: pData.sku || pData.id,
+                name: pData.name,
+                brand: pData.brand,
+                price: typeof pData.price === 'number' ? `₹${pData.price.toLocaleString('en-IN')}` : pData.price,
+                moq: pData.moq,
+                imgSrc: pData.img
+              }, e.target.closest('.dedicated-cat-add-btn'));
+            }
+            return;
+          }
+
+          closeDedicatedCategoryView();
+          if (typeof openProductDetails === 'function') {
+            openProductDetails(pId);
+          }
+        });
+      });
+    }
+
+    productsArea.appendChild(resultsHeader);
+    productsArea.appendChild(productsList);
+
+    overlay.appendChild(headerBar);
+    overlay.appendChild(productsArea);
+    targetParent.appendChild(overlay);
+
+    function closeDedicatedCategoryView() {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (overlay.parentNode) {
+        overlay.parentNode.removeChild(overlay);
+      }
+    }
+
+    backBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      closeDedicatedCategoryView();
+    });
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        closeDedicatedCategoryView();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    window.closeDedicatedCategoryView = closeDedicatedCategoryView;
+  }
+
+  window.openDedicatedCategoryView = openDedicatedCategoryView;
+
+  function bindNewSearchButton() {
+    const searchButton = document.getElementById('headerSearchBtn');
+    if (searchButton) {
+      searchButton.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        console.log("NEW SEARCH CLICK");
+        openNewSearch('');
+      });
+    }
+  }
+
+  // Direct Button Event Attachment for Three-Dots Header Icon
+  function bindThreeDotsButton() {
+    const btn = document.getElementById('headerThreeDotsBtn') || document.querySelector('[aria-label="Categories Menu"]');
+    if (btn) {
+      btn.style.pointerEvents = "auto";
+      btn.style.position = "relative";
+      btn.style.zIndex = "999999";
+
+      btn.addEventListener("click", function(event) {
+        event.preventDefault();
+        event.stopPropagation();
+        console.log("OPEN CATEGORY MENU CLICKED");
+        openCategoryMenu();
+      });
+    }
+  }
+  bindThreeDotsButton();
+  setTimeout(bindThreeDotsButton, 300);
+
+  bindNewSearchButton();
+
+  // Universal Fallback Event Delegation Listener (Capture Phase)
   document.addEventListener('click', (e) => {
-    // Search Trigger (Header search button, categories search button, search box, search input, filter icon, or any button containing fa-search)
-    const searchBtn = e.target.closest('#headerSearchBtn, #catHeaderSearchBtn, .search-box, .search-input, .filter-btn-square, [aria-label="Search"], button:has(.fa-search)');
-    if (searchBtn && !searchBtn.closest('#searchOverlayModal')) {
+    const searchBtn = e.target.closest('#headerSearchBtn, #catHeaderSearchBtn, .search-box, .search-input, .filter-btn-square, [aria-label="Search"]');
+    if (searchBtn && !searchBtn.closest('#newDynamicSearchOverlay')) {
       e.preventDefault();
       e.stopPropagation();
-      const initVal = searchBtn.value || '';
-      openSearchModal(initVal);
-      return;
+      console.log("NEW SEARCH CLICK");
+      openNewSearch(searchBtn.value || '');
     }
-
-    // Notifications Trigger (Header bell icon or any button containing fa-bell)
-    const notifBtn = e.target.closest('#headerNotificationsBtn, [aria-label="Notifications"], button:has(.fa-bell)');
-    if (notifBtn && !notifBtn.closest('#notificationsModal')) {
-      e.preventDefault();
-      e.stopPropagation();
-      openModal('notificationsModal');
-      return;
-    }
-
-    // Menu Drawer Trigger
-    const menuBtn = e.target.closest('#headerMenuBtn, [aria-label="Open menu"]');
-    if (menuBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      openModal('sideNavDrawer');
-      return;
-    }
-  });
-
-  // Global Search Input typing handler inside modal
-  const globalSearchInput = document.getElementById('globalSearchInput');
-  if (globalSearchInput) {
-    globalSearchInput.addEventListener('input', (e) => {
-      renderSearchResults(e.target.value);
-    });
-    globalSearchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        renderSearchResults(globalSearchInput.value);
-      }
-    });
-  }
-
-  // Clear Search button handler
-  document.getElementById('clearSearchBtn')?.addEventListener('click', () => {
-    if (globalSearchInput) {
-      globalSearchInput.value = '';
-      renderSearchResults('');
-      globalSearchInput.focus();
-    }
-  });
-
-  // Close Search modal button
-  document.getElementById('closeSearchModal')?.addEventListener('click', () => {
-    closeModal('searchOverlayModal');
-  });
-
-  // Trending search tag pills
-  document.querySelectorAll('.search-tag-pill').forEach(pill => {
-    pill.addEventListener('click', () => {
-      const q = pill.getAttribute('data-query') || '';
-      if (globalSearchInput) {
-        globalSearchInput.value = q;
-      }
-      renderSearchResults(q);
-    });
-  });
-
-  // Home Page Search Input focus/click handler -> Opens search modal
-  const homeSearchInput = document.querySelector('.search-input');
-  if (homeSearchInput) {
-    homeSearchInput.addEventListener('click', (e) => {
-      e.preventDefault();
-      openSearchModal(homeSearchInput.value);
-    });
-    homeSearchInput.addEventListener('focus', (e) => {
-      e.preventDefault();
-      homeSearchInput.blur();
-      openSearchModal('');
-    });
-  }
-
-  // 1. Header Search Button & Search Modal
-  document.getElementById('headerSearchBtn')?.addEventListener('click', (e) => {
-    e.preventDefault();
-    openSearchModal('');
-  });
+  }, true);
 
   // 2. Header Notifications Button & Modal Close
   document.getElementById('headerNotificationsBtn')?.addEventListener('click', (e) => {
@@ -2936,6 +3760,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // 3. Header Hamburger Menu Button & Side Drawer
   document.getElementById('headerMenuBtn')?.addEventListener('click', (e) => {
     e.preventDefault();
+    console.log("MENU BUTTON TAPPED");
     openModal('sideNavDrawer');
   });
   document.getElementById('closeDrawerBtn')?.addEventListener('click', () => {

@@ -472,14 +472,47 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Please enter your email/mobile and password.' });
     }
 
-    const user = await findUserByEmailOrMobile(cleanId);
-    if (!user || !user.passwordHash) {
-      return res.status(400).json({ success: false, error: 'Invalid email/mobile or password.' });
+    let user;
+    try {
+      user = await findUserByEmailOrMobile(cleanId);
+    } catch (dbErr) {
+      console.error('[API ERROR] Database connection or query failure during login:', dbErr.message);
+      return res.status(503).json({
+        success: false,
+        error: 'Database connection error. Please check database server.'
+      });
     }
 
-    const isMatch = await bcrypt.compare(cleanPassword, user.passwordHash);
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        error: 'Account not found. Please check your email/mobile or sign up.'
+      });
+    }
+
+    if (!user.passwordHash) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid email/mobile or password.'
+      });
+    }
+
+    let isMatch = false;
+    try {
+      isMatch = await bcrypt.compare(cleanPassword, user.passwordHash);
+    } catch (bcryptErr) {
+      console.error('[API ERROR] Password verification error:', bcryptErr.message);
+      return res.status(500).json({
+        success: false,
+        error: 'Server error during password verification.'
+      });
+    }
+
     if (!isMatch) {
-      return res.status(400).json({ success: false, error: 'Invalid email/mobile or password.' });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid email/mobile or password.'
+      });
     }
 
     if (user.status === 'rejected') {
@@ -513,8 +546,11 @@ app.post('/api/auth/login', async (req, res) => {
       user: userPayload
     });
   } catch (err) {
-    console.error('[API ERROR] Failed login:', err);
-    return res.status(500).json({ success: false, error: 'Server error during login.' });
+    console.error('[API ERROR] Failed login:', err.message);
+    return res.status(500).json({
+      success: false,
+      error: 'Server temporarily unavailable.'
+    });
   }
 });
 
