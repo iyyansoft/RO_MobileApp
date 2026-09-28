@@ -73,21 +73,33 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function addProductToCart(productData, targetButtonElement = null) {
-    const existingIndex = cartState.findIndex(item => item.sku === productData.sku || item.name === productData.name);
+    if (!productData) return;
+
+    let moqQty = 1;
+    if (productData.moq) {
+      const match = productData.moq.toString().match(/\d+/);
+      if (match) {
+        moqQty = parseInt(match[0], 10) || 1;
+      }
+    }
+
+    const prodId = productData.slug || productData.id || productData.sku || 'RO-' + Date.now();
+    const existingIndex = cartState.findIndex(item => (item.id && item.id === prodId) || item.sku === productData.sku || item.name === productData.name);
 
     if (existingIndex > -1) {
       cartState[existingIndex].quantity += 1;
     } else {
       cartState.push({
-        id: productData.sku || 'RO-' + Date.now(),
+        id: prodId,
         name: productData.name,
         brand: productData.brand || 'AQUACLEAN',
-        price: productData.price,
-        numericPrice: parseInt((productData.price || '850').replace(/\D/g, '')),
-        moq: productData.moq || 'MOQ: 1',
-        imgSrc: productData.imgSrc || 'purifier.jpg',
-        sku: productData.sku || 'RO-PART-2026',
-        quantity: 1
+        price: typeof productData.price === 'number' ? `₹${productData.price.toLocaleString('en-IN')}` : (productData.price || '₹850'),
+        numericPrice: typeof productData.price === 'number' ? productData.price : parseInt((productData.price || '850').replace(/\D/g, ''), 10) || 850,
+        moq: productData.moq || `MOQ: ${moqQty} Units`,
+        moqQty: moqQty,
+        imgSrc: productData.imgSrc || productData.img || 'purifier.jpg',
+        sku: productData.sku || `SKU-${prodId.toUpperCase()}`,
+        quantity: moqQty
       });
     }
 
@@ -96,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (targetButtonElement) {
       const originalHTML = targetButtonElement.innerHTML;
       targetButtonElement.classList.add('added-success');
-      targetButtonElement.innerHTML = '✓ Added';
+      targetButtonElement.innerHTML = '<i class="fas fa-check" style="margin-right: 5px;"></i> <span>Added to Cart</span>';
       
       setTimeout(() => {
         targetButtonElement.classList.remove('added-success');
@@ -104,7 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 1200);
     }
 
-    showCategoryToast(`✓ Added 1x "${productData.name}" to Cart! (${getTotalCartCount()} Total Items)`);
+    showCategoryToast("Product added to cart successfully!");
   }
 
   function getTotalCartCount() {
@@ -2392,6 +2404,15 @@ document.addEventListener('DOMContentLoaded', () => {
     productModal.addEventListener('click', (e) => {
       if (e.target === productModal) {
         closeProductDetails(true);
+      }
+    });
+  }
+
+  const modalInlineAddToCartBtn = document.getElementById('modalInlineAddToCartBtn');
+  if (modalInlineAddToCartBtn) {
+    modalInlineAddToCartBtn.addEventListener('click', () => {
+      if (currentModalProduct) {
+        addProductToCart(currentModalProduct, modalInlineAddToCartBtn);
       }
     });
   }
