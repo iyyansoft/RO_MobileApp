@@ -18,6 +18,6 @@ test('backend uses pg and does not apply schema or data-import SQL during startu
 
 test('database environment example keeps the Supabase URI server-side', () => {
   const envExample = fs.readFileSync(path.join(root, '.env.example'), 'utf8');
-  assert.match(envExample, /^SUPABASE_DB_URL=postgresql:/m);
+  assert.match(envExample, /^SUPABASE_DB_URL=postgresql:\/\/<USERNAME>:<PASSWORD>@<SUPABASE_SESSION_POOLER_HOST>:5432\/postgres\?sslmode=verify-full$/m);
   assert.doesNotMatch(envExample, /^DB_PASSWORD=/m);
 });

@@ -8,13 +8,56 @@ const bcrypt = require('bcryptjs');
 const { validGstin, createDealerToken, verifyDealerToken } = require('./checkout_service');
 const { allocateDeliveryValues } = require('./shop_service');
 require('dotenv').config();
+const { createEmailSender } = require('./email_provider');
+
+const sendTransactionalEmail = createEmailSender({
+  env: process.env,
+  smtpTransportFactory: options => nodemailer.createTransport(options)
+});
 
 // Supabase PostgreSQL connection pool
 const { pool, testConnection } = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
-const SESSION_SECRET = process.env.SESSION_SECRET || 'RO_WHOLESALE_SECRET_KEY_2026';
+const isProduction = process.env.NODE_ENV === 'production';
+const SESSION_SECRET = process.env.SESSION_SECRET || '';
+if (isProduction) {
+  const missingProductionConfig = [];
+  if (SESSION_SECRET.length < 32) missingProductionConfig.push('SESSION_SECRET (32+ characters)');
+  if (!process.env.SUPABASE_DB_URL) missingProductionConfig.push('SUPABASE_DB_URL');
+  if (!process.env.SUPABASE_DB_SSL_CA && !process.env.SUPABASE_DB_SSL_CA_FILE) {
+    missingProductionConfig.push('SUPABASE_DB_SSL_CA or SUPABASE_DB_SSL_CA_FILE');
+  }
+  if (!process.env.SUPABASE_URL) missingProductionConfig.push('SUPABASE_URL');
+  if (!(process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY)) {
+    missingProductionConfig.push('SUPABASE_PUBLISHABLE_KEY (or SUPABASE_ANON_KEY)');
+  }
+  if (!process.env.SHOP_EMPLOYEE_SESSION_SECRET || process.env.SHOP_EMPLOYEE_SESSION_SECRET.length < 32) {
+    missingProductionConfig.push('SHOP_EMPLOYEE_SESSION_SECRET (32+ characters)');
+  }
+  if (!process.env.ADMIN_EMAIL) missingProductionConfig.push('ADMIN_EMAIL');
+  if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.length < 16) {
+    missingProductionConfig.push('ADMIN_PASSWORD (16+ characters)');
+  }
+  const brevoConfigured = Boolean(
+    process.env.BREVO_API_KEY &&
+    /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(String(process.env.BREVO_SENDER_EMAIL || '').trim())
+  );
+  const secureSmtpConfigured = Boolean(
+    process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM &&
+    ((Number(process.env.SMTP_PORT) === 465 && process.env.SMTP_SECURE === 'true') ||
+      (Number(process.env.SMTP_PORT) === 587 && process.env.SMTP_SECURE === 'false'))
+  );
+  if (!brevoConfigured && (process.env.BREVO_API_KEY || !secureSmtpConfigured)) {
+    missingProductionConfig.push('BREVO_API_KEY and BREVO_SENDER_EMAIL (or explicitly configured TLS SMTP fallback)');
+  }
+  if (missingProductionConfig.length) {
+    throw new Error(`Missing required production configuration: ${missingProductionConfig.join(', ')}`);
+  }
+} else if (!SESSION_SECRET) {
+  throw new Error('SESSION_SECRET must be configured before starting the backend.');
+}
 
 // Production-safe CORS configuration
 const allowedOrigins = process.env.CORS_ORIGINS
@@ -94,51 +137,16 @@ function hashOtp(email, otp) {
     .digest('hex');
 }
 
-// -----------------------------------------------------------------------------
-// REAL EMAIL TRANSPORTER INITIALIZATION
-// -----------------------------------------------------------------------------
-function createSmtpTransporter() {
-  const host = process.env.SMTP_HOST || 'smtp.gmail.com';
-  const port = parseInt(process.env.SMTP_PORT || '587', 10);
-  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
-  const user = (process.env.SMTP_USER || '').trim();
-  const pass = (process.env.SMTP_PASS || '').replace(/\s+/g, '');
-  console.log(`[SMTP SYSTEM] Initializing email transport (${host}:${port}, secure=${secure}, credentialsConfigured=${Boolean(user && pass)})...`);
-  return nodemailer.createTransport({
-    host: host,
-    port: port,
-    secure: secure,
-    auth: { user, pass },
-    tls: { rejectUnauthorized: false },
-    // Keep SMTP failures bounded so the mobile API request can return a real
-    // delivery error before Flutter's request timeout expires.
-    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS) || 6000,
-    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS) || 6000,
-    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS) || 8000
-  });
-}
-
-function logSmtpFailure(stage, error) {
-  console.error(`[SMTP ${stage} failed]`, JSON.stringify({
-    code: error?.code || 'UNKNOWN',
-    command: error?.command || '',
-    responseCode: error?.responseCode || null
-  }));
-}
-
-let primaryTransporter = createSmtpTransporter();
-
-// Verify SMTP connection on startup
-primaryTransporter.verify((err, success) => {
-  if (err) {
-    logSmtpFailure('verification', err);
-  } else {
-    console.log(`[SMTP SYSTEM READY] Successfully connected to primary SMTP server!`);
-  }
-});
-
 // Verify Supabase PostgreSQL connection on startup
 testConnection();
+
+function logEmailFailure(stage, error) {
+  console.error(`[EMAIL ${stage} failed]`, JSON.stringify({
+    provider: error?.provider || 'unknown',
+    code: error?.code || 'EMAIL_DELIVERY_FAILED',
+    status: Number.isInteger(error?.status) ? error.status : null
+  }));
+}
 
 // -----------------------------------------------------------------------------
 // HELPER FUNCTIONS & UTILITIES
@@ -370,7 +378,7 @@ app.post('/api/auth/supabase/exchange', async (req, res) => {
   const authorization = String(req.headers.authorization || '');
   const accessToken = authorization.replace(/^Bearer\s+/i, '').trim();
   const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/+$/, '');
-  const anonKey = process.env.SUPABASE_ANON_KEY || '';
+  const anonKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || '';
   if (!supabaseUrl || !anonKey) {
     return res.status(503).json({ success: false, error: 'Supabase authentication bridge is not configured.' });
   }
@@ -429,13 +437,13 @@ app.post('/api/auth/send-otp', async (req, res) => {
     const otp = crypto.randomInt(100000, 1000000).toString();
     let delivery;
     try {
-      delivery = await primaryTransporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: user.email, subject: 'Your RO Wholesale email verification code', text: 'Your RO Wholesale email verification code is ' + otp + '. Valid for 5 minutes. Do not share this code.', html: '<div style="font-family:Arial;padding:24px;max-width:500px;color:#0F4C81"><h2>RO Wholesale</h2><p>Your email verification code:</p><strong style="font-size:32px;letter-spacing:6px">' + otp + '</strong><p>Valid for 5 minutes. Do not share this code.</p></div>' });
+      delivery = await sendTransactionalEmail({ to: user.email, subject: 'Your RO Wholesale email verification code', text: 'Your RO Wholesale email verification code is ' + otp + '. Valid for 5 minutes. Do not share this code.', html: '<div style="font-family:Arial;padding:24px;max-width:500px;color:#0F4C81"><h2>RO Wholesale</h2><p>Your email verification code:</p><strong style="font-size:32px;letter-spacing:6px">' + otp + '</strong><p>Valid for 5 minutes. Do not share this code.</p></div>' });
     } catch (mailError) {
-      logSmtpFailure('OTP delivery', mailError);
+      logEmailFailure('OTP delivery', mailError);
       return res.status(502).json({ success: false, error: 'Could not send the email code. Please try again.' });
     }
     if (!delivery?.accepted?.some(recipient => String(recipient).toLowerCase() === email)) {
-      logSmtpFailure('OTP recipient rejected', { code: 'RECIPIENT_REJECTED', responseCode: delivery?.responseCode });
+      logEmailFailure('OTP recipient rejected', { provider: delivery?.provider, code: 'RECIPIENT_REJECTED' });
       return res.status(502).json({ success: false, error: 'The email server rejected delivery.' });
     }
     const record = { otp: hashOtp(email, otp), expiresAt: Date.now() + 300000, sentAt: Date.now(), attempts: 0 };
@@ -510,19 +518,18 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     const otp = crypto.randomInt(100000, 1000000).toString();
     let delivery;
     try {
-      delivery = await primaryTransporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+      delivery = await sendTransactionalEmail({
         to: user.email,
         subject: 'Reset your RO Wholesale password',
         text: `Your RO Wholesale password reset code is ${otp}. Valid for 5 minutes. Do not share this code.`,
         html: `<div style="font-family:Arial;padding:24px;max-width:500px;color:#0F4C81"><h2>RO Wholesale</h2><p>Your password reset verification code:</p><strong style="font-size:32px;letter-spacing:6px">${otp}</strong><p>Valid for 5 minutes. Do not share this code.</p></div>`
       });
     } catch (mailError) {
-      logSmtpFailure('password recovery delivery', mailError);
+      logEmailFailure('password recovery delivery', mailError);
       return res.status(502).json({ success: false, error: 'Could not send the email code. Please try again.' });
     }
     if (!delivery?.accepted?.some(recipient => String(recipient).toLowerCase() === email)) {
-      logSmtpFailure('recovery recipient rejected', { code: 'RECIPIENT_REJECTED', responseCode: delivery?.responseCode });
+      logEmailFailure('recovery recipient rejected', { provider: delivery?.provider, code: 'RECIPIENT_REJECTED' });
       return res.status(502).json({ success: false, error: 'The email server rejected delivery.' });
     }
     const record = { otp: hashOtp(email, otp), expiresAt: Date.now() + 300000, sentAt: Date.now(), attempts: 0 };
@@ -839,8 +846,11 @@ app.post('/api/auth/google-signin', async (req, res) => {
 // ADMIN AUTHENTICATION & SECURITY SYSTEM
 // -----------------------------------------------------------------------------
 const activeAdminTokens = new Set();
-const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@rowholesale.com').trim().toLowerCase();
-const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || 'admin123').trim();
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || '').trim();
+if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+  throw new Error('ADMIN_EMAIL and ADMIN_PASSWORD must be configured before starting the backend.');
+}
 
 // Admin Authentication Middleware
 function requireAdminAuth(req, res, next) {
@@ -863,9 +873,7 @@ function requireAdminAuth(req, res, next) {
 // Shop Employee routes use a separate role token and are installed only after
 // the admin middleware is defined so employee provisioning stays admin-only.
 const SHOP_EMPLOYEE_SECRET = process.env.SHOP_EMPLOYEE_SESSION_SECRET
-  || (process.env.SESSION_SECRET && process.env.SESSION_SECRET !== 'RO_WHOLESALE_SECRET_KEY_2026'
-    ? process.env.SESSION_SECRET
-    : crypto.randomBytes(32).toString('hex'));
+  || SESSION_SECRET;
 require('./shop_routes')(app, pool, SHOP_EMPLOYEE_SECRET, requireAdminAuth);
 
 // Admin Login Endpoint
@@ -2855,7 +2863,7 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'web_preview', 'index.html'));
 });
 
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`===================================================`);
   console.log(`🚀 RO Wholesale B2B Backend Server Running on Port ${PORT}`);
   console.log(`🌐 Dealer Portal Live Web: http://127.0.0.1:${PORT}/`);

@@ -10,10 +10,10 @@ function setup(options = {}) {
   const context = { app: { post: (path, fn) => routes[path] = fn }, console: { log() {}, error() {} }, crypto, Buffer, validGstin, createDealerToken,
     SESSION_SECRET: 'test-secret', memoryOtps, process: { env: { SMTP_USER: 'sender@example.test' } },
     isValidEmailAddress: email => /^[^@]+@[^@]+\.[^@]+$/.test(email),
-    logSmtpFailure: () => {},
+    logEmailFailure: () => {},
     findUserByEmailOrMobile: async email => options.registered && email === 'dealer@example.test' ? { id: 'dealer', email, name: 'Registered Name', status: options.status || 'approved', gstNumber: '27AAPFU0939F1ZV', passwordHash: options.passwordHash, emailVerified: true, isApproved: options.isApproved ?? (options.status !== 'pending') } : null,
     findAuthUserByEmailOrMobile: async email => options.registered && email === 'dealer@example.test' ? { id: 'dealer', email, name: 'Registered Name', status: options.status || 'approved', gstNumber: '27AAPFU0939F1ZV', passwordHash: options.passwordHash, emailVerified: true, isApproved: options.isApproved ?? (options.status !== 'pending'), addresses: [] } : null,
-    primaryTransporter: { sendMail: async message => { if (options.mailError) throw Error('SMTP unavailable'); sent = message; return { accepted: [message.to] }; } },
+    sendTransactionalEmail: async message => { if (options.mailError) throw Object.assign(Error('test provider unavailable'), { code: 'EMAIL_PROVIDER_ERROR', provider: 'test' }); sent = message; return { accepted: [message.to], provider: 'test' }; },
     hashOtp: (email, code) => crypto.createHmac('sha256', 'test-secret').update(email + ':' + code).digest('hex'),
     bcrypt: require('bcryptjs'), parseAddressString: () => ({city:'',state:'',pincode:''}),
     loadJsonUsers: () => users, saveJsonUsers: () => {},
@@ -27,9 +27,24 @@ function setup(options = {}) {
   const call = async (path, body) => { const response = { code: 200, status(code) { this.code = code; return this; }, json(body) { this.body = body; return this; } }; await routes['/api/auth/' + path]({body}, response); return response; };
   return { call, memoryOtps, users, queries, sent: () => sent };
 }
-test('OTP is emailed only to registered accounts and SMTP failure never reports success', async () => {
+test('OTP is emailed only to registered accounts and provider failure never reports success', async () => {
   const missing = setup(); assert.equal((await missing.call('send-otp', {email:'dealer@example.test'})).code, 404); assert.equal(missing.sent(), undefined);
   const failed = setup({registered:true,mailError:true}); assert.equal((await failed.call('send-otp', {email:'dealer@example.test'})).code, 502); assert.equal(failed.memoryOtps.size, 0);
+});
+test('password reset keeps the OTP invalid when the email provider rejects the request', async () => {
+  const failed = setup({registered:true,mailError:true});
+  assert.equal((await failed.call('forgot-password', {email:'dealer@example.test'})).code, 502);
+  assert.equal(failed.memoryOtps.size, 0);
+  assert.equal(failed.queries.some(([sql]) => sql.startsWith('INSERT INTO otp_codes')), false);
+});
+test('password reset records its hashed OTP only after the email provider accepts it', async () => {
+  const api = setup({registered:true});
+  const response = await api.call('forgot-password', {email:'dealer@example.test'});
+  assert.equal(response.code, 200);
+  assert.equal(api.sent().subject, 'Reset your RO Wholesale password');
+  const code = api.sent().text.match(/\b\d{6}\b/)[0];
+  assert.notEqual(api.memoryOtps.get('dealer@example.test').otp, code);
+  assert.ok(api.queries.some(([sql]) => sql.startsWith('INSERT INTO otp_codes')));
 });
 test('real email code is hashed, verified once, and preserves registered name/GST', async () => {
   const api = setup({registered:true}); assert.equal((await api.call('send-otp', {email:'dealer@example.test'})).code, 200);

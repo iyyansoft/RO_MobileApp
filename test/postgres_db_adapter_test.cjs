@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { types } = require('pg');
-const { pool, toPostgresPlaceholders, adaptResult, normalizeDatabaseError, parsePostgresConnectionString } = require('../db');
+const { pool, toPostgresPlaceholders, adaptResult, normalizeDatabaseError, parsePostgresConnectionString, resolveSslCa } = require('../db');
 
 test('Supabase PostgreSQL pool always requires verified TLS', () => {
   assert.equal(pool.raw.options.ssl.rejectUnauthorized, true);
@@ -14,6 +14,19 @@ test('connection URL SSL modes cannot replace explicit verified TLS configuratio
   assert.equal(parsed.config.host, 'pooler.example.com');
   assert.equal(parsed.config.port, '5432');
   assert.equal(parsed.config.database, 'postgres');
+});
+
+test('inline CA values support escaped newlines for hosted environment variables', () => {
+  assert.equal(resolveSslCa({ inline: '-----BEGIN CERTIFICATE-----\\npublic-ca\\n-----END CERTIFICATE-----' }),
+    '-----BEGIN CERTIFICATE-----\npublic-ca\n-----END CERTIFICATE-----');
+});
+
+test('relative CA file paths resolve from the application directory', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const caPath = path.join(__dirname, '..', 'certs', 'supabase-root.crt');
+  assert.ok(fs.existsSync(caPath), 'the repository Supabase CA certificate should be present');
+  assert.equal(resolveSslCa({ file: 'certs/supabase-root.crt' }), fs.readFileSync(caPath, 'utf8'));
 });
 
 test('SQL binds positional values with PostgreSQL placeholders while preserving quoted question marks', () => {
