@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'primary_button.dart';
@@ -38,7 +39,8 @@ class ErrorState extends StatelessWidget {
                   width: 100,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: (isDark ? AppColors.errorDark : AppColors.errorLight).withOpacity(0.06),
+                    color: (isDark ? AppColors.errorDark : AppColors.errorLight)
+                        .withValues(alpha: 0.06),
                   ),
                 ),
                 Container(
@@ -46,7 +48,8 @@ class ErrorState extends StatelessWidget {
                   width: 70,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: (isDark ? AppColors.errorDark : AppColors.errorLight).withOpacity(0.12),
+                    color: (isDark ? AppColors.errorDark : AppColors.errorLight)
+                        .withValues(alpha: 0.12),
                   ),
                 ),
                 Icon(
@@ -61,24 +64,24 @@ class ErrorState extends StatelessWidget {
               title,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-                    fontWeight: FontWeight.bold,
-                  ),
+                color: isDark
+                    ? AppColors.textPrimaryDark
+                    : AppColors.textPrimaryLight,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: AppTheme.spaceS),
             Text(
               errorMessage,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
-                  ),
+                color: isDark
+                    ? AppColors.textSecondaryDark
+                    : AppColors.textSecondaryLight,
+              ),
             ),
             const SizedBox(height: AppTheme.spaceXL),
-            PrimaryButton(
-              text: actionText,
-              onPressed: onRetry,
-              width: 220,
-            ),
+            PrimaryButton(text: actionText, onPressed: onRetry, width: 220),
           ],
         ),
       ),

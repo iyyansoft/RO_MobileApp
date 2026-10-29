@@ -1,4 +1,9 @@
+import '../../../../core/network/api_client.dart';
+import '../../../../core/supabase/supabase_config.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../domain/models/product_model.dart';
 import '../../domain/models/category_model.dart';
 
@@ -35,11 +40,13 @@ class ProductFilterState {
     this.maxPrice = 30000.0,
     this.inStockOnly = false,
     this.selectedBrands = const {},
-    this.isGridView = true,
+    // Start with the product image beside its details; the listing toolbar
+    // still lets users switch to the existing grid layout.
+    this.isGridView = false,
     this.isLoading = false,
     this.isLoadingMore = false,
     this.page = 1,
-    this.hasMore = true,
+    this.hasMore = false,
   });
 
   ProductFilterState copyWith({
@@ -59,7 +66,9 @@ class ProductFilterState {
   }) {
     return ProductFilterState(
       searchQuery: searchQuery ?? this.searchQuery,
-      selectedCategoryId: clearCategory ? null : (selectedCategoryId ?? this.selectedCategoryId),
+      selectedCategoryId: clearCategory
+          ? null
+          : (selectedCategoryId ?? this.selectedCategoryId),
       sortOption: sortOption ?? this.sortOption,
       minPrice: minPrice ?? this.minPrice,
       maxPrice: maxPrice ?? this.maxPrice,
@@ -75,7 +84,8 @@ class ProductFilterState {
 }
 
 class ProductNotifier extends StateNotifier<ProductFilterState> {
-  ProductNotifier() : super(const ProductFilterState());
+  ProductNotifier({ProductFilterState? initialState})
+    : super(initialState ?? const ProductFilterState());
 
   void setSearchQuery(String query) {
     state = state.copyWith(searchQuery: query, page: 1, hasMore: true);
@@ -85,7 +95,11 @@ class ProductNotifier extends StateNotifier<ProductFilterState> {
     if (categoryId == null) {
       state = state.copyWith(clearCategory: true, page: 1, hasMore: true);
     } else {
-      state = state.copyWith(selectedCategoryId: categoryId, page: 1, hasMore: true);
+      state = state.copyWith(
+        selectedCategoryId: categoryId,
+        page: 1,
+        hasMore: true,
+      );
     }
   }
 
@@ -130,36 +144,92 @@ class ProductNotifier extends StateNotifier<ProductFilterState> {
     if (state.isLoadingMore || !state.hasMore) return;
     state = state.copyWith(isLoadingMore: true);
 
-    // Simulate lazy loading pagination delay
-    await Future.delayed(const Duration(milliseconds: 600));
-
-    if (state.page >= 3) {
-      state = state.copyWith(isLoadingMore: false, hasMore: false);
-    } else {
-      state = state.copyWith(
-        isLoadingMore: false,
-        page: state.page + 1,
-      );
-    }
+    state = state.copyWith(isLoadingMore: false, hasMore: false);
   }
 }
 
 final productFilterProvider =
     StateNotifierProvider<ProductNotifier, ProductFilterState>((ref) {
-  return ProductNotifier();
-});
+      return ProductNotifier();
+    });
 
+/// Injectable so the catalog providers can be exercised against an isolated
+/// Supabase instance without changing the app's configured client.
+final supabaseCatalogClientProvider = Provider<SupabaseClient>(
+  (ref) => SupabaseConfig.client,
+);
+
+final catalogProductsProvider = FutureProvider<List<ProductModel>>((ref) async {
+  if (SupabaseConfig.catalogEnabled) {
+    final rows = await ref
+        .watch(supabaseCatalogClientProvider)
+        .from('catalog_products')
+        // Keep the mobile contract explicit: the public catalog surface must
+        // never fetch internal purchase pricing or future privileged fields.
+        .select(
+          'id,category_id,category_key,category_name,sku,name,brand,price,'
+          'dealer_price,mrp,moq,badge,rating,img,description,desc,specs,'
+          'features,applications,stock_quantity,status,created_at',
+        )
+        .order('category_key', ascending: true)
+        .order('name', ascending: true);
+    return rows
+        .map((row) => ProductModel.fromJson(Map<String, dynamic>.from(row)))
+        .toList();
+  }
+  final response = await ref.watch(apiClientProvider).get('products');
+  return ((response.data as Map)['products'] as List)
+      .map((e) => ProductModel.fromJson(Map<String, dynamic>.from(e as Map)))
+      .toList();
+});
+final catalogCategoriesProvider = FutureProvider<List<CategoryModel>>((
+  ref,
+) async {
+  if (SupabaseConfig.catalogEnabled) {
+    final rows = await ref
+        .watch(supabaseCatalogClientProvider)
+        .from('categories')
+        .select(
+          'id,key_name,title,description,badge_text,icon_color,image_url,'
+          'display_order',
+        )
+        .order('display_order', ascending: true);
+    return rows
+        .map((row) => CategoryModel.fromJson(Map<String, dynamic>.from(row)))
+        .toList();
+  }
+  final response = await ref.watch(apiClientProvider).get('categories');
+  return ((response.data as Map)['categories'] as List)
+      .map((e) => CategoryModel.fromJson(Map<String, dynamic>.from(e as Map)))
+      .toList();
+});
 final categoriesProvider = Provider<List<CategoryModel>>((ref) {
-  return CategoryModel.defaultCategories;
+  final categories = ref.watch(catalogCategoriesProvider).valueOrNull ?? [];
+  final products = ref.watch(allProductsProvider);
+  return categories
+      .map(
+        (category) => category.withProductCount(
+          products.where(category.matchesProduct).length,
+        ),
+      )
+      .toList();
 });
-
-final allProductsProvider = Provider<List<ProductModel>>((ref) {
-  return ProductModel.sampleProducts;
-});
+final allProductsProvider = Provider<List<ProductModel>>(
+  (ref) => ref.watch(catalogProductsProvider).valueOrNull ?? [],
+);
 
 final filteredProductsProvider = Provider<List<ProductModel>>((ref) {
   final filterState = ref.watch(productFilterProvider);
   final allProducts = ref.watch(allProductsProvider);
+  final categories = ref.watch(categoriesProvider);
+  final selectedCategories = categories.where(
+    (category) =>
+        category.id == filterState.selectedCategoryId ||
+        category.databaseId == filterState.selectedCategoryId,
+  );
+  final selectedCategory = selectedCategories.isEmpty
+      ? null
+      : selectedCategories.first;
 
   List<ProductModel> filtered = allProducts.where((product) {
     // 1. Search Query
@@ -176,19 +246,22 @@ final filteredProductsProvider = Provider<List<ProductModel>>((ref) {
 
     // 2. Category Filter
     if (filterState.selectedCategoryId != null) {
-      if (product.categoryId != filterState.selectedCategoryId) {
+      if (!(selectedCategory?.matchesProduct(product) ??
+          (product.categoryId == filterState.selectedCategoryId))) {
         return false;
       }
     }
 
     // 3. Price Filter
     if (product.dealerPrice < filterState.minPrice ||
-        product.dealerPrice > filterState.maxPrice) {
+        (filterState.maxPrice < 30000 &&
+            product.dealerPrice > filterState.maxPrice)) {
       return false;
     }
 
     // 4. In Stock Filter
-    if (filterState.inStockOnly && product.stockStatus == StockStatus.outOfStock) {
+    if (filterState.inStockOnly &&
+        product.stockStatus == StockStatus.outOfStock) {
       return false;
     }
 
@@ -211,7 +284,9 @@ final filteredProductsProvider = Provider<List<ProductModel>>((ref) {
       filtered.sort((a, b) => b.dealerPrice.compareTo(a.dealerPrice));
       break;
     case SortOption.discountHighToLow:
-      filtered.sort((a, b) => b.discountPercentage.compareTo(a.discountPercentage));
+      filtered.sort(
+        (a, b) => b.discountPercentage.compareTo(a.discountPercentage),
+      );
       break;
     case SortOption.popularity:
       filtered.sort((a, b) => b.rating.compareTo(a.rating));
@@ -222,4 +297,4 @@ final filteredProductsProvider = Provider<List<ProductModel>>((ref) {
   }
 
   return filtered;
-});
+}, dependencies: [productFilterProvider]);

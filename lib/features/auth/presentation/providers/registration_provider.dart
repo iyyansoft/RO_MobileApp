@@ -1,62 +1,41 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../../core/network/api_client.dart';
+import '../../../../core/supabase/supabase_auth_adapter.dart';
+import '../../../../core/supabase/supabase_config.dart';
 import '../../domain/models/dealer_registration_model.dart';
 
 class RegistrationState {
   final DealerRegistrationModel data;
   final bool isSubmitting;
-  final Map<String, double> uploadProgressMap;
-  final Map<String, String> uploadedFilesMap;
-
+  final String? errorMessage;
   const RegistrationState({
     required this.data,
     this.isSubmitting = false,
-    this.uploadProgressMap = const {},
-    this.uploadedFilesMap = const {},
+    this.errorMessage,
   });
-
   RegistrationState copyWith({
     DealerRegistrationModel? data,
     bool? isSubmitting,
-    Map<String, double>? uploadProgressMap,
-    Map<String, String>? uploadedFilesMap,
-  }) {
-    return RegistrationState(
-      data: data ?? this.data,
-      isSubmitting: isSubmitting ?? this.isSubmitting,
-      uploadProgressMap: uploadProgressMap ?? this.uploadProgressMap,
-      uploadedFilesMap: uploadedFilesMap ?? this.uploadedFilesMap,
-    );
-  }
+    String? errorMessage,
+    bool clearError = false,
+  }) => RegistrationState(
+    data: data ?? this.data,
+    isSubmitting: isSubmitting ?? this.isSubmitting,
+    errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+  );
 }
 
 class RegistrationNotifier extends StateNotifier<RegistrationState> {
   RegistrationNotifier()
-      : super(RegistrationState(data: DealerRegistrationModel.defaultMock));
+    : super(const RegistrationState(data: DealerRegistrationModel.empty));
 
-  Future<void> simulateFileUpload(String docType) async {
-    // Simulate progress ticks: 20%, 50%, 85%, 100%
-    final currentProgress = Map<String, double>.from(state.uploadProgressMap);
-    final currentFiles = Map<String, String>.from(state.uploadedFilesMap);
-
-    currentProgress[docType] = 0.2;
-    state = state.copyWith(uploadProgressMap: currentProgress);
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    currentProgress[docType] = 0.55;
-    state = state.copyWith(uploadProgressMap: currentProgress);
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    currentProgress[docType] = 0.9;
-    state = state.copyWith(uploadProgressMap: currentProgress);
-    await Future.delayed(const Duration(milliseconds: 300));
-
-    currentProgress[docType] = 1.0;
-    currentFiles[docType] = '${docType.toLowerCase().replaceAll(' ', '_')}_doc.pdf';
-    state = state.copyWith(
-      uploadProgressMap: currentProgress,
-      uploadedFilesMap: currentFiles,
-    );
+  void clearError() {
+    if (state.errorMessage != null) state = state.copyWith(clearError: true);
   }
+
+  void resetForNewPage() =>
+      state = state.copyWith(isSubmitting: false, clearError: true);
 
   Future<bool> submitRegistration({
     required String businessName,
@@ -71,64 +50,83 @@ class RegistrationNotifier extends StateNotifier<RegistrationState> {
     required String panNumber,
     required String businessType,
     required String dealerType,
+    required String password,
+    required String confirmPassword,
   }) async {
-    state = state.copyWith(isSubmitting: true);
-    await Future.delayed(const Duration(milliseconds: 1500));
-
-    final newApp = DealerRegistrationModel(
-      applicationId: 'APP-2026-${(10000 + (90000 * (DateTime.now().millisecond / 1000)).round())}',
-      businessName: businessName,
-      ownerName: ownerName,
-      mobile: mobile,
-      email: email,
-      address: address,
-      city: city,
-      state: stateName,
-      pincode: pincode,
-      gstNumber: gstNumber,
-      panNumber: panNumber,
-      businessType: businessType,
-      dealerType: dealerType,
-      status: ApprovalStatus.pending,
-      submittedDate: '03 Sep 2026, 11:23 AM',
-      documents: state.uploadedFilesMap.entries.map((e) {
-        return UploadedDoc(docType: e.key, fileName: e.value);
-      }).toList(),
-    );
-
-    state = state.copyWith(
-      isSubmitting: false,
-      data: newApp,
-    );
-    return true;
-  }
-
-  void setApprovalStatus(ApprovalStatus newStatus, {String? rejectionReason}) {
-    final updatedData = DealerRegistrationModel(
-      applicationId: state.data.applicationId,
-      businessName: state.data.businessName,
-      ownerName: state.data.ownerName,
-      mobile: state.data.mobile,
-      email: state.data.email,
-      address: state.data.address,
-      city: state.data.city,
-      state: state.data.state,
-      pincode: state.data.pincode,
-      gstNumber: state.data.gstNumber,
-      panNumber: state.data.panNumber,
-      businessType: state.data.businessType,
-      dealerType: state.data.dealerType,
-      documents: state.data.documents,
-      submittedDate: state.data.submittedDate,
-      status: newStatus,
-      rejectionReason: rejectionReason ?? state.data.rejectionReason,
-    );
-
-    state = state.copyWith(data: updatedData);
+    state = state.copyWith(isSubmitting: true, clearError: true);
+    try {
+      final fullAddress = [
+        address,
+        city,
+        stateName,
+        pincode,
+      ].where((part) => part.trim().isNotEmpty).join(', ');
+      if (SupabaseConfig.authEnabled) {
+        await const SupabaseAuthAdapter().signUpDealer(
+          email: email,
+          password: password,
+          name: ownerName,
+          mobile: mobile,
+          companyName: businessName,
+          address: fullAddress,
+          gstNumber: gstNumber,
+        );
+      } else {
+        final response = await ApiClient().post<Map<String, dynamic>>(
+          'auth/signup',
+          data: {
+            'name': ownerName.trim(),
+            'mobile': mobile.trim(),
+            'email': email.trim(),
+            'password': password,
+            'confirmPassword': confirmPassword,
+            'companyName': businessName.trim(),
+            'gstNumber': gstNumber.trim().toUpperCase(),
+            'address': fullAddress,
+          },
+        );
+        final result = response.data ?? {};
+        if (result['success'] != true) {
+          throw ApiException(
+            message: '${result['error'] ?? 'Registration failed.'}',
+          );
+        }
+      }
+      state = state.copyWith(
+        isSubmitting: false,
+        data: DealerRegistrationModel(
+          applicationId: '',
+          businessName: businessName,
+          ownerName: ownerName,
+          mobile: mobile,
+          email: email,
+          address: address,
+          city: city,
+          state: stateName,
+          pincode: pincode,
+          gstNumber: gstNumber,
+          panNumber: panNumber,
+          businessType: businessType,
+          dealerType: dealerType,
+          documents: const [],
+          // Account creation never grants wholesale access. Only the existing
+          // administrator approval workflow may move a dealer out of pending.
+          status: ApprovalStatus.pending,
+          submittedDate: DateTime.now().toLocal().toString(),
+        ),
+      );
+      return true;
+    } catch (error) {
+      state = state.copyWith(
+        isSubmitting: false,
+        errorMessage: error is ApiException ? error.message : '$error',
+      );
+      return false;
+    }
   }
 }
 
 final registrationProvider =
-    StateNotifierProvider<RegistrationNotifier, RegistrationState>((ref) {
-  return RegistrationNotifier();
-});
+    StateNotifierProvider<RegistrationNotifier, RegistrationState>(
+      (ref) => RegistrationNotifier(),
+    );

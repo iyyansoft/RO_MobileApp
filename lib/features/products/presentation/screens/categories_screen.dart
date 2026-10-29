@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../providers/product_provider.dart';
 import '../widgets/category_card.dart';
 import 'product_listing_screen.dart';
@@ -35,10 +35,40 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
           cat.description.toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
 
+    final catalog = ref.watch(catalogCategoriesProvider);
+    final productCatalog = ref.watch(catalogProductsProvider);
+    if (catalog.isLoading || productCatalog.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (catalog.hasError || productCatalog.hasError) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Catalog')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${catalog.error ?? productCatalog.error}',
+                textAlign: TextAlign.center,
+              ),
+              TextButton(
+                onPressed: () {
+                  ref.invalidate(catalogCategoriesProvider);
+                  ref.invalidate(catalogProductsProvider);
+                },
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
+        backgroundColor: isDark
+            ? AppColors.backgroundDark
+            : AppColors.backgroundLight,
         title: Text(
           'RO Categories (${allCategories.length})',
           style: TextStyle(
@@ -56,10 +86,14 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Container(
                 decoration: BoxDecoration(
-                  color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                  color: isDark
+                      ? AppColors.surfaceDark
+                      : AppColors.surfaceLight,
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(
-                    color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE2E8F0),
+                    color: isDark
+                        ? const Color(0xFF1E2D3D)
+                        : const Color(0xFFE2E8F0),
                   ),
                 ),
                 child: TextField(
@@ -71,7 +105,10 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                   },
                   decoration: InputDecoration(
                     hintText: 'Search categories (Membranes, Pumps...)...',
-                    hintStyle: const TextStyle(fontSize: 13, color: Colors.grey),
+                    hintStyle: const TextStyle(
+                      fontSize: 13,
+                      color: Colors.grey,
+                    ),
                     prefixIcon: Icon(Icons.search_rounded, color: primaryColor),
                     suffixIcon: _searchQuery.isNotEmpty
                         ? IconButton(
@@ -98,37 +135,42 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.category_outlined, size: 64, color: Colors.grey.withOpacity(0.5)),
+                          Icon(
+                            Icons.category_outlined,
+                            size: 64,
+                            color: Colors.grey.withValues(alpha: 0.5),
+                          ),
                           const SizedBox(height: 12),
                           Text(
                             'No category matches "$_searchQuery"',
-                            style: const TextStyle(color: Colors.grey, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),
                     )
                   : GridView.builder(
                       padding: const EdgeInsets.fromLTRB(16, 8, 16, 90),
-                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 14,
-                        mainAxisSpacing: 14,
-                        childAspectRatio: 1.1,
-                      ),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 14,
+                            mainAxisSpacing: 14,
+                            childAspectRatio: 1.1,
+                          ),
                       itemCount: filteredCategories.length,
                       itemBuilder: (context, index) {
                         final category = filteredCategories[index];
                         return CategoryCard(
                           category: category,
                           onTap: () {
-                            // Select category in provider & navigate to listing screen
-                            ref
-                                .read(productFilterProvider.notifier)
-                                .selectCategory(category.id);
                             Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) => ProductListingScreen(
+                                  initialCategoryId: category.id,
                                   initialCategoryName: category.name,
                                 ),
                               ),

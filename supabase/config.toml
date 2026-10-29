@@ -1,0 +1,40 @@
+# The Edge Functions perform an explicit Supabase Auth getUser() check for each
+# POST and reject requests without a verified user. JWT verification is
+# disabled at the gateway only so CORS OPTIONS requests can be handled; do not
+# remove the function-level authentication checks.
+[functions.create-razorpay-order]
+verify_jwt = false
+
+[functions.place-cod-order]
+verify_jwt = false
+
+[functions.verify-razorpay-payment]
+verify_jwt = false
+
+[functions.cancel-order]
+verify_jwt = false
+
+# The Edge Function performs auth.getUser() and requires a verified
+# app_metadata.role=admin identity before any service-role catalog operation.
+# Gateway JWT verification is disabled only for consistent OPTIONS/CORS
+# handling; the function-level check must remain enabled.
+[functions.admin-catalog]
+verify_jwt = false
+
+# This function verifies the bearer directly with Supabase Auth, requires a
+# verified email plus trusted app_metadata.role=admin, and uses the service
+# role only inside the function. Gateway JWT verification is disabled solely
+# for consistent CORS preflight handling; keep the explicit Auth check.
+[functions.admin-dealer-approval]
+verify_jwt = false
+
+# The function explicitly validates the bearer through Auth and requires a
+# verified app_metadata.role=admin identity before reading the dealer table.
+# Gateway JWT validation is disabled only to allow CORS OPTIONS handling.
+[functions.admin-dealers]
+verify_jwt = false
+
+# The function checks each access token with Supabase Auth and requires a
+# verified trusted admin role before reading summary data with service role.
+[functions.admin-dashboard-stats]
+verify_jwt = false

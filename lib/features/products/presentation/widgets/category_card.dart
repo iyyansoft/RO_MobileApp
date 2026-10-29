@@ -1,6 +1,9 @@
-import 'package:flutter/material.dart';
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/app_image.dart';
+
+import 'package:flutter/material.dart';
+
+import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/category_model.dart';
 
 class CategoryCard extends StatelessWidget {
@@ -23,7 +26,7 @@ class CategoryCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: isSelected
-            ? primaryColor.withOpacity(0.08)
+            ? primaryColor.withValues(alpha: 0.08)
             : (isDark ? AppColors.surfaceDark : AppColors.surfaceLight),
         borderRadius: BorderRadius.circular(AppTheme.radiusM),
         border: Border.all(
@@ -35,8 +38,8 @@ class CategoryCard extends StatelessWidget {
         boxShadow: [
           BoxShadow(
             color: isSelected
-                ? primaryColor.withOpacity(0.12)
-                : Colors.black.withOpacity(0.03),
+                ? primaryColor.withValues(alpha: 0.12)
+                : Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -58,12 +61,14 @@ class CategoryCard extends StatelessWidget {
                   width: 56,
                   height: 56,
                   decoration: BoxDecoration(
-                    color: isDark ? Colors.white.withOpacity(0.05) : const Color(0xFFF1F5F9),
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : const Color(0xFFF1F5F9),
                     shape: BoxShape.circle,
                   ),
                   padding: const EdgeInsets.all(8),
                   child: ClipOval(
-                    child: Image.asset(
+                    child: AppImage(
                       category.imagePath,
                       fit: BoxFit.contain,
                       errorBuilder: (context, error, stackTrace) => Icon(
@@ -92,10 +97,13 @@ class CategoryCard extends StatelessWidget {
                 const SizedBox(height: 3),
                 // Product Count Badge
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: isSelected
-                        ? primaryColor.withOpacity(0.15)
+                        ? primaryColor.withValues(alpha: 0.15)
                         : (isDark ? Colors.white10 : const Color(0xFFF1F5F9)),
                     borderRadius: BorderRadius.circular(10),
                   ),

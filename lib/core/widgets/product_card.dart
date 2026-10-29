@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'price_text.dart';
@@ -38,7 +39,7 @@ class _ProductCardState extends State<ProductCard> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
       onExit: (_) => setState(() => _isHovered = false),
@@ -46,17 +47,23 @@ class _ProductCardState extends State<ProductCard> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          transform: _isHovered ? (Matrix4.identity()..translate(0, -4)) : Matrix4.identity(),
+          transform: _isHovered
+              ? (Matrix4.identity()..translateByDouble(0, -4, 0, 1))
+              : Matrix4.identity(),
           decoration: BoxDecoration(
             color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
             borderRadius: BorderRadius.circular(AppTheme.radiusM),
-            boxShadow: _isHovered 
+            boxShadow: _isHovered
                 ? (isDark ? AppTheme.softShadowDark : AppTheme.softShadowLight)
                 : [],
             border: Border.all(
-              color: _isHovered 
-                  ? (isDark ? AppColors.accentDark.withOpacity(0.5) : AppColors.primaryLight.withOpacity(0.5))
-                  : (isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE5EFF5)),
+              color: _isHovered
+                  ? (isDark
+                        ? AppColors.accentDark.withValues(alpha: 0.5)
+                        : AppColors.primaryLight.withValues(alpha: 0.5))
+                  : (isDark
+                        ? const Color(0xFF1E2D3D)
+                        : const Color(0xFFE5EFF5)),
               width: 1.2,
             ),
           ),
@@ -70,7 +77,9 @@ class _ProductCardState extends State<ProductCard> {
                     Container(
                       width: double.infinity,
                       decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF1A2633) : const Color(0xFFF0F6FA),
+                        color: isDark
+                            ? const Color(0xFF1A2633)
+                            : const Color(0xFFF0F6FA),
                         borderRadius: const BorderRadius.only(
                           topLeft: Radius.circular(AppTheme.radiusM - 1),
                           topRight: Radius.circular(AppTheme.radiusM - 1),
@@ -85,7 +94,8 @@ class _ProductCardState extends State<ProductCard> {
                             ? Image.network(
                                 widget.imageUrl,
                                 fit: BoxFit.contain,
-                                errorBuilder: (c, o, s) => _buildPlaceholderImage(),
+                                errorBuilder: (c, o, s) =>
+                                    _buildPlaceholderImage(),
                               )
                             : _buildPlaceholderImage(),
                       ),
@@ -96,13 +106,15 @@ class _ProductCardState extends State<ProductCard> {
                       left: AppTheme.spaceS,
                       child: StatusBadge(
                         label: widget.isAvailable ? 'IN STOCK' : 'OUT OF STOCK',
-                        status: widget.isAvailable ? BadgeStatus.success : BadgeStatus.error,
+                        status: widget.isAvailable
+                            ? BadgeStatus.success
+                            : BadgeStatus.error,
                       ),
                     ),
                   ],
                 ),
               ),
-              
+
               // Product Info
               Padding(
                 padding: const EdgeInsets.all(AppTheme.spaceM),
@@ -112,10 +124,12 @@ class _ProductCardState extends State<ProductCard> {
                     Text(
                       widget.brand.toUpperCase(),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            letterSpacing: 1.0,
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? AppColors.accentDark : AppColors.secondaryLight,
-                          ),
+                        letterSpacing: 1.0,
+                        fontWeight: FontWeight.bold,
+                        color: isDark
+                            ? AppColors.accentDark
+                            : AppColors.secondaryLight,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
@@ -123,26 +137,30 @@ class _ProductCardState extends State<ProductCard> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        color: isDark
+                            ? AppColors.textPrimaryDark
+                            : AppColors.textPrimaryLight,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(height: AppTheme.spaceS),
-                    
+
                     // Min Order Qty
                     Text(
                       'MOQ: ${widget.minOrderQty} units',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        color: isDark
+                            ? AppColors.textSecondaryDark
+                            : AppColors.textSecondaryLight,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     const SizedBox(height: AppTheme.spaceM),
-                    
+
                     // Price & Action
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: Alignment.end,
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Flexible(
                           child: PriceText(
@@ -157,12 +175,18 @@ class _ProductCardState extends State<ProductCard> {
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: isDark ? AppColors.accentDark.withOpacity(0.1) : AppColors.primaryLight.withOpacity(0.1),
+                              color: isDark
+                                  ? AppColors.accentDark.withValues(alpha: 0.1)
+                                  : AppColors.primaryLight.withValues(
+                                      alpha: 0.1,
+                                    ),
                             ),
                             child: Icon(
                               Icons.add_shopping_cart_outlined,
                               size: 18,
-                              color: isDark ? AppColors.accentDark : AppColors.primaryLight,
+                              color: isDark
+                                  ? AppColors.accentDark
+                                  : AppColors.primaryLight,
                             ),
                           ),
                         ),
@@ -183,7 +207,7 @@ class _ProductCardState extends State<ProductCard> {
       child: Icon(
         Icons.water_drop_outlined,
         size: 40,
-        color: AppColors.secondaryLight.withOpacity(0.4),
+        color: AppColors.secondaryLight.withValues(alpha: 0.4),
       ),
     );
   }

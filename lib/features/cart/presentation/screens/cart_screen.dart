@@ -1,8 +1,10 @@
+import '../../../../core/widgets/app_image.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/loading_skeleton.dart';
 import '../../../products/domain/models/product_model.dart';
 import '../providers/cart_provider.dart';
@@ -15,6 +17,13 @@ class CartScreen extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
     final cartState = ref.watch(cartProvider);
+    ref.listen<CartState>(cartProvider, (previous, next) {
+      if (next.errorMessage != null &&
+          next.errorMessage != previous?.errorMessage) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(next.errorMessage!)));
+      }
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -27,15 +36,28 @@ class CartScreen extends ConsumerWidget {
           ),
         ),
         elevation: 0,
-        backgroundColor: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
+        backgroundColor: isDark
+            ? AppColors.backgroundDark
+            : AppColors.backgroundLight,
         actions: [
           if (cartState.items.isNotEmpty)
             TextButton.icon(
               onPressed: () {
                 _showClearCartDialog(context, ref);
               },
-              icon: const Icon(Icons.delete_sweep_rounded, size: 18, color: Colors.redAccent),
-              label: const Text('Clear', style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+              icon: const Icon(
+                Icons.delete_sweep_rounded,
+                size: 18,
+                color: Colors.redAccent,
+              ),
+              label: const Text(
+                'Clear',
+                style: TextStyle(
+                  color: Colors.redAccent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
             ),
           const SizedBox(width: 8),
         ],
@@ -44,43 +66,59 @@ class CartScreen extends ConsumerWidget {
         child: cartState.isLoading
             ? _buildSkeletonLoading()
             : cartState.items.isEmpty
-                ? _buildEmptyCart(context, isDark, primaryColor)
-                : Column(
-                    children: [
-                      // Cart Items & Summary Scrollable View
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // GST Tax Benefit Alert Card
-                              _buildGstAlertBanner(isDark, primaryColor),
-                              const SizedBox(height: 16),
+            ? _buildEmptyCart(context, isDark, primaryColor)
+            : Column(
+                children: [
+                  // Cart Items & Summary Scrollable View
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // GST Tax Benefit Alert Card
+                          _buildGstAlertBanner(isDark, primaryColor),
+                          const SizedBox(height: 16),
 
-                              // Items List
-                              ListView.builder(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                itemCount: cartState.items.length,
-                                itemBuilder: (context, index) {
-                                  final item = cartState.items[index];
-                                  return _buildCartItemCard(context, ref, item, isDark, primaryColor);
-                                },
-                              ),
-                              const SizedBox(height: 16),
-
-                              // Cart Summary Breakdown Card
-                              _buildCartSummaryCard(context, cartState, isDark, primaryColor),
-                            ],
+                          // Items List
+                          ListView.builder(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: cartState.items.length,
+                            itemBuilder: (context, index) {
+                              final item = cartState.items[index];
+                              return _buildCartItemCard(
+                                context,
+                                ref,
+                                item,
+                                isDark,
+                                primaryColor,
+                              );
+                            },
                           ),
-                        ),
-                      ),
+                          const SizedBox(height: 16),
 
-                      // Sticky Bottom Checkout Action Section
-                      _buildStickyBottomCheckout(context, cartState, isDark, primaryColor),
-                    ],
+                          // Cart Summary Breakdown Card
+                          _buildCartSummaryCard(
+                            context,
+                            cartState,
+                            isDark,
+                            primaryColor,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
+
+                  // Sticky Bottom Checkout Action Section
+                  _buildStickyBottomCheckout(
+                    context,
+                    cartState,
+                    isDark,
+                    primaryColor,
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -89,12 +127,14 @@ class CartScreen extends ConsumerWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFF10B981).withOpacity(0.1),
+        color: const Color(0xFF10B981).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
+        border: Border.all(
+          color: const Color(0xFF10B981).withValues(alpha: 0.3),
+        ),
       ),
-      child: Row(
-        children: const [
+      child: const Row(
+        children: [
           Icon(Icons.verified_rounded, color: Color(0xFF10B981), size: 20),
           SizedBox(width: 10),
           Expanded(
@@ -133,10 +173,7 @@ class CartScreen extends ConsumerWidget {
           color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE2E8F0),
         ),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 8),
         ],
       ),
       child: Row(
@@ -148,12 +185,15 @@ class CartScreen extends ConsumerWidget {
             child: Container(
               width: 80,
               height: 80,
-              color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF8FAFC),
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.04)
+                  : const Color(0xFFF8FAFC),
               padding: const EdgeInsets.all(6),
-              child: Image.asset(
-                product.imageUrl,
+              child: AppImage(
+                product.displayImageUrl,
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Icon(Icons.water_drop_rounded, color: primaryColor),
+                errorBuilder: (_, __, ___) =>
+                    Icon(Icons.water_drop_rounded, color: primaryColor),
               ),
             ),
           ),
@@ -177,7 +217,11 @@ class CartScreen extends ConsumerWidget {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.delete_outline_rounded, size: 18, color: Colors.grey),
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        size: 18,
+                        color: Colors.grey,
+                      ),
                       onPressed: () {
                         ref.read(cartProvider.notifier).removeItem(product.id);
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -204,7 +248,7 @@ class CartScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'SKU: ${product.sku} • ₹${product.dealerPrice.toStringAsFixed(0)} / Unit',
+                  'SKU: ${product.sku} • ₹${product.dealerPrice.toStringAsFixed(2)} / Unit',
                   style: const TextStyle(fontSize: 10.5, color: Colors.grey),
                 ),
                 const SizedBox(height: 8),
@@ -216,28 +260,27 @@ class CartScreen extends ConsumerWidget {
                     // Quantity Controller
                     Container(
                       decoration: BoxDecoration(
-                        color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF1F5F9),
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.04)
+                            : const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+                        border: Border.all(
+                          color: isDark ? Colors.white10 : Colors.black12,
+                        ),
                       ),
                       child: Row(
                         children: [
                           GestureDetector(
                             onTap: () {
-                              final updated = ref
+                              ref
                                   .read(cartProvider.notifier)
                                   .updateQuantity(product.id, quantity - 1);
-                              if (!updated) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('MOQ for ${product.name} is ${product.moq} Pcs.'),
-                                    duration: const Duration(seconds: 1),
-                                  ),
-                                );
-                              }
                             },
                             child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               child: Icon(Icons.remove_rounded, size: 16),
                             ),
                           ),
@@ -248,7 +291,9 @@ class CartScreen extends ConsumerWidget {
                               style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w900,
-                                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                color: isDark
+                                    ? Colors.white
+                                    : const Color(0xFF0F172A),
                               ),
                             ),
                           ),
@@ -259,7 +304,10 @@ class CartScreen extends ConsumerWidget {
                                   .updateQuantity(product.id, quantity + 1);
                             },
                             child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               child: Icon(Icons.add_rounded, size: 16),
                             ),
                           ),
@@ -269,7 +317,7 @@ class CartScreen extends ConsumerWidget {
 
                     // Total Item Price
                     Text(
-                      '₹${itemTotal.toStringAsFixed(0)}',
+                      '₹${itemTotal.toStringAsFixed(2)}',
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w900,
@@ -313,13 +361,33 @@ class CartScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 14),
-          _buildSummaryRow('Subtotal (${cartState.totalItemCount} Pcs)', '₹${cartState.subtotal.toStringAsFixed(0)}', isDark),
+          _buildSummaryRow(
+            'Subtotal (${cartState.totalItemCount} Pcs)',
+            '₹${cartState.subtotal.toStringAsFixed(2)}',
+            isDark,
+          ),
           const SizedBox(height: 8),
-          _buildSummaryRow('Gold Dealer Discount (-10%)', '- ₹${cartState.dealerDiscount.toStringAsFixed(0)}', isDark, isDiscount: true),
+          _buildSummaryRow(
+            'Gold Dealer Discount (-10%)',
+            '- ₹${cartState.dealerDiscount.toStringAsFixed(2)}',
+            isDark,
+            isDiscount: true,
+          ),
           const SizedBox(height: 8),
-          _buildSummaryRow('B2B GST Input Tax (18%)', '+ ₹${cartState.gstAmount.toStringAsFixed(0)}', isDark),
+          _buildSummaryRow(
+            'B2B GST Input Tax (18%)',
+            '+ ₹${cartState.gstAmount.toStringAsFixed(2)}',
+            isDark,
+          ),
           const SizedBox(height: 8),
-          _buildSummaryRow('Delivery / Freight', cartState.deliveryFee == 0 ? 'FREE' : '₹${cartState.deliveryFee.toStringAsFixed(0)}', isDark, isHighlight: cartState.deliveryFee == 0),
+          _buildSummaryRow(
+            'Delivery / Freight',
+            cartState.deliveryFee == 0
+                ? 'FREE'
+                : '₹${cartState.deliveryFee.toStringAsFixed(2)}',
+            isDark,
+            isHighlight: cartState.deliveryFee == 0,
+          ),
           const Divider(height: 24),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -333,7 +401,7 @@ class CartScreen extends ConsumerWidget {
                 ),
               ),
               Text(
-                '₹${cartState.grandTotal.toStringAsFixed(0)}',
+                '₹${cartState.grandTotal.toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w900,
@@ -347,13 +415,23 @@ class CartScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildSummaryRow(String label, String value, bool isDark, {bool isDiscount = false, bool isHighlight = false}) {
+  Widget _buildSummaryRow(
+    String label,
+    String value,
+    bool isDark, {
+    bool isDiscount = false,
+    bool isHighlight = false,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w600),
+          style: const TextStyle(
+            fontSize: 12,
+            color: Colors.grey,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         Text(
           value,
@@ -362,7 +440,9 @@ class CartScreen extends ConsumerWidget {
             fontWeight: FontWeight.w700,
             color: isDiscount
                 ? const Color(0xFF10B981)
-                : (isHighlight ? const Color(0xFF10B981) : (isDark ? Colors.white : const Color(0xFF0F172A))),
+                : (isHighlight
+                      ? AppColors.primaryLight
+                      : (isDark ? Colors.white : const Color(0xFF0F172A))),
           ),
         ),
       ],
@@ -386,7 +466,7 @@ class CartScreen extends ConsumerWidget {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.06),
+            color: Colors.black.withValues(alpha: 0.06),
             blurRadius: 16,
             offset: const Offset(0, -4),
           ),
@@ -402,9 +482,14 @@ class CartScreen extends ConsumerWidget {
                   context.go('/products');
                 },
                 style: OutlinedButton.styleFrom(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
-                child: const Text('Continue Shopping', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+                child: const Text(
+                  'Continue Shopping',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),
@@ -419,10 +504,15 @@ class CartScreen extends ConsumerWidget {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: primaryColor,
                   foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
                 ),
                 icon: const Icon(Icons.check_circle_outline_rounded, size: 18),
-                label: const Text('Checkout', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                label: const Text(
+                  'Checkout',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
           ),
@@ -431,7 +521,11 @@ class CartScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildEmptyCart(BuildContext context, bool isDark, Color primaryColor) {
+  Widget _buildEmptyCart(
+    BuildContext context,
+    bool isDark,
+    Color primaryColor,
+  ) {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -443,9 +537,13 @@ class CartScreen extends ConsumerWidget {
               height: 100,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: primaryColor.withOpacity(0.12),
+                color: primaryColor.withValues(alpha: 0.12),
               ),
-              child: Icon(Icons.remove_shopping_cart_rounded, size: 52, color: primaryColor),
+              child: Icon(
+                Icons.remove_shopping_cart_rounded,
+                size: 52,
+                color: primaryColor,
+              ),
             ),
             const SizedBox(height: 20),
             Text(
@@ -470,11 +568,19 @@ class CartScreen extends ConsumerWidget {
               style: ElevatedButton.styleFrom(
                 backgroundColor: primaryColor,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
               ),
               icon: const Icon(Icons.storefront_rounded),
-              label: const Text('Browse Wholesale Catalog', style: TextStyle(fontWeight: FontWeight.bold)),
+              label: const Text(
+                'Browse Wholesale Catalog',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
           ],
         ),
@@ -483,15 +589,27 @@ class CartScreen extends ConsumerWidget {
   }
 
   Widget _buildSkeletonLoading() {
-    return Padding(
-      padding: const EdgeInsets.all(16),
+    return const Padding(
+      padding: EdgeInsets.all(16),
       child: Column(
-        children: const [
-          LoadingSkeleton.rectangular(height: 100, borderRadius: 16),
+        children: [
+          LoadingSkeleton.rectangular(
+            width: double.infinity,
+            height: 100,
+            borderRadius: 16,
+          ),
           SizedBox(height: 12),
-          LoadingSkeleton.rectangular(height: 100, borderRadius: 16),
+          LoadingSkeleton.rectangular(
+            width: double.infinity,
+            height: 100,
+            borderRadius: 16,
+          ),
           SizedBox(height: 12),
-          LoadingSkeleton.rectangular(height: 180, borderRadius: 16),
+          LoadingSkeleton.rectangular(
+            width: double.infinity,
+            height: 180,
+            borderRadius: 16,
+          ),
         ],
       ),
     );
@@ -503,7 +621,9 @@ class CartScreen extends ConsumerWidget {
       builder: (context) {
         return AlertDialog(
           title: const Text('Clear Cart?'),
-          content: const Text('Are you sure you want to remove all items from your wholesale cart?'),
+          content: const Text(
+            'Are you sure you want to remove all items from your wholesale cart?',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -514,7 +634,10 @@ class CartScreen extends ConsumerWidget {
                 ref.read(cartProvider.notifier).clearCart();
                 Navigator.pop(context);
               },
-              child: const Text('Clear All', style: TextStyle(color: Colors.redAccent)),
+              child: const Text(
+                'Clear All',
+                style: TextStyle(color: Colors.redAccent),
+              ),
             ),
           ],
         );

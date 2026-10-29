@@ -1,56 +1,54 @@
 import 'package:dio/dio.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+final apiClientProvider = Provider<ApiClient>((ref) => ApiClient());
 
 class ApiException implements Exception {
   final String message;
   final int? statusCode;
   final dynamic responseData;
 
-  ApiException({
-    required this.message,
-    this.statusCode,
-    this.responseData,
-  });
+  ApiException({required this.message, this.statusCode, this.responseData});
 
   @override
   String toString() => 'ApiException: $message (Status: $statusCode)';
 }
 
 class ApiClient {
+  static String? sessionToken;
   final Dio _dio;
 
-  // Deployed Railway Production Backend Base URL Configuration
-  // Supports --dart-define=API_BASE_URL=http://127.0.0.1:8080/api/ for local testing
+  // The API URL can be overridden at build time with --dart-define=API_BASE_URL=...
   static String get defaultBaseUrl {
     return const String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'https://romobileapp-production.up.railway.app/api/',
+      defaultValue: 'http://10.0.2.2:8081/api/',
     );
   }
 
-  ApiClient({
-    String? baseUrl,
-    List<Interceptor>? interceptors,
-  }) : _dio = Dio(
-          BaseOptions(
-            baseUrl: baseUrl ?? defaultBaseUrl,
-            connectTimeout: const Duration(seconds: 15),
-            receiveTimeout: const Duration(seconds: 15),
-            headers: {
-              'Content-Type': 'application/json',
-              'Accept': 'application/json',
-            },
-          ),
-        ) {
+  ApiClient({String? baseUrl, List<Interceptor>? interceptors})
+    : _dio = Dio(
+        BaseOptions(
+          baseUrl: baseUrl ?? defaultBaseUrl,
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        ),
+      ) {
     if (interceptors != null && interceptors.isNotEmpty) {
       _dio.interceptors.addAll(interceptors);
     } else {
-      // Default logging and placeholder auth interceptor
+      // Attach the active dealer token without logging credentials.
       _dio.interceptors.add(
         InterceptorsWrapper(
           onRequest: (options, handler) {
-            // In a real app, retrieve the token from a local storage secure storage provider.
-            const dummyToken = 'RO_WHOLESALE_DEMO_TOKEN';
-            options.headers['Authorization'] = 'Bearer $dummyToken';
+            final token = sessionToken;
+            if (token != null && token.isNotEmpty) {
+              options.headers['Authorization'] = 'Bearer $token';
+            }
             return handler.next(options);
           },
           onError: (DioException e, handler) {
@@ -157,7 +155,7 @@ class ApiClient {
     if (e.error is ApiException) {
       return e.error as ApiException;
     }
-    
+
     String message = 'An unexpected network error occurred.';
     int? statusCode = e.response?.statusCode;
     dynamic responseData = e.response?.data;
@@ -166,10 +164,13 @@ class ApiClient {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-        message = 'Connection timed out. Please check your internet connection.';
+        message =
+            'Connection timed out. Please check your internet connection.';
         break;
       case DioExceptionType.badResponse:
-        message = _extractErrorMessage(e.response?.data) ?? 'Received invalid response from server.';
+        message =
+            _extractErrorMessage(e.response?.data) ??
+            'Received invalid response from server.';
         break;
       case DioExceptionType.cancel:
         message = 'Request was cancelled.';

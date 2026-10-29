@@ -5,12 +5,23 @@ CREATE DATABASE IF NOT EXISTS `ro_wholesale_db` CHARACTER SET utf8mb4 COLLATE ut
 USE `ro_wholesale_db`;
 
 -- 1. USERS TABLE (Dealers)
+CREATE TABLE IF NOT EXISTS `payment_sessions` (
+  `id` VARCHAR(100) PRIMARY KEY,
+  `user_email` VARCHAR(191) NOT NULL,
+  `amount` BIGINT NOT NULL,
+  `payload_json` LONGTEXT NOT NULL,
+  `payment_id` VARCHAR(100) NULL UNIQUE,
+  `local_order_id` VARCHAR(100) NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE TABLE IF NOT EXISTS `users` (
   `id` VARCHAR(64) NOT NULL,
   `email` VARCHAR(191) NOT NULL,
   `mobile` VARCHAR(20) NULL,
   `name` VARCHAR(128) NOT NULL,
   `password_hash` VARCHAR(255) NOT NULL,
+  `email_verified` TINYINT(1) NOT NULL DEFAULT 1,
+  `gst_number` VARCHAR(15) NULL,
   `business_name` VARCHAR(191) NULL,
   `owner_name` VARCHAR(128) NULL,
   `address` TEXT NULL,
@@ -48,6 +59,7 @@ CREATE TABLE IF NOT EXISTS `categories` (
   `id` VARCHAR(64) NOT NULL,
   `key_name` VARCHAR(64) NOT NULL,
   `title` VARCHAR(128) NOT NULL,
+  `description` TEXT NULL,
   `badge_text` VARCHAR(64) NULL,
   `icon_color` VARCHAR(32) NULL,
   `image_url` VARCHAR(255) NULL,
@@ -64,6 +76,7 @@ CREATE TABLE IF NOT EXISTS `products` (
   `sku` VARCHAR(64) NOT NULL,
   `name` VARCHAR(255) NOT NULL,
   `brand` VARCHAR(100) NOT NULL,
+  `purchase_price` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
   `price` DECIMAL(10, 2) NOT NULL,
   `mrp` DECIMAL(10, 2) NOT NULL,
   `moq` VARCHAR(64) NULL,
@@ -74,6 +87,9 @@ CREATE TABLE IF NOT EXISTS `products` (
   `specs_json` JSON NULL,
   `features_json` JSON NULL,
   `applications` TEXT NULL,
+  `stock_quantity` INT NOT NULL DEFAULT 50,
+  `min_stock` INT NOT NULL DEFAULT 10,
+  `status` VARCHAR(32) NOT NULL DEFAULT 'active',
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_products_sku` (`sku`),
@@ -93,7 +109,15 @@ CREATE TABLE IF NOT EXISTS `orders` (
   `gst` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
   `delivery_fee` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
   `grand_total` DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+  `with_gst` TINYINT(1) NOT NULL DEFAULT 1,
+  `payment_status` VARCHAR(32) NOT NULL DEFAULT 'pending',
+  `razorpay_payment_id` VARCHAR(100) NULL,
   `payment_method` VARCHAR(100) NOT NULL DEFAULT 'UPI Direct QR Transfer',
+  `billing_address` TEXT NULL,
+  `company_name` VARCHAR(191) NULL,
+  `gstin` VARCHAR(64) NULL,
+  `pan_number` VARCHAR(64) NULL,
+  `same_as_delivery` TINYINT(1) NOT NULL DEFAULT 1,
   `delivery_address` TEXT NOT NULL,
   `delivery_note` TEXT NULL,
   `status` VARCHAR(100) NOT NULL DEFAULT 'Processing & Dispatched',
@@ -111,12 +135,12 @@ CREATE TABLE IF NOT EXISTS `order_items` (
   `id` BIGINT AUTO_INCREMENT NOT NULL,
   `order_id` VARCHAR(64) NOT NULL,
   `product_id` VARCHAR(64) NULL,
-  `product_name` VARCHAR(255) NOT NULL,
-  `brand` VARCHAR(100) NULL,
+  `product_name` VARCHAR(512) NOT NULL,
+  `brand` VARCHAR(255) NULL,
   `unit_price` DECIMAL(10, 2) NOT NULL,
   `quantity` INT NOT NULL DEFAULT 1,
   `moq` VARCHAR(64) NULL,
-  `img_src` VARCHAR(255) NULL,
+  `img_src` TEXT NULL,
   `sku` VARCHAR(64) NULL,
   PRIMARY KEY (`id`),
   INDEX `idx_order_items_order_id` (`order_id`),
@@ -141,7 +165,8 @@ CREATE TABLE IF NOT EXISTS `rewards_history` (
 CREATE TABLE IF NOT EXISTS `otp_codes` (
   `id` BIGINT AUTO_INCREMENT NOT NULL,
   `email` VARCHAR(191) NOT NULL,
-  `otp_code` VARCHAR(10) NOT NULL,
+  `otp_code` VARCHAR(64) NOT NULL,
+  `attempts` INT NOT NULL DEFAULT 0,
   `expires_at` DATETIME NOT NULL,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
@@ -160,4 +185,19 @@ CREATE TABLE IF NOT EXISTS `support_tickets` (
   PRIMARY KEY (`id`),
   INDEX `idx_tickets_user_email` (`user_email`),
   CONSTRAINT `fk_tickets_users` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 10. CART ITEMS TABLE (User-Specific Persistent Cart System)
+CREATE TABLE IF NOT EXISTS `cart_items` (
+  `id` BIGINT AUTO_INCREMENT NOT NULL,
+  `user_id` VARCHAR(64) NOT NULL,
+  `product_id` VARCHAR(64) NOT NULL,
+  `quantity` INT NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_product` (`user_id`, `product_id`),
+  INDEX `idx_cart_user_id` (`user_id`),
+  CONSTRAINT `fk_cart_users` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `fk_cart_products` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

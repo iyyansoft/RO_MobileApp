@@ -2,20 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../providers/auth_provider.dart';
 
 class OtpVerificationScreen extends ConsumerStatefulWidget {
   const OtpVerificationScreen({super.key});
 
   @override
-  ConsumerState<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
+  ConsumerState<OtpVerificationScreen> createState() =>
+      _OtpVerificationScreenState();
 }
 
 class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
-  final List<TextEditingController> _controllers =
-      List.generate(6, (_) => TextEditingController());
+  final List<TextEditingController> _controllers = List.generate(
+    6,
+    (_) => TextEditingController(),
+  );
   final List<FocusNode> _focusNodes = List.generate(6, (_) => FocusNode());
 
   @override
@@ -36,10 +39,18 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
   Future<void> _handleVerify() async {
     FocusScope.of(context).unfocus();
     final otp = _currentOtp;
-    final success = await ref.read(authProvider.notifier).verifyOtp(otp);
+    final isSignup =
+        GoRouterState.of(context).uri.queryParameters['flow'] == 'signup';
+    final success = await ref
+        .read(authProvider.notifier)
+        .verifyOtp(otp, signIn: !isSignup);
 
     if (success && mounted) {
-      context.go('/home');
+      if (isSignup) {
+        context.go('/login');
+      } else {
+        context.go('/home');
+      }
     }
   }
 
@@ -60,6 +71,8 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isSignup =
+        GoRouterState.of(context).uri.queryParameters['flow'] == 'signup';
     final primaryColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
     final authState = ref.watch(authProvider);
 
@@ -80,7 +93,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
             children: [
               // Header
               Text(
-                'Verify Phone Number',
+                'Verify your email',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w900,
@@ -90,11 +103,15 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
               const SizedBox(height: 6),
               RichText(
                 text: TextSpan(
-                  style: const TextStyle(fontSize: 13, color: Colors.grey, height: 1.4),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey,
+                    height: 1.4,
+                  ),
                   children: [
                     const TextSpan(text: 'Enter 6-digit OTP code sent to '),
                     TextSpan(
-                      text: '+91 ${authState.phoneNumber}',
+                      text: authState.email,
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         color: isDark ? Colors.white : const Color(0xFF0F172A),
@@ -105,29 +122,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
               ),
               const SizedBox(height: 8),
 
-              // Demo hint badge
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF10B981).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: const [
-                    Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF10B981)),
-                    SizedBox(width: 6),
-                    Text(
-                      'Demo OTP: 123456',
-                      style: TextStyle(
-                        color: Color(0xFF10B981),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              const Text('The code expires after five minutes.'),
               const SizedBox(height: 32),
 
               // 6-Digit OTP Boxes
@@ -143,9 +138,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                       keyboardType: TextInputType.number,
                       textAlign: TextAlign.center,
                       maxLength: 1,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                      ],
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w900,
@@ -154,17 +147,24 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                       decoration: InputDecoration(
                         counterText: '',
                         filled: true,
-                        fillColor: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                        fillColor: isDark
+                            ? AppColors.surfaceDark
+                            : AppColors.surfaceLight,
                         contentPadding: EdgeInsets.zero,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                           borderSide: BorderSide(
-                            color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE2E8F0),
+                            color: isDark
+                                ? const Color(0xFF1E2D3D)
+                                : const Color(0xFFE2E8F0),
                           ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide(color: primaryColor, width: 2.0),
+                          borderSide: BorderSide(
+                            color: primaryColor,
+                            width: 2.0,
+                          ),
                         ),
                       ),
                       onChanged: (val) => _onOtpDigitChanged(index, val),
@@ -179,13 +179,19 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent.withOpacity(0.1),
+                    color: Colors.redAccent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
+                    border: Border.all(
+                      color: Colors.redAccent.withValues(alpha: 0.3),
+                    ),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 18),
+                      const Icon(
+                        Icons.error_outline_rounded,
+                        color: Colors.redAccent,
+                        size: 18,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -224,12 +230,14 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                           height: 22,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
-                      : const Text(
-                          'Verify OTP & Enter App',
-                          style: TextStyle(
+                      : Text(
+                          isSignup ? 'Verify Email' : 'Verify OTP & Enter App',
+                          style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
                           ),
@@ -259,7 +267,11 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                     : Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.timer_outlined, size: 16, color: Colors.grey),
+                          const Icon(
+                            Icons.timer_outlined,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
                           const SizedBox(width: 6),
                           Text(
                             'Resend OTP in 00:${authState.countdownSeconds.toString().padLeft(2, '0')}',

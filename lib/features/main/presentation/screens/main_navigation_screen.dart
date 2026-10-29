@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_theme.dart';
 
 class MainNavigationScreen extends StatelessWidget {
   final Widget child;
 
-  const MainNavigationScreen({
-    super.key,
-    required this.child,
-  });
+  const MainNavigationScreen({super.key, required this.child});
 
   int _calculateSelectedIndex(BuildContext context) {
     final String location = GoRouterState.of(context).uri.path;
@@ -41,30 +38,48 @@ class MainNavigationScreen extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final selectedIndex = _calculateSelectedIndex(context);
 
-    final Color activeColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
-    final Color inactiveColor = isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight;
+    final Color activeColor = isDark
+        ? AppColors.accentDark
+        : AppColors.primaryLight;
+    final Color inactiveColor = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondaryLight;
 
     return Scaffold(
       body: Stack(
         children: [
-          child,
+          Padding(
+            padding: EdgeInsets.only(
+              bottom: 82 + MediaQuery.paddingOf(context).bottom,
+            ),
+            child: child,
+          ),
           // Floating Pill-Style Navigation Bar
           Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
+            left: 0,
+            right: 0,
+            bottom: 0,
             child: Container(
-              height: 70,
+              height: 72 + MediaQuery.paddingOf(context).bottom,
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.paddingOf(context).bottom,
+              ),
               decoration: BoxDecoration(
-                color: (isDark ? AppColors.surfaceDark : AppColors.surfaceLight).withOpacity(0.95),
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                  color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE5EFF5),
-                  width: 1.2,
+                color: (isDark ? AppColors.surfaceDark : AppColors.surfaceLight)
+                    .withValues(alpha: 0.95),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
+                border: Border(
+                  top: BorderSide(
+                    color: isDark
+                        ? const Color(0xFF29415F)
+                        : const Color(0xFFE3ECF7),
+                  ),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
+                    color: Colors.black.withValues(alpha: 0.08),
                     offset: const Offset(0, 10),
                     blurRadius: 30,
                     spreadRadius: -5,
@@ -72,7 +87,9 @@ class MainNavigationScreen extends StatelessWidget {
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(28),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(24),
+                ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
@@ -140,24 +157,37 @@ class MainNavigationScreen extends StatelessWidget {
       onTap: () => _onItemTapped(index, context),
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor.withValues(alpha: 0.1)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(18),
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              isSelected ? activeIcon : icon,
-              color: isSelected ? activeColor : inactiveColor,
-              size: 24,
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 180),
+              transitionBuilder: (child, animation) =>
+                  ScaleTransition(scale: animation, child: child),
+              child: Icon(
+                isSelected ? activeIcon : icon,
+                key: ValueKey(isSelected),
+                color: isSelected ? activeColor : inactiveColor,
+                size: 23,
+              ),
             ),
             const SizedBox(height: 2),
             Text(
               label,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: isSelected ? activeColor : inactiveColor,
-                    fontWeight: isSelected ? FontWeight.w800 : FontWeight.normal,
-                    fontSize: 10,
-                  ),
+                color: isSelected ? activeColor : inactiveColor,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.normal,
+                fontSize: 10,
+              ),
             ),
             const SizedBox(height: 2),
             // Pill Active Dot Indicator

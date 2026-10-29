@@ -1,5 +1,7 @@
 import 'dart:ui';
+
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
@@ -22,30 +24,35 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     final appBar = AppBar(
       backgroundColor: Colors.transparent,
       elevation: 0,
       title: Text(
         title,
         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: isDark ? AppColors.textPrimaryDark : AppColors.primaryLight,
-            ),
+          fontWeight: FontWeight.w700,
+          color: isDark ? AppColors.textPrimaryDark : AppColors.primaryLight,
+        ),
       ),
       leading: showBackButton
           ? Padding(
               padding: const EdgeInsets.all(AppTheme.spaceS),
               child: ClipOval(
                 child: Material(
-                  color: isDark ? Colors.white10 : Colors.black.withOpacity(0.04),
+                  color: isDark
+                      ? Colors.white10
+                      : Colors.black.withValues(alpha: 0.04),
                   child: IconButton(
                     icon: Icon(
                       Icons.arrow_back_ios_new,
                       size: 16,
-                      color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
+                      color: isDark
+                          ? AppColors.textPrimaryDark
+                          : AppColors.textPrimaryLight,
                     ),
-                    onPressed: onBackPressed ?? () => Navigator.maybePop(context),
+                    onPressed:
+                        onBackPressed ?? () => Navigator.maybePop(context),
                   ),
                 ),
               ),
@@ -62,11 +69,13 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
         child: Container(
           decoration: BoxDecoration(
             color: isDark
-                ? AppColors.backgroundDark.withOpacity(0.7)
-                : AppColors.backgroundLight.withOpacity(0.7),
+                ? AppColors.backgroundDark.withValues(alpha: 0.7)
+                : AppColors.backgroundLight.withValues(alpha: 0.7),
             border: Border(
               bottom: BorderSide(
-                color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE5EFF5),
+                color: isDark
+                    ? const Color(0xFF1E2D3D)
+                    : const Color(0xFFE5EFF5),
                 width: 1,
               ),
             ),

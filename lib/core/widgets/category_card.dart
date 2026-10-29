@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
@@ -26,11 +27,17 @@ class _CategoryCardState extends State<CategoryCard> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     // Water drop or bubble inspired style
-    final Color activeColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
-    final Color inactiveBg = isDark ? AppColors.surfaceDark : AppColors.surfaceLight;
-    final Color activeBg = isDark ? AppColors.secondaryDark.withOpacity(0.2) : AppColors.primaryLight.withOpacity(0.08);
+    final Color activeColor = isDark
+        ? AppColors.accentDark
+        : AppColors.primaryLight;
+    final Color inactiveBg = isDark
+        ? AppColors.surfaceDark
+        : AppColors.surfaceLight;
+    final Color activeBg = isDark
+        ? AppColors.secondaryDark.withValues(alpha: 0.2)
+        : AppColors.primaryLight.withValues(alpha: 0.08);
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -51,15 +58,23 @@ class _CategoryCardState extends State<CategoryCard> {
                 width: 64,
                 decoration: BoxDecoration(
                   color: widget.isSelected ? activeBg : inactiveBg,
-                  borderRadius: BorderRadius.circular(widget.isSelected || _isHovered ? AppTheme.radiusL : AppTheme.radiusM),
+                  borderRadius: BorderRadius.circular(
+                    widget.isSelected || _isHovered
+                        ? AppTheme.radiusL
+                        : AppTheme.radiusM,
+                  ),
                   border: Border.all(
                     color: widget.isSelected || _isHovered
                         ? activeColor
-                        : (isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE5EFF5)),
+                        : (isDark
+                              ? const Color(0xFF1E2D3D)
+                              : const Color(0xFFE5EFF5)),
                     width: 1.5,
                   ),
                   boxShadow: widget.isSelected || _isHovered
-                      ? (isDark ? AppTheme.softShadowDark : AppTheme.softShadowLight)
+                      ? (isDark
+                            ? AppTheme.softShadowDark
+                            : AppTheme.softShadowLight)
                       : [],
                 ),
                 child: Icon(
@@ -67,7 +82,9 @@ class _CategoryCardState extends State<CategoryCard> {
                   size: 28,
                   color: widget.isSelected || _isHovered
                       ? activeColor
-                      : (isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight),
+                      : (isDark
+                            ? AppColors.textSecondaryDark
+                            : AppColors.textSecondaryLight),
                 ),
               ),
               const SizedBox(height: AppTheme.spaceS),
@@ -77,12 +94,16 @@ class _CategoryCardState extends State<CategoryCard> {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.normal,
-                      color: widget.isSelected
-                          ? activeColor
-                          : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight),
-                      fontSize: 12,
-                    ),
+                  fontWeight: widget.isSelected
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                  color: widget.isSelected
+                      ? activeColor
+                      : (isDark
+                            ? AppColors.textPrimaryDark
+                            : AppColors.textPrimaryLight),
+                  fontSize: 12,
+                ),
               ),
             ],
           ),

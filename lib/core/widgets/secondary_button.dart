@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
@@ -24,7 +25,8 @@ class SecondaryButton extends StatefulWidget {
   State<SecondaryButton> createState() => _SecondaryButtonState();
 }
 
-class _SecondaryButtonState extends State<SecondaryButton> with SingleTickerProviderStateMixin {
+class _SecondaryButtonState extends State<SecondaryButton>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
 
@@ -35,9 +37,10 @@ class _SecondaryButtonState extends State<SecondaryButton> with SingleTickerProv
       vsync: this,
       duration: const Duration(milliseconds: 100),
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.96,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -107,12 +110,12 @@ class _SecondaryButtonState extends State<SecondaryButton> with SingleTickerProv
                       Text(
                         widget.text,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: widget.onPressed == null
-                                  ? (isDark ? Colors.white30 : Colors.black26)
-                                  : color,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                            ),
+                          color: widget.onPressed == null
+                              ? (isDark ? Colors.white30 : Colors.black26)
+                              : color,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
                       ),
                     ],
                   ),

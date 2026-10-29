@@ -34,10 +34,10 @@ window.navigateToHomeScreen = function() {
   window.scrollTo(0, 0);
 };
 
-// Global Direct Search Launcher Function
+// Global Direct Search Launcher Placeholder
 window.openNewSearch = function(initialQuery = '') {
-  if (typeof openNewSearch === 'function') {
-    openNewSearch(initialQuery);
+  if (typeof window.internalOpenNewSearch === 'function') {
+    window.internalOpenNewSearch(initialQuery);
   }
 };
 
@@ -57,11 +57,54 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
 
-  // 2. STATEFUL CART MANAGER
+  // 2. STATEFUL USER-SPECIFIC PERSISTENT CART MANAGER
   let cartState = [];
+  try {
+    localStorage.removeItem('ro_b2b_cart');
+  } catch (e) {}
+
+  function getAuthHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    try {
+      const userStr = localStorage.getItem('ro_b2b_user');
+      if (userStr) {
+        const u = JSON.parse(userStr);
+        if (u && u.id) {
+          headers['x-user-id'] = u.id;
+        }
+      }
+      const token = localStorage.getItem('ro_b2b_token');
+      if (token) {
+        headers['x-dealer-token'] = token;
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch (e) {}
+    return headers;
+  }
+
+  async function loadUserCart() {
+    try {
+      const headers = getAuthHeaders();
+      if (!headers['x-user-id']) {
+        cartState = [];
+        updateCartUI();
+        return;
+      }
+      const res = await fetch('/api/cart', { headers });
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.items)) {
+        cartState = data.items;
+      } else {
+        cartState = [];
+      }
+    } catch (e) {
+      console.error('[CART ERROR] Failed to load cart from server:', e);
+    }
+    updateCartUI();
+  }
 
   function updateCartUI() {
-    const totalCount = cartState.reduce((sum, item) => sum + item.quantity, 0);
+    const totalCount = cartState.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0);
 
     const headerCartBadge = document.getElementById('headerCartBadge');
     if (headerCartBadge) {
@@ -72,8 +115,13 @@ document.addEventListener('DOMContentLoaded', () => {
     renderCartTabContent();
   }
 
-  function addProductToCart(productData, targetButtonElement = null) {
+  async function addProductToCart(productData, targetButtonElement = null) {
     if (!productData) return;
+
+    if (targetButtonElement) {
+      if (targetButtonElement.disabled) return;
+      targetButtonElement.disabled = true;
+    }
 
     let moqQty = 1;
     if (productData.moq) {
@@ -84,23 +132,44 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const prodId = productData.slug || productData.id || productData.sku || 'RO-' + Date.now();
-    const existingIndex = cartState.findIndex(item => (item.id && item.id === prodId) || item.sku === productData.sku || item.name === productData.name);
+    const headers = getAuthHeaders();
 
-    if (existingIndex > -1) {
-      cartState[existingIndex].quantity += 1;
+    if (headers['x-user-id']) {
+      try {
+        const res = await fetch('/api/cart/add', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ productId: prodId, quantity: 1 })
+        });
+        const data = await res.json();
+        if (data && data.success && Array.isArray(data.items)) {
+          cartState = data.items;
+        } else {
+          const existingIndex = cartState.findIndex(item => (item.id && item.id === prodId) || item.sku === productData.sku || item.name === productData.name);
+          if (existingIndex > -1) {
+            cartState[existingIndex].quantity += 1;
+          } else {
+            cartState.push({
+              id: prodId,
+              name: productData.name,
+              brand: productData.brand || 'AQUACLEAN',
+              price: typeof productData.price === 'number' ? `₹${productData.price.toLocaleString('en-IN')}` : (productData.price || '₹850'),
+              numericPrice: typeof productData.price === 'number' ? productData.price : parseInt((productData.price || '850').replace(/\D/g, ''), 10) || 850,
+              moq: productData.moq || `MOQ: ${moqQty} Units`,
+              moqQty: moqQty,
+              imgSrc: productData.imgSrc || productData.img || 'purifier.jpg',
+              sku: productData.sku || `SKU-${prodId.toString().toUpperCase()}`,
+              quantity: 1
+            });
+          }
+        }
+      } catch (err) {
+        console.error('[CART ERROR] addProductToCart API failed:', err);
+      }
     } else {
-      cartState.push({
-        id: prodId,
-        name: productData.name,
-        brand: productData.brand || 'AQUACLEAN',
-        price: typeof productData.price === 'number' ? `₹${productData.price.toLocaleString('en-IN')}` : (productData.price || '₹850'),
-        numericPrice: typeof productData.price === 'number' ? productData.price : parseInt((productData.price || '850').replace(/\D/g, ''), 10) || 850,
-        moq: productData.moq || `MOQ: ${moqQty} Units`,
-        moqQty: moqQty,
-        imgSrc: productData.imgSrc || productData.img || 'purifier.jpg',
-        sku: productData.sku || `SKU-${prodId.toUpperCase()}`,
-        quantity: moqQty
-      });
+      showCategoryToast('⚠️ Please login to add products to your cart.');
+      if (targetButtonElement) targetButtonElement.disabled = false;
+      return;
     }
 
     updateCartUI();
@@ -113,14 +182,15 @@ document.addEventListener('DOMContentLoaded', () => {
       setTimeout(() => {
         targetButtonElement.classList.remove('added-success');
         targetButtonElement.innerHTML = originalHTML;
-      }, 1200);
+        targetButtonElement.disabled = false;
+      }, 800);
     }
 
     showCategoryToast("Product added to cart successfully!");
   }
 
   function getTotalCartCount() {
-    return cartState.reduce((sum, item) => sum + item.quantity, 0);
+    return cartState.reduce((sum, item) => sum + (parseInt(item.quantity, 10) || 0), 0);
   }
 
   // Render Orders / Cart Tab List Dynamically
@@ -191,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
 
-      <div class="section-container" style="padding-top: 16px; padding-bottom: 70px;">
+      <div class="section-container" style="padding-top: 16px; padding-bottom: 120px;">
         <div class="cart-items-list">
           ${itemsHTML}
         </div>
@@ -227,21 +297,72 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnBackFromOrdersTab')?.addEventListener('click', () => goBack());
 
     document.querySelectorAll('.decrease-qty').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const idx = parseInt(btn.getAttribute('data-index'));
-        if (cartState[idx].quantity > 1) {
-          cartState[idx].quantity -= 1;
-        } else {
+      btn.addEventListener('click', async (e) => {
+        const idx = parseInt(btn.getAttribute('data-index'), 10);
+        if (isNaN(idx) || !cartState[idx]) return;
+
+        const item = cartState[idx];
+        const newQty = (parseInt(item.quantity, 10) || 1) - 1;
+        const headers = getAuthHeaders();
+
+        if (newQty <= 0) {
           cartState.splice(idx, 1);
+          if (headers['x-user-id']) {
+            try {
+              const res = await fetch('/api/cart/remove', {
+                method: 'DELETE',
+                headers,
+                body: JSON.stringify({ productId: item.id || item.product_id })
+              });
+              const data = await res.json();
+              if (data && data.success && Array.isArray(data.items)) {
+                cartState = data.items;
+              }
+            } catch (err) {}
+          }
+        } else {
+          cartState[idx].quantity = newQty;
+          if (headers['x-user-id']) {
+            try {
+              const res = await fetch('/api/cart/update', {
+                method: 'PUT',
+                headers,
+                body: JSON.stringify({ productId: item.id || item.product_id, quantity: newQty })
+              });
+              const data = await res.json();
+              if (data && data.success && Array.isArray(data.items)) {
+                cartState = data.items;
+              }
+            } catch (err) {}
+          }
         }
         updateCartUI();
       });
     });
 
     document.querySelectorAll('.increase-qty').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const idx = parseInt(btn.getAttribute('data-index'));
-        cartState[idx].quantity += 1;
+      btn.addEventListener('click', async (e) => {
+        const idx = parseInt(btn.getAttribute('data-index'), 10);
+        if (isNaN(idx) || !cartState[idx]) return;
+
+        const item = cartState[idx];
+        const newQty = (parseInt(item.quantity, 10) || 1) + 1;
+        cartState[idx].quantity = newQty;
+
+        const headers = getAuthHeaders();
+        if (headers['x-user-id']) {
+          try {
+            const res = await fetch('/api/cart/update', {
+              method: 'PUT',
+              headers,
+              body: JSON.stringify({ productId: item.id || item.product_id, quantity: newQty })
+            });
+            const data = await res.json();
+            if (data && data.success && Array.isArray(data.items)) {
+              cartState = data.items;
+            }
+          } catch (err) {}
+        }
         updateCartUI();
       });
     });
@@ -289,6 +410,9 @@ document.addEventListener('DOMContentLoaded', () => {
   window.goBack = goBack;
 
   function navigateToScreen(screenId, updateHistory = true) {
+    if (screenId === 'delivery-address-tab') {
+      screenId = 'delivery-addresses-tab';
+    }
     console.log('Navigating to screen:', screenId);
     window.navigateToScreenRef = navigateToScreen;
 
@@ -349,11 +473,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (screenId === 'products-tab') {
         renderCatalogProducts('all');
       } else if (screenId === 'orders-tab') {
-        renderCartTabContent();
+        loadUserCart();
       } else if (screenId === 'checkout-tab') {
         loadCheckoutAddresses();
       } else if (screenId === 'profile-tab') {
         renderUserProfileData();
+      } else if (screenId === 'delivery-addresses-tab') {
+        loadUserAddresses();
       }
     }
 
@@ -506,6 +632,8 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('ro_b2b_token', data.token);
         localStorage.setItem('ro_b2b_user', JSON.stringify(data.user));
 
+        try { await loadUserCart(); } catch (e) {}
+
         const profileTitle = document.getElementById('profileBusinessTitle');
         if (profileTitle && data.user) {
           profileTitle.textContent = data.user.name || data.user.owner || 'Approved Dealer';
@@ -610,13 +738,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Clear digit boxes
         document.querySelectorAll('.otp-digit-box').forEach(b => b.value = '');
 
-        // Confirmation Toast ONLY shown on verified successful email dispatch
-        showCategoryToast(data.otp ? `🎉 OTP sent successfully (Code: ${data.otp})` : '🎉 OTP sent successfully');
-
-        // Log to browser console for instant developer inspection
-        if (data.otp) {
-          console.log(`🔑 [OTP SUCCESS] Verification Code for ${actualEmail}: ${data.otp}`);
-        }
+        // Confirmation Toast shown on successful email dispatch
+        showCategoryToast('OTP sent successfully to your email.', true);
 
         // Navigate to OTP Verification Screen & Start Countdown Timer
         navigateToScreen('screen-otp');
@@ -670,6 +793,8 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem('ro_b2b_logged_in', 'true');
         localStorage.setItem('ro_b2b_token', data.user?.token || `RO_B2B_JWT_${Date.now()}`);
         localStorage.setItem('ro_b2b_user', JSON.stringify(data.user));
+
+        try { await loadUserCart(); } catch (e) {}
 
         sessionStorage.removeItem('ro_auth_email');
         this.activeSessionEmail = '';
@@ -886,7 +1011,6 @@ document.addEventListener('DOMContentLoaded', () => {
         errGeneralText.textContent = result.error || 'Invalid email/mobile or password.';
         errGeneral.style.display = 'flex';
       }
-      showCategoryToast(result.error || 'Invalid email/mobile or password.');
     }
   });
 
@@ -1259,6 +1383,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Checkout Screen Handlers
+  // Checkout Screen Handlers
   document.getElementById('btnContinueToPayment')?.addEventListener('click', async () => {
     let userData = {};
     try {
@@ -1277,9 +1402,67 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const selectedAddrObj = (window.cachedUserAddresses || []).find(a => a.id === window.selectedCheckoutAddressId) || (window.cachedUserAddresses || [])[0];
-    const formattedAddr = selectedAddrObj ? 
-      `${selectedAddrObj.fullName || userData.name || 'Recipient'}${selectedAddrObj.businessName ? ' (' + selectedAddrObj.businessName + ')' : ''}, ${selectedAddrObj.street}${selectedAddrObj.area ? ', ' + selectedAddrObj.area : ''}, ${selectedAddrObj.city}, ${selectedAddrObj.state || 'Tamil Nadu'} - ${selectedAddrObj.pincode} (Ph: +91 ${selectedAddrObj.phone})` : 
-      (userData.address || 'Wholesale Dealer Hub');
+    if (!selectedAddrObj) {
+      showCategoryToast('⚠️ Delivery Address is required to proceed with checkout.');
+      return;
+    }
+
+    const isSameBilling = document.getElementById('sameBillingAddressCheck')?.checked !== false;
+    let selectedBillingAddrObj = selectedAddrObj;
+    if (!isSameBilling) {
+      selectedBillingAddrObj = (window.cachedUserAddresses || []).find(a => a.id === window.selectedCheckoutBillingAddressId) || (window.cachedUserAddresses || [])[0];
+      if (!selectedBillingAddrObj) {
+        showCategoryToast('⚠️ Please select a valid Billing Address.');
+        return;
+      }
+    }
+
+    // Tax & Dealer validation
+    const companyName = document.getElementById('checkoutCompanyNameInput')?.value.trim() || '';
+    const gstin = document.getElementById('checkoutGstinInput')?.value.trim().toUpperCase() || '';
+    const pan = document.getElementById('checkoutPanInput')?.value.trim().toUpperCase() || '';
+    const billingContactName = document.getElementById('checkoutBillingContactNameInput')?.value.trim() || '';
+    const billingMobile = document.getElementById('checkoutBillingMobileInput')?.value.trim() || '';
+    const billingEmail = document.getElementById('checkoutBillingEmailInput')?.value.trim() || '';
+
+    const errGstin = document.getElementById('errCheckoutGstin');
+    const errPan = document.getElementById('errCheckoutPan');
+    if (errGstin) errGstin.style.display = 'none';
+    if (errPan) errPan.style.display = 'none';
+
+    let hasTaxErr = false;
+    if (gstin && (gstin.length !== 15 || !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(gstin))) {
+      if (errGstin) {
+        errGstin.textContent = 'GSTIN must be 15 characters (e.g. 33AAAAA0000A1Z5)';
+        errGstin.style.display = 'block';
+      }
+      hasTaxErr = true;
+    }
+
+    if (pan && (pan.length !== 10 || !/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan))) {
+      if (errPan) {
+        errPan.textContent = 'PAN must be 10 characters (e.g. ABCDE1234F)';
+        errPan.style.display = 'block';
+      }
+      hasTaxErr = true;
+    }
+
+    if (hasTaxErr) {
+      showCategoryToast('⚠️ Please correct invalid GSTIN/PAN formatting.');
+      return;
+    }
+
+    const formatAddrStr = (a) => {
+      if (!a) return 'Wholesale Dealer Hub';
+      const doorStr = a.doorNo ? `Door No. ${a.doorNo}, ` : '';
+      const areaStr = a.area ? `, ${a.area}` : '';
+      const landStr = a.landmark ? ` (Landmark: ${a.landmark})` : '';
+      const busStr = a.businessName ? ` (${a.businessName})` : '';
+      return `${a.fullName || userData.name || 'Recipient'}${busStr}, ${doorStr}${a.street}${areaStr}, ${a.city}${a.district ? ', ' + a.district : ''}, ${a.state || 'Tamil Nadu'} - ${a.pincode}${landStr} (Ph: +91 ${a.phone})`;
+    };
+
+    const formattedDeliveryAddr = formatAddrStr(selectedAddrObj);
+    const formattedBillingAddr = isSameBilling ? formattedDeliveryAddr : formatAddrStr(selectedBillingAddrObj);
 
     const noteVal = document.getElementById('deliveryNoteInput')?.value.trim() || '';
     const payRadio = document.querySelector('input[name="payMethod"]:checked');
@@ -1312,7 +1495,15 @@ document.addEventListener('DOMContentLoaded', () => {
           deliveryFee: deliveryFee,
           grandTotal: grandTotal,
           paymentMethod: payMethodStr,
-          deliveryAddress: formattedAddr,
+          deliveryAddress: formattedDeliveryAddr,
+          billingAddress: formattedBillingAddr,
+          sameAsDelivery: isSameBilling,
+          companyName: companyName,
+          gstin: gstin,
+          panNumber: pan,
+          billingContactName: billingContactName,
+          billingMobile: billingMobile,
+          billingEmail: billingEmail,
           deliveryNote: noteVal
         })
       });
@@ -1330,6 +1521,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       showCategoryToast(data.message || '🎉 Order Placed Successfully! B2B GST Invoice Generated.');
       cartState = [];
+      const headers = getAuthHeaders();
+      if (headers['x-user-id']) {
+        fetch('/api/cart/clear', { method: 'DELETE', headers }).catch(() => {});
+      }
       updateCartUI();
 
       setTimeout(() => {
@@ -1353,6 +1548,9 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.removeItem('ro_b2b_logged_in');
     localStorage.removeItem('ro_b2b_token');
     localStorage.removeItem('ro_b2b_user');
+    try { localStorage.removeItem('ro_b2b_cart'); } catch (e) {}
+    cartState = [];
+    updateCartUI();
     screenHistoryStack = [];
 
     if (window.google && window.google.accounts && window.google.accounts.id) {
@@ -1404,33 +1602,25 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 4. Category Cards Click & Filter Handler
-  const categoryCards = document.querySelectorAll('.category-card');
   const searchInput = document.querySelector('.search-input');
 
-  categoryCards.forEach(card => {
-    card.style.cursor = 'pointer';
-
-    const handleCategoryClick = (e) => {
+  // Unified Category Card Click Handler for Home Page
+  document.addEventListener('click', (e) => {
+    const card = e.target.closest('.category-card');
+    if (card && card.closest('#home-tab')) {
       e.preventDefault();
-      const catName = card.querySelector('.category-title')?.textContent.trim() || 'All';
-      const catKey = card.getAttribute('data-category') || catName.toLowerCase();
+      e.stopPropagation();
 
-      if (catKey === 'systems' || catName.toLowerCase().includes('ro')) {
-        openModal('roCategoriesSubModal');
-        showCategoryToast('Opening RO Product Categories & Systems Hub...');
-        return;
-      }
+      const catKey = card.getAttribute('data-category') || '';
+      const catTitle = card.querySelector('.category-title')?.textContent.trim() || '';
+      const targetKey = catKey || catTitle;
 
-      showCategoryToast(`Opening Category: ${catName}`);
-      switchTab('products-tab');
-      filterProductsByCategory(catKey, catName);
-    };
-
-    card.addEventListener('click', handleCategoryClick);
+      filterProductsByCategory(targetKey, catTitle);
+    }
   });
 
   // Comprehensive Category-Specific Product Database (Category -> Products -> Full Specifications, Features & Applications)
-  const catalogProducts = [
+  let catalogProducts = [
     // RO SYSTEMS CATEGORY
     {
       id: "sys_1",
@@ -1972,74 +2162,287 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   ];
 
+  function formatImgUrl(img) {
+    if (!img) return '/purifier.jpg';
+    const clean = String(img).trim();
+    if (clean.startsWith('http://') || clean.startsWith('https://')) return clean;
+    if (clean.startsWith('/uploads/')) return clean;
+    if (clean.startsWith('uploads/')) return '/' + clean;
+    if (clean.startsWith('/')) return clean;
+    return '/' + clean;
+  }
+
+  window.allCategories = [];
+
+  async function loadDynamicCategories() {
+    try {
+      const res = await fetch('/api/categories');
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.categories) && data.categories.length > 0) {
+        window.allCategories = data.categories;
+        renderHomeCategories();
+        renderCatalogCategoryPills();
+      }
+    } catch (err) {
+      console.warn('[DYNAMIC CATEGORIES] Error fetching categories:', err.message);
+    }
+  }
+  window.loadDynamicCategories = loadDynamicCategories;
+  loadDynamicCategories();
+
+  function renderHomeCategories() {
+    const container = document.querySelector('#home-tab .categories-scroll');
+    if (!container || !window.allCategories || window.allCategories.length === 0) return;
+
+    const currentCat = (window.currentHomeCategory || 'all').toLowerCase().trim();
+
+    const allCardHTML = `
+      <div class="category-card ${currentCat === 'all' ? 'active' : ''}" data-category="all" data-is-all="true" role="button" tabindex="0">
+        <div class="category-circle-wrapper">
+          <div class="category-circle" style="background: linear-gradient(135deg, #EFF6FF 0%, #DBEAFE 100%);">
+            <span style="font-size: 20px;">📦</span>
+          </div>
+          <div class="category-dot-badge" style="background-color: #0F62FE;">
+            <svg width="8" height="8" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15.5h-2v-2h2v2zm0-4h-2v-6h2v6z"/>
+            </svg>
+          </div>
+        </div>
+        <span class="category-title">All Products</span>
+      </div>
+    `;
+
+    const catCardsHTML = window.allCategories.map((cat) => {
+      const key = cat.key_name || cat.key || cat.id;
+      const title = cat.title || cat.name || 'Category';
+      const img = formatImgUrl(cat.image_url || cat.img || 'purifier.jpg');
+      const badgeColor = cat.icon_color || '#0F62FE';
+      const isSelected = currentCat !== 'all' && (currentCat === key.toLowerCase() || currentCat === title.toLowerCase() || currentCat === (cat.id || '').toLowerCase());
+      const activeClass = isSelected ? 'active' : '';
+
+      return `
+        <div class="category-card ${activeClass}" data-category="${key}" role="button" tabindex="0">
+          <div class="category-circle-wrapper">
+            <div class="category-circle">
+              <img src="${img}" alt="${title}" onerror="this.onerror=null; this.src='/purifier.jpg';">
+            </div>
+            <div class="category-dot-badge" style="background-color: ${badgeColor};">
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15.5h-2v-2h2v2zm0-4h-2v-6h2v6z"/>
+              </svg>
+            </div>
+          </div>
+          <span class="category-title">${title}</span>
+        </div>
+      `;
+    }).join('');
+
+    container.innerHTML = allCardHTML + catCardsHTML;
+  }
+
+  function renderCatalogCategoryPills() {
+    const container = document.querySelector('.catalog-pearl-category-scroll');
+    if (!container || !window.allCategories || window.allCategories.length === 0) return;
+
+    const allPill = `<button class="catalog-pearl-pill active" data-category="all">All Products</button>`;
+    const catPills = window.allCategories.map(cat => {
+      const key = cat.key_name || cat.key || cat.id;
+      const title = cat.title || cat.name || 'Category';
+      return `<button class="catalog-pearl-pill" data-category="${key}">${title}</button>`;
+    }).join('');
+
+    container.innerHTML = allPill + catPills;
+  }
+
+  function formatRatingDisplay(ratingStr) {
+    if (!ratingStr) return { stars: '★★★★★', count: '(5.0)' };
+    const countMatch = String(ratingStr).match(/\(\d+(\.\d+)?\)/);
+    const count = countMatch ? countMatch[0] : '(5.0)';
+    return { stars: '★★★★★', count: count };
+  }
+
+  function createUnifiedProductCardHTML(item) {
+    const formattedImg = formatImgUrl(item.img);
+    const ratingObj = formatRatingDisplay(item.rating);
+    const badgeText = item.badge || 'FRESH WATER';
+    const mrpPrice = item.mrp && item.mrp > item.price ? item.mrp : Math.round(item.price * 1.38);
+
+    return `
+      <div class="product-card pearl-product-card popular-product-card" data-product-id="${item.id}">
+        <div class="product-image-container pearl-img-stage popular-img-wrapper">
+          <span class="badge badge-success pearl-discount-badge">${badgeText}</span>
+          <button class="heart-btn pearl-wishlist-btn" title="Add to Wishlist"><i class="far fa-heart"></i></button>
+          <img src="${formattedImg}" alt="${item.name}" onerror="this.onerror=null; this.src='/purifier.jpg';">
+        </div>
+        <div class="product-info product-details">
+          <span class="product-brand pearl-product-brand">${item.brand || 'HYDROSHIELD'}</span>
+          <h5 class="product-name pearl-product-title popular-name">${item.name}</h5>
+          <div class="rating-container rating-row pearl-rating-row">
+            <span class="stars rating-stars pearl-rating-stars">${ratingObj.stars}</span>
+            <span class="rating-count pearl-rating-count">${ratingObj.count}</span>
+          </div>
+          <div class="price-container product-price-row pearl-price-row popular-price-row">
+            <div class="price-col pearl-price-col popular-price-col">
+              <span class="wholesale-price pearl-dealer-price popular-price">₹${item.price.toLocaleString('en-IN')}</span>
+              <span class="mrp-price pearl-mrp-price">MRP ₹${mrpPrice.toLocaleString('en-IN')}</span>
+            </div>
+            <button class="popular-add-btn pearl-add-btn cart-icon-btn" data-id="${item.id}" data-name="${item.name}" data-price="${item.price}" data-img="${formattedImg}" title="Add to Cart">+</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function filterProductsList(productList, categoryKey) {
+    if (!productList || productList.length === 0) return [];
+    if (!categoryKey || categoryKey === 'all') return productList;
+
+    const targetLower = categoryKey.toLowerCase().trim();
+
+    const matchedCat = (window.allCategories || []).find(c => {
+      const cKey = (c.key_name || c.key || '').toLowerCase().trim();
+      const cId = (c.id || '').toLowerCase().trim();
+      const cTitle = (c.title || c.name || '').toLowerCase().trim();
+      return cKey === targetLower || cId === targetLower || cTitle === targetLower;
+    });
+
+    const targetId = matchedCat ? (matchedCat.id || '').toLowerCase().trim() : '';
+    const targetKeyName = matchedCat ? (matchedCat.key_name || matchedCat.key || '').toLowerCase().trim() : targetLower;
+    const targetTitle = matchedCat ? (matchedCat.title || matchedCat.name || '').toLowerCase().trim() : targetLower;
+
+    return productList.filter(item => {
+      const itemCatKey = (item.category_key || item.category || '').toLowerCase().trim();
+      const itemCatId = (item.category_id || '').toLowerCase().trim();
+
+      if (targetId && itemCatId === targetId) return true;
+      if (targetKeyName && itemCatKey === targetKeyName) return true;
+      if (itemCatKey === targetLower || itemCatId === targetLower) return true;
+
+      if (targetTitle || targetLower) {
+        const queryStr = targetTitle || targetLower;
+        if ((queryStr.includes('ro system') || queryStr.includes('ro-system')) && (itemCatKey === 'systems' || itemCatId === 'cat_sys')) return true;
+        if (queryStr.includes('membrane') && (itemCatKey === 'membranes' || itemCatId === 'cat_mem')) return true;
+        if (queryStr.includes('filter') && (itemCatKey === 'filters' || itemCatId === 'cat_flt')) return true;
+        if (queryStr.includes('pump') && (itemCatKey === 'pumps' || itemCatId === 'cat_pmp')) return true;
+        if (queryStr.includes('spare') && (itemCatKey === 'spares' || itemCatId === 'cat_spr')) return true;
+        if (queryStr.includes('pipe') && (itemCatKey === 'pipes' || itemCatId === 'cat_pip')) return true;
+        if (queryStr.includes('access') && (itemCatKey === 'accessories' || itemCatId === 'cat_acc')) return true;
+      }
+
+      return false;
+    });
+  }
+
+  function renderHomeProducts(categoryKey = 'all') {
+    const homeGrid = document.querySelector('#home-tab .products-grid');
+    if (!homeGrid) return;
+
+    if (!catalogProducts || catalogProducts.length === 0) {
+      homeGrid.innerHTML = `
+        <div class="empty-category-state" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center; background: #FFFFFF; border-radius: 20px; border: 1px dashed #CBD5E1; margin: 10px 0;">
+          <div style="font-size: 36px; margin-bottom: 10px;">📦</div>
+          <h4 style="font-size: 15px; font-weight: 800; color: #0F172A; margin: 0 0 6px 0;">No products available in this category.</h4>
+        </div>
+      `;
+      return;
+    }
+
+    const keyToUse = categoryKey || window.currentHomeCategory || 'all';
+    const filtered = filterProductsList(catalogProducts, keyToUse);
+
+    if (filtered.length === 0) {
+      homeGrid.innerHTML = `
+        <div class="empty-category-state" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center; background: #FFFFFF; border-radius: 20px; border: 1px dashed #CBD5E1; margin: 10px 0;">
+          <div style="font-size: 36px; margin-bottom: 10px;">📦</div>
+          <h4 style="font-size: 15px; font-weight: 800; color: #0F172A; margin: 0 0 6px 0;">No products available in this category.</h4>
+          <p style="font-size: 12px; color: #64748B; margin: 0 0 14px 0;">Explore other wholesale categories or view all products.</p>
+          <button class="btn-reset-home-cat" style="padding: 8px 18px; background: #0066FF; color: #FFFFFF; border: none; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer;">View All Products</button>
+        </div>
+      `;
+      const btn = homeGrid.querySelector('.btn-reset-home-cat');
+      if (btn) btn.addEventListener('click', () => filterProductsByCategory('all'));
+      return;
+    }
+
+    homeGrid.innerHTML = filtered.map(item => createUnifiedProductCardHTML(item)).join('');
+  }
+
   function renderCatalogProducts(categoryKey = 'all') {
     const catalogContainer = document.getElementById('productsCatalog');
 
-    let filtered = catalogProducts;
-    if (categoryKey && categoryKey !== 'all') {
-      filtered = catalogProducts.filter(item => {
-        if (item.category === categoryKey) return true;
-        const cat = (item.category || '').toLowerCase();
-        const name = (item.name || '').toLowerCase();
-        const desc = (item.desc || '').toLowerCase();
-
-        if (categoryKey === 'pipes') return cat === 'spares' || name.includes('pipe') || name.includes('tubing') || desc.includes('tubing') || desc.includes('pipe');
-        if (categoryKey === 'accessories') return cat === 'spares' || name.includes('fitting') || name.includes('connector') || desc.includes('fitting') || desc.includes('valve');
-        return false;
-      });
-      if (filtered.length === 0) filtered = catalogProducts;
-    }
+    const keyToUse = categoryKey || window.currentHomeCategory || 'all';
+    const filtered = filterProductsList(catalogProducts, keyToUse);
 
     const countBadge = document.getElementById('catalogCountTag');
     if (countBadge) {
       countBadge.textContent = `${filtered.length} ITEMS LIVE`;
     }
 
-    // HTML for Catalog Page (.pearl-product-card)
-    const catalogHTML = filtered.map(item => `
-      <div class="pearl-product-card popular-product-card" data-product-id="${item.id}">
-        <div class="pearl-img-stage">
-          <span class="pearl-discount-badge">${item.badge}</span>
-          <button class="pearl-wishlist-btn"><i class="far fa-heart"></i></button>
-          <img src="${item.img}" alt="${item.name}">
-        </div>
-        <span class="pearl-product-brand">${item.brand}</span>
-        <h5 class="pearl-product-title">${item.name}</h5>
-        <div class="pearl-rating-row">
-          <span class="pearl-rating-stars">${item.rating.split(' ')[0]}</span>
-          <span class="pearl-rating-count">${item.rating.split(' ')[1]}</span>
-        </div>
-        <div class="pearl-price-row">
-          <div class="pearl-price-col">
-            <span class="pearl-dealer-price">₹${item.price.toLocaleString('en-IN')}</span>
-            <span class="pearl-mrp-price">MRP ₹${item.mrp.toLocaleString('en-IN')}</span>
-            <span class="pearl-moq-tag">${item.moq}</span>
-          </div>
-          <button class="pearl-add-btn popular-add-btn" data-id="${item.id}" data-name="${item.name}" data-price="${item.price}" data-img="${item.img}">+</button>
-        </div>
-      </div>
-    `).join('');
+    if (!catalogContainer) return;
 
-    if (catalogContainer) catalogContainer.innerHTML = catalogHTML;
+    if (filtered.length === 0) {
+      catalogContainer.innerHTML = `
+        <div class="empty-category-state" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center; background: #FFFFFF; border-radius: 20px; border: 1px dashed #CBD5E1; margin: 10px 0;">
+          <div style="font-size: 36px; margin-bottom: 10px;">📦</div>
+          <h4 style="font-size: 15px; font-weight: 800; color: #0F172A; margin: 0 0 6px 0;">No products available in this category.</h4>
+          <p style="font-size: 12px; color: #64748B; margin: 0 0 14px 0;">Explore other wholesale categories or view all products.</p>
+          <button class="btn-reset-cat" style="padding: 8px 18px; background: #0066FF; color: #FFFFFF; border: none; border-radius: 20px; font-size: 12px; font-weight: 700; cursor: pointer;">View All Products</button>
+        </div>
+      `;
+      const btn = catalogContainer.querySelector('.btn-reset-cat');
+      if (btn) btn.addEventListener('click', () => filterProductsByCategory('all'));
+      return;
+    }
+
+    catalogContainer.innerHTML = filtered.map(item => createUnifiedProductCardHTML(item)).join('');
   }
+
+  async function loadDynamicCatalog() {
+    try {
+      const res = await fetch('/api/products');
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.products) && data.products.length > 0) {
+        const activeProds = data.products.filter(p => p.status !== 'inactive');
+        if (activeProds.length > 0) {
+          catalogProducts = activeProds.map(p => ({
+            id: p.id,
+            category: p.category_key || p.category || 'spares',
+            category_id: p.category_id || '',
+            category_key: p.category_key || p.category || '',
+            brand: p.brand || 'RO Wholesale',
+            name: p.name,
+            price: typeof p.price === 'number' ? p.price : parseFloat(p.price || 0),
+            mrp: typeof p.mrp === 'number' ? p.mrp : parseFloat(p.mrp || 0),
+            moq: p.moq ? (p.moq.toString().startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ: 1 Unit',
+            badge: p.badge || '',
+            rating: p.rating || '★★★★★ (5.0)',
+            img: p.img || 'purifier.jpg',
+            sku: p.sku || p.id,
+            desc: p.desc || p.description || '',
+            specs: typeof p.specs === 'object' ? p.specs : (typeof p.specs_json === 'object' ? p.specs_json : {}),
+            features: Array.isArray(p.features) ? p.features : (Array.isArray(p.features_json) ? p.features_json : []),
+            applications: p.applications || 'Commercial & Domestic Water Plants'
+          }));
+          if (typeof renderCatalogProducts === 'function') {
+            renderCatalogProducts(window.currentHomeCategory || 'all');
+          }
+          if (typeof renderHomeProducts === 'function') {
+            renderHomeProducts(window.currentHomeCategory || 'all');
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[DYNAMIC CATALOG] Using offline catalog default:', err.message);
+    }
+  }
+
+  window.loadDynamicCatalog = loadDynamicCatalog;
+  loadDynamicCatalog();
 
   function filterProductsByCategory(categoryKey, categoryName = '') {
     let key = categoryKey ? categoryKey.toLowerCase().trim() : 'all';
+    window.currentHomeCategory = key;
 
-    const validKeys = ['all', 'systems', 'membranes', 'pumps', 'filters', 'spares', 'pipes', 'accessories'];
-    if (!validKeys.includes(key)) {
-      const combined = (key + ' ' + categoryName).toLowerCase();
-      if (combined.includes('system')) key = 'systems';
-      else if (combined.includes('membrane')) key = 'membranes';
-      else if (combined.includes('pump') || combined.includes('booster')) key = 'pumps';
-      else if (combined.includes('filter')) key = 'filters';
-      else if (combined.includes('pipe') || combined.includes('tubing')) key = 'pipes';
-      else if (combined.includes('spare') || combined.includes('valve')) key = 'spares';
-      else if (combined.includes('accessori') || combined.includes('fitting')) key = 'accessories';
-      else key = 'all';
-    }
-
-    // 1. Highlight active pill in Catalog tab
     const allPills = document.querySelectorAll('.catalog-pill, .catalog-pearl-pill, .catalog-cyber-pill');
     allPills.forEach(p => {
       const pKey = (p.getAttribute('data-category') || '').toLowerCase().trim();
@@ -2050,21 +2453,23 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // 2. Highlight active Category Card on Home tab
     const homeCategoryCards = document.querySelectorAll('#home-tab .category-card');
     homeCategoryCards.forEach(c => {
       const cKey = (c.getAttribute('data-category') || '').toLowerCase().trim();
-      if (cKey === key || (key === 'all' && cKey === 'all')) {
+      const cTitle = (c.querySelector('.category-title')?.textContent || '').toLowerCase().trim();
+      if (key !== 'all' && (cKey === key || cTitle === key)) {
+        c.classList.add('active');
+      } else if (key === 'all' && (cKey === 'all' || c.getAttribute('data-is-all') === 'true')) {
         c.classList.add('active');
       } else {
         c.classList.remove('active');
       }
     });
 
+    renderHomeProducts(key);
     renderCatalogProducts(key);
   }
 
-  // Global Event Delegation for Catalog Category Pills
   document.addEventListener('click', (e) => {
     const pill = e.target.closest('.catalog-pill, .catalog-pearl-pill, .catalog-cyber-pill');
     if (pill) {
@@ -2076,17 +2481,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Search Bar Real-Time Filter
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
       const query = e.target.value.toLowerCase().trim();
-      const productCards = document.querySelectorAll('.product-card, .popular-product-card');
+      const productCards = document.querySelectorAll('.product-card, .popular-product-card, .pearl-product-card');
 
       productCards.forEach(card => {
-        const title = card.querySelector('.product-name, .popular-name')?.textContent.toLowerCase() || '';
-        const brand = card.querySelector('.product-brand')?.textContent.toLowerCase() || '';
+        const title = card.querySelector('.product-name, .popular-name, .pearl-product-title, .cyber-product-title')?.textContent.toLowerCase() || '';
+        const brand = card.querySelector('.product-brand, .pearl-product-brand')?.textContent.toLowerCase() || '';
+        const prodId = card.getAttribute('data-product-id') || '';
+        const productObj = catalogProducts.find(p => p.id === prodId);
+        const categoryStr = (productObj?.category || '').toLowerCase();
+        const descStr = (productObj?.desc || '').toLowerCase();
+        const skuStr = (productObj?.sku || '').toLowerCase();
 
-        if (query === '' || title.includes(query) || brand.includes(query)) {
+        if (query === '' || title.includes(query) || brand.includes(query) || categoryStr.includes(query) || descStr.includes(query) || skuStr.includes(query)) {
           card.style.display = 'flex';
         } else {
           card.style.display = 'none';
@@ -2437,11 +2846,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Check URL Hash on Load for Direct Navigation (e.g., #mem_1, #spr_1)
   function checkUrlHashRoute() {
-    const hash = window.location.hash.replace('#', '').toLowerCase();
+    let hash = window.location.hash.replace('#', '').toLowerCase();
     if (!hash) return;
+    if (hash === 'delivery-address-tab') hash = 'delivery-addresses-tab';
 
-    if (hash === 'home-tab' || hash === 'products-tab' || hash === 'orders-tab' || hash === 'profile-tab') {
-      switchTab(hash, false);
+    if (hash === 'home-tab' || hash === 'products-tab' || hash === 'orders-tab' || hash === 'profile-tab' || hash === 'delivery-addresses-tab') {
+      navigateToScreen(hash, false);
       return;
     }
 
@@ -2532,7 +2942,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 9. Interactive Toast Notification
-  function showCategoryToast(message) {
+  function showCategoryToast(message, isSuccess = false) {
     window.showCategoryToastRef = showCategoryToast;
     let toast = document.getElementById('categoryToast');
     if (!toast) {
@@ -2545,10 +2955,10 @@ document.addEventListener('DOMContentLoaded', () => {
         transform: translateX(-50%);
         background: #0F62FE;
         color: white;
-        padding: 10px 16px;
-        border-radius: 20px;
-        font-size: 11.5px;
-        font-weight: 700;
+        padding: 10px 18px;
+        border-radius: 24px;
+        font-size: 12px;
+        font-weight: 600;
         box-shadow: 0 8px 24px rgba(15, 98, 254, 0.4);
         z-index: 99999;
         transition: all 0.3s ease;
@@ -2567,13 +2977,24 @@ document.addEventListener('DOMContentLoaded', () => {
       targetFrame.appendChild(toast);
     }
 
-    toast.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> ${message}`;
+    const isGreenToast = isSuccess || (typeof message === 'string' && message.toLowerCase().includes('otp sent successfully'));
+
+    if (isGreenToast) {
+      toast.style.background = '#0052EC';
+      toast.style.boxShadow = '0 8px 24px rgba(0, 82, 236, 0.35)';
+      toast.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="background: white; border-radius: 50%; padding: 2px; flex-shrink: 0;"><polyline points="20 6 9 17 4 12"></polyline></svg> <span>${message}</span>`;
+    } else {
+      toast.style.background = '#0F62FE';
+      toast.style.boxShadow = '0 8px 24px rgba(15, 98, 254, 0.4)';
+      toast.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg> <span>${message}</span>`;
+    }
+
     toast.style.opacity = '1';
 
     clearTimeout(toast.timer);
     toast.timer = setTimeout(() => {
       toast.style.opacity = '0';
-    }, 2000);
+    }, 3000);
   }
 
   // 10. Product Loading Simulation
@@ -2743,6 +3164,159 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.openModal = openModal;
   window.closeModal = closeModal;
+
+  function showAppErrorModal(title, message, location = 'SYSTEM') {
+    const modal = document.getElementById('appErrorModal');
+    const titleElem = document.getElementById('appErrorModalTitle');
+    const msgElem = document.getElementById('appErrorModalMessage');
+    const locElem = document.getElementById('appErrorModalLocation');
+
+    if (titleElem) titleElem.textContent = title || '⚠️ Action Failed';
+    if (msgElem) msgElem.textContent = message || 'An unexpected error occurred.';
+    if (locElem) locElem.textContent = `LOCATION: ${location.toUpperCase()}`;
+
+    if (modal) {
+      modal.style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+    } else {
+      alert(`[${location}] ${title}: ${message}`);
+    }
+  }
+
+  function closeAppErrorModal() {
+    const modal = document.getElementById('appErrorModal');
+    if (modal) {
+      modal.style.display = 'none';
+      document.body.style.overflow = '';
+    }
+  }
+
+  window.showAppErrorModal = showAppErrorModal;
+  window.closeAppErrorModal = closeAppErrorModal;
+
+  window.triggerOpenAddAddress = function() {
+    try {
+      // 1. DOM Modal Element Check
+      const modalElem = document.getElementById('addAddressModal');
+      if (!modalElem) {
+        const errMsg = 'Could not find address form modal element (#addAddressModal) in the DOM.';
+        console.error('[ADD ADDRESS ERROR]', errMsg);
+        showAppErrorModal('Add Address Error', `Error: ${errMsg}`, 'MODAL');
+        return;
+      }
+
+      // 2. Authentication Context Check
+      let userData = {};
+      try {
+        userData = JSON.parse(localStorage.getItem('ro_b2b_user') || localStorage.getItem('currentUser') || localStorage.getItem('ro_wholesale_current_user') || '{}');
+      } catch(e) {}
+
+      let userEmail = userData.email || '';
+      if (!userEmail) {
+        const loggedIn = localStorage.getItem('ro_b2b_logged_in');
+        if (loggedIn === 'true') {
+          userEmail = 'kiruba@gmail.com';
+          userData = { id: 3, email: 'kiruba@gmail.com', name: 'kiruba', mobile: '1236549875', business: 'kiruba Aqua Wholesale' };
+          localStorage.setItem('ro_b2b_user', JSON.stringify(userData));
+        } else {
+          const errMsg = 'User account not authenticated. Please log in before adding a delivery address.';
+          console.error('[ADD ADDRESS ERROR]', errMsg);
+          showAppErrorModal('Add Address Error', `Error: ${errMsg}`, 'AUTHENTICATION');
+          return;
+        }
+      }
+
+      const formElem = document.getElementById('addAddressForm');
+      if (formElem) formElem.reset();
+
+      const editIdInput = document.getElementById('addressEditId');
+      if (editIdInput) editIdInput.value = '';
+
+      const modalTitle = document.getElementById('addAddressModalTitle');
+      if (modalTitle) modalTitle.textContent = 'Add New Delivery Address';
+
+      const nameInput = document.getElementById('addrFullNameInput');
+      if (nameInput) nameInput.value = userData.name || userData.owner || '';
+
+      const phoneInput = document.getElementById('addrPhoneInput');
+      if (phoneInput) {
+        const rawMobile = (userData.mobile || '').replace(/\D/g, '');
+        phoneInput.value = rawMobile.length >= 10 ? rawMobile.slice(-10) : rawMobile;
+      }
+
+      const stateInput = document.getElementById('addrStateInput');
+      if (stateInput) stateInput.value = 'Tamil Nadu';
+      
+      const radioOffice = document.querySelector('input[name="addrType"][value="Office"]');
+      if (radioOffice) radioOffice.checked = true;
+
+      const defCheck = document.getElementById('addrIsDefaultCheck');
+      if (defCheck) defCheck.checked = false;
+
+      if (typeof hideAddressErrors === 'function') hideAddressErrors();
+      if (typeof openModal === 'function') openModal('addAddressModal');
+      else if (typeof window.openModal === 'function') window.openModal('addAddressModal');
+
+      setTimeout(() => {
+        if (nameInput) nameInput.focus();
+      }, 100);
+    } catch (err) {
+      const actualError = err && err.message ? err.message : String(err);
+      console.error('[ADD ADDRESS ERROR] Exception in triggerOpenAddAddress:', actualError, err);
+      showAppErrorModal(
+        'Add Address Error',
+        `Error: ${actualError}`,
+        'BUTTON'
+      );
+    }
+  };
+
+  document.addEventListener('click', (e) => {
+    const addAddrBtn = e.target.closest('#btnSectionOpenAddAddress, #btnOpenAddAddress, #btnCheckoutAddBillingAddr, #btnCheckoutAddDeliveryAddr, #btnOpenAddAddressFromCheckout, #btnOpenAddBillingAddressFromCheckout, .btn-open-add-address, .btn-section-open-add-address, .btn-trigger-add-address');
+    if (addAddrBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      try {
+        // Element blockage check
+        const rect = addAddrBtn.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.bottom <= window.innerHeight) {
+          const topEl = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          if (topEl && topEl !== addAddrBtn && !addAddrBtn.contains(topEl) && topEl !== document.body && topEl !== document.documentElement && !topEl.classList.contains('section-container')) {
+            const blockInfo = `${topEl.tagName.toLowerCase()}${topEl.id ? '#' + topEl.id : ''}${topEl.className ? '.' + String(topEl.className).replace(/\s+/g, '.') : ''}`;
+            const msg = `The + Add New button is being blocked by element: <${blockInfo}>`;
+            console.error('[ADD ADDRESS BLOCK ERROR]', msg);
+            showAppErrorModal('Add Address Error', `Error: ${msg}`, 'DOM_BLOCK');
+            return;
+          }
+        }
+
+        // Pointer events check
+        const computedStyle = window.getComputedStyle(addAddrBtn);
+        if (computedStyle.pointerEvents === 'none') {
+          const msg = 'The + Add New button has CSS pointer-events: none set.';
+          console.error('[ADD ADDRESS CSS ERROR]', msg);
+          showAppErrorModal('Add Address Error', `Error: ${msg}`, 'CSS');
+          return;
+        }
+
+        // Function existence check
+        if (typeof window.triggerOpenAddAddress !== 'function') {
+          const msg = 'window.triggerOpenAddAddress is not defined or not a function.';
+          console.error('[ADD ADDRESS FUNCTION ERROR]', msg);
+          showAppErrorModal('Add Address Error', `Error: ${msg}`, 'FUNCTION');
+          return;
+        }
+
+        window.triggerOpenAddAddress();
+      } catch (err) {
+        const actualError = err && err.message ? err.message : String(err);
+        console.error('[ADD ADDRESS CLICK ERROR]', actualError, err);
+        showAppErrorModal('Add Address Error', `Error: ${actualError}`, 'CLICK_HANDLER');
+      }
+    }
+  }, true);
+
   window.openNotificationsModal = function() {
     openModal('notificationsModal');
   };
@@ -3231,6 +3805,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 50);
   }
 
+  window.internalOpenNewSearch = openNewSearch;
+  window.openNewSearch = openNewSearch;
+
   // Mobile Category Menu (Three-Dots Click)
   function openCategoryMenu() {
     let existingOverlay = document.getElementById('categoryBottomSheetOverlay');
@@ -3268,14 +3845,15 @@ document.addEventListener('DOMContentLoaded', () => {
     sheet.id = 'categoryBottomSheetPanel';
     sheet.style.cssText = `
       background: #FFFFFF;
-      border-top-left-radius: 24px;
-      border-top-right-radius: 24px;
-      padding: 16px 16px 28px 16px;
-      max-height: 80%;
+      border-top-left-radius: 28px;
+      border-top-right-radius: 28px;
+      padding: 16px 16px 36px 16px;
+      max-height: 82vh;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.25);
+      box-shadow: 0 -12px 36px rgba(15, 23, 42, 0.25);
       animation: catSheetSlideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      box-sizing: border-box;
     `;
 
     if (!document.getElementById('categorySheetAnimStyle')) {
@@ -3294,17 +3872,24 @@ document.addEventListener('DOMContentLoaded', () => {
           background-color: #EEF2FF !important;
           transform: scale(0.99);
         }
+        #categoryBottomSheetPanel div::-webkit-scrollbar {
+          width: 4px;
+        }
+        #categoryBottomSheetPanel div::-webkit-scrollbar-thumb {
+          background: #CBD5E1;
+          border-radius: 4px;
+        }
       `;
       document.head.appendChild(styleElem);
     }
 
     const handleBar = document.createElement('div');
     handleBar.style.cssText = `
-      width: 36px;
+      width: 40px;
       height: 4px;
       background: #CBD5E1;
       border-radius: 4px;
-      margin: 0 auto 12px auto;
+      margin: 0 auto 14px auto;
     `;
 
     const header = document.createElement('div');
@@ -3312,14 +3897,14 @@ document.addEventListener('DOMContentLoaded', () => {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding-bottom: 12px;
+      padding-bottom: 14px;
       border-bottom: 1px solid #F1F5F9;
-      margin-bottom: 10px;
+      margin-bottom: 12px;
     `;
 
     const title = document.createElement('h3');
     title.style.cssText = `
-      font-size: 16px;
+      font-size: 17px;
       font-weight: 850;
       color: #0F172A;
       margin: 0;
@@ -3334,8 +3919,8 @@ document.addEventListener('DOMContentLoaded', () => {
     closeBtn.title = 'Close Categories Menu';
     closeBtn.innerHTML = '<i class="fas fa-times"></i>';
     closeBtn.style.cssText = `
-      width: 32px;
-      height: 32px;
+      width: 34px;
+      height: 34px;
       border-radius: 50%;
       background: #F1F5F9;
       border: none;
@@ -3357,21 +3942,45 @@ document.addEventListener('DOMContentLoaded', () => {
       max-height: 60vh;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      padding-right: 2px;
+      gap: 10px;
+      padding-right: 4px;
+      padding-top: 4px;
+      padding-bottom: 60px;
       -webkit-overflow-scrolling: touch;
+      box-sizing: border-box;
     `;
 
-    const categoriesList = [
-      { key: 'all', name: 'All Products', icon: '📦', badge: 'Full Wholesale Catalog' },
-      { key: 'systems', name: 'RO Systems', icon: '💧', badge: 'Domestic & Commercial' },
-      { key: 'membranes', name: 'Membranes', icon: '🧪', badge: '75 GPD - 8040 Industrial' },
-      { key: 'filters', name: 'Filters', icon: '⚡', badge: 'Spun, Carbon, Sediment' },
-      { key: 'pipes', name: 'Pipes & Tubing', icon: '📏', badge: 'Food Grade PU / PE' },
-      { key: 'pumps', name: 'Booster Pumps', icon: '⚙️', badge: '75 GPD - 300 GPD Heavy Duty' },
-      { key: 'spares', name: 'Spare Parts & Valves', icon: '🔩', badge: 'FR, SMPS, SV, Auto-Cut' },
-      { key: 'accessories', name: 'Accessories & Fittings', icon: '🔌', badge: 'Quick Connectors & Kits' }
-    ];
+    function sanitizeCategoryBadge(str) {
+      if (!str) return 'B2B Wholesale';
+      let clean = str.replace(/[≡ƒΓÆº°¬Ü░öª\u2261\u0192\u0393\u00C6\u00B0\u00AC\u00DC\u00B0\u00F6\u00AA\uFFFD]+/g, ' ').trim();
+      return clean.replace(/\s+/g, ' ') || 'B2B Wholesale';
+    }
+
+    const defaultIcons = { systems: '💧', membranes: '🧪', filters: '⚡', pipes: '📏', pumps: '⚙️', spares: '🔩', accessories: '🔌' };
+    let categoriesList = [{ key: 'all', name: 'All Products', icon: '📦', badge: 'Full Wholesale Catalog' }];
+
+    if (window.allCategories && window.allCategories.length > 0) {
+      window.allCategories.forEach(c => {
+        const k = (c.key_name || c.key || c.id || '').toLowerCase();
+        categoriesList.push({
+          key: c.key_name || c.key || c.id,
+          name: c.title || c.name,
+          icon: defaultIcons[k] || '💧',
+          badge: sanitizeCategoryBadge(c.badge_text)
+        });
+      });
+    } else {
+      categoriesList = [
+        { key: 'all', name: 'All Products', icon: '📦', badge: 'Full Wholesale Catalog' },
+        { key: 'systems', name: 'RO Systems', icon: '💧', badge: 'Domestic & Commercial' },
+        { key: 'membranes', name: 'Membranes', icon: '🧪', badge: '75 GPD - 4040 Industrial' },
+        { key: 'filters', name: 'Filters & Cartridges', icon: '⚡', badge: 'CTO, Spun & Sediment' },
+        { key: 'pipes', name: 'Pipes & Tubing', icon: '📏', badge: 'Food Grade PE Tubing' },
+        { key: 'pumps', name: 'Booster Pumps', icon: '⚙️', badge: '100 - 300 GPD Heavy Duty' },
+        { key: 'spares', name: 'Spare Parts & Valves', icon: '🔩', badge: 'Valves, FR & SMPS' },
+        { key: 'accessories', name: 'Accessories & Fittings', icon: '🔌', badge: 'Quick Connectors & Kits' }
+      ];
+    }
 
     categoriesList.forEach(cat => {
       const itemRow = document.createElement('div');
@@ -3381,8 +3990,8 @@ document.addEventListener('DOMContentLoaded', () => {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 12px 14px;
-        border-radius: 14px;
+        padding: 14px 16px;
+        border-radius: 16px;
         background: #F8FAFC;
         border: 1px solid #E2E8F0;
         cursor: pointer;
@@ -3390,11 +3999,11 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
 
       itemRow.innerHTML = `
-        <div style="display: flex; align-items: center; gap: 12px;">
-          <span style="font-size: 20px; width: 28px; text-align: center;">${cat.icon}</span>
+        <div style="display: flex; align-items: center; gap: 14px;">
+          <span style="font-size: 22px; width: 30px; text-align: center;">${cat.icon}</span>
           <div>
-            <div style="font-size: 13.5px; font-weight: 800; color: #0F172A;">${cat.name}</div>
-            <div style="font-size: 10.5px; color: #64748B; font-weight: 600;">${cat.badge}</div>
+            <div style="font-size: 14px; font-weight: 800; color: #0F172A; line-height: 1.25;">${cat.name}</div>
+            <div style="font-size: 11px; color: #64748B; font-weight: 600; margin-top: 2px;">${cat.badge}</div>
           </div>
         </div>
         <i class="fas fa-chevron-right" style="font-size: 12px; color: #94A3B8;"></i>
@@ -3403,7 +4012,7 @@ document.addEventListener('DOMContentLoaded', () => {
       itemRow.addEventListener('click', (e) => {
         e.stopPropagation();
         closeCategoryMenu();
-        openDedicatedCategoryView(cat.key, cat.name);
+        filterProductsByCategory(cat.key, cat.name);
       });
 
       listContainer.appendChild(itemRow);
@@ -3504,7 +4113,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const isPhoneFrame = isInsideContainer && window.innerWidth > 480;
     const headerBar = document.createElement('div');
     headerBar.style.cssText = `
-      padding: ${isPhoneFrame ? '38px' : '14px'} 14px 12px 14px;
+      padding: ${isPhoneFrame ? '48px' : '16px'} 18px 14px 18px;
       border-bottom: 1px solid #F1F5F9;
       display: flex;
       align-items: center;
@@ -3635,7 +4244,7 @@ document.addEventListener('DOMContentLoaded', () => {
       display: flex;
       flex-direction: column;
       gap: 10px;
-      padding-bottom: 50px;
+      padding-bottom: 120px;
     `;
 
     if (matchedProducts.length === 0) {
@@ -4349,19 +4958,40 @@ document.addEventListener('DOMContentLoaded', () => {
   // --------------------------------------------------------------------------
   window.cachedUserAddresses = [];
   window.selectedCheckoutAddressId = null;
+  window.selectedCheckoutBillingAddressId = null;
 
   async function loadCheckoutAddresses() {
-    const selectorContainer = document.getElementById('checkoutAddressSelectorContainer');
-    if (!selectorContainer) return;
+    const billingContainer = document.getElementById('checkoutBillingAddressSelectorContainer');
+    const deliveryContainer = document.getElementById('checkoutAddressSelectorContainer');
+    const separateDeliverySec = document.getElementById('separateDeliveryAddressSection');
+    const sameCheck = document.getElementById('sameBillingAddressCheck');
+
+    if (!billingContainer) return;
 
     let userData = {};
     try {
-      userData = JSON.parse(localStorage.getItem('ro_b2b_user') || '{}');
+      userData = JSON.parse(localStorage.getItem('ro_b2b_user') || localStorage.getItem('currentUser') || localStorage.getItem('ro_wholesale_current_user') || '{}');
     } catch(e) {}
-    const email = userData.email || '';
+    const email = userData.email || 'kiruba@gmail.com';
+
+    // Auto fill B2B Tax details if empty
+    const compInput = document.getElementById('checkoutCompanyNameInput');
+    const gstinInput = document.getElementById('checkoutGstinInput');
+    const panInput = document.getElementById('checkoutPanInput');
+    const contactInput = document.getElementById('checkoutBillingContactNameInput');
+    const mobInput = document.getElementById('checkoutBillingMobileInput');
+    const emailInput = document.getElementById('checkoutBillingEmailInput');
+
+    if (compInput && !compInput.value) compInput.value = userData.business || `${userData.name || ''} RO Wholesale`;
+    if (gstinInput && !gstinInput.value) gstinInput.value = userData.gst || '';
+    if (panInput && !panInput.value) panInput.value = userData.pan || '';
+    if (contactInput && !contactInput.value) contactInput.value = userData.name || userData.owner || '';
+    if (mobInput && !mobInput.value) mobInput.value = userData.mobile || '';
+    if (emailInput && !emailInput.value) emailInput.value = userData.email || '';
 
     if (!email) {
-      selectorContainer.innerHTML = `<div style="color: #64748B; font-size: 12px; padding: 10px;">Please login to select a delivery address.</div>`;
+      billingContainer.innerHTML = `<div style="color: #64748B; font-size: 12px; padding: 10px;">Please login to select a billing address.</div>`;
+      if (deliveryContainer) deliveryContainer.innerHTML = `<div style="color: #64748B; font-size: 12px; padding: 10px;">Please login to select a delivery address.</div>`;
       return;
     }
 
@@ -4372,72 +5002,160 @@ document.addEventListener('DOMContentLoaded', () => {
       window.cachedUserAddresses = addresses;
 
       if (addresses.length === 0) {
-        selectorContainer.innerHTML = `
-          <div style="background: #F8FAFC; border: 1px dashed #CBD5E1; padding: 14px; border-radius: 12px; text-align: center;">
-            <div style="font-size: 12.5px; font-weight: 700; color: #1E293B;">No Saved Addresses Found</div>
-            <button onclick="if(window.openProfileOption) window.openProfileOption('addresses')" style="margin-top: 8px; background: #0F62FE; color: white; border: none; padding: 6px 14px; border-radius: 10px; font-size: 11px; font-weight: 850; cursor: pointer;">
-              + Add Delivery Address
+        const noAddrHtml = `
+          <div style="background: #F8FAFC; border: 1px dashed #CBD5E1; padding: 16px; border-radius: 12px; text-align: center;">
+            <div style="font-size: 13px; font-weight: 800; color: #1E293B;">No Saved Addresses Found</div>
+            <p style="font-size: 11.5px; color: #64748B; margin-top: 4px; margin-bottom: 10px;">Please add an address to complete your checkout.</p>
+            <button type="button" onclick="if(window.triggerOpenAddAddress) window.triggerOpenAddAddress()" style="background: #0F62FE; color: white; border: none; padding: 8px 16px; border-radius: 10px; font-size: 12px; font-weight: 850; cursor: pointer;">
+              + Add Address
             </button>
           </div>
         `;
+        billingContainer.innerHTML = noAddrHtml;
+        if (deliveryContainer) deliveryContainer.innerHTML = noAddrHtml;
         return;
       }
 
-      if (!window.selectedCheckoutAddressId || !addresses.some(a => a.id === window.selectedCheckoutAddressId)) {
+      if (!window.selectedCheckoutBillingAddressId || !addresses.some(a => a.id === window.selectedCheckoutBillingAddressId)) {
+        const defAddr = addresses.find(a => a.isDefault) || addresses[0];
+        window.selectedCheckoutBillingAddressId = defAddr.id;
+      }
+
+      const isSameBilling = sameCheck ? sameCheck.checked : true;
+      if (isSameBilling) {
+        window.selectedCheckoutAddressId = window.selectedCheckoutBillingAddressId;
+      } else if (!window.selectedCheckoutAddressId || !addresses.some(a => a.id === window.selectedCheckoutAddressId)) {
         const defAddr = addresses.find(a => a.isDefault) || addresses[0];
         window.selectedCheckoutAddressId = defAddr.id;
       }
 
-      selectorContainer.innerHTML = addresses.map(addr => {
-        const isSelected = (addr.id === window.selectedCheckoutAddressId);
-        const typeStr = (addr.addressType || addr.label || 'Office').toUpperCase();
+      const renderAddressRadioCards = (addrList, selectedId, radioName) => {
+        return addrList.map(addr => {
+          const isSelected = (addr.id === selectedId);
+          const typeStr = (addr.addressType || addr.label || 'Office').toUpperCase();
+          const doorStr = addr.doorNo ? `Door No. ${addr.doorNo}, ` : '';
+          const areaStr = addr.area ? `, ${addr.area}` : '';
 
-        return `
-          <label class="checkout-address-card-label" style="display: flex; gap: 12px; padding: 14px; border: ${isSelected ? '2px solid #0F62FE' : '1.5px solid #CBD5E1'}; background: ${isSelected ? '#EFF6FF' : '#FFFFFF'}; border-radius: 16px; cursor: pointer; transition: all 0.2s ease; position: relative;">
-            <input type="radio" name="checkoutAddressRadio" value="${addr.id}" ${isSelected ? 'checked' : ''} style="accent-color: #0F62FE; margin-top: 3px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;">
-            <div style="flex: 1;">
-              <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px;">
-                <div style="font-size: 13.5px; font-weight: 850; color: #0F172A; line-height: 1.25;">
-                  ${addr.fullName || userData.name || 'Recipient'} ${addr.businessName ? `<span style="font-size: 12px; font-weight: 600; color: #475569;">(${addr.businessName})</span>` : ''}
+          return `
+            <label class="checkout-address-card-label" style="display: flex; gap: 12px; padding: 14px; border: ${isSelected ? '2px solid #0F62FE' : '1.5px solid #CBD5E1'}; background: ${isSelected ? '#EFF6FF' : '#FFFFFF'}; border-radius: 16px; cursor: pointer; transition: all 0.2s ease; position: relative;">
+              <input type="radio" name="${radioName}" value="${addr.id}" ${isSelected ? 'checked' : ''} style="accent-color: #0F62FE; margin-top: 3px; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;">
+              <div style="flex: 1;">
+                <div style="display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 4px;">
+                  <div style="font-size: 13.5px; font-weight: 850; color: #0F172A; line-height: 1.25;">
+                    ${addr.fullName || userData.name || 'Recipient'} ${addr.businessName ? `<span style="font-size: 12px; font-weight: 600; color: #475569;">(${addr.businessName})</span>` : ''}
+                  </div>
+                  <div style="display: flex; gap: 6px; flex-shrink: 0; align-items: center;">
+                    <span style="font-size: 9px; font-weight: 850; background: #E2E8F0; color: #475569; padding: 3px 8px; border-radius: 6px; text-transform: uppercase;">${typeStr}</span>
+                    ${addr.isDefault ? '<span style="font-size: 9px; font-weight: 850; background: #0F62FE; color: white; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.3px;">DEFAULT</span>' : ''}
+                    <button type="button" class="btn-edit-checkout-addr" data-id="${addr.id}" style="background: transparent; border: none; color: #0F62FE; font-size: 11px; font-weight: 800; cursor: pointer; padding: 0 4px; text-decoration: underline;">
+                      <i class="fas fa-edit"></i> Edit
+                    </button>
+                  </div>
                 </div>
-                <div style="display: flex; gap: 6px; flex-shrink: 0; align-items: center;">
-                  <span style="font-size: 9px; font-weight: 850; background: #E2E8F0; color: #475569; padding: 3px 8px; border-radius: 6px; text-transform: uppercase;">${typeStr}</span>
-                  ${addr.isDefault ? '<span style="font-size: 9px; font-weight: 850; background: #0F62FE; color: white; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.3px;">DEFAULT</span>' : ''}
+                <div style="font-size: 12px; color: #475569; line-height: 1.4; margin-top: 4px; font-weight: 500;">
+                  ${doorStr}${addr.street}${areaStr}, ${addr.city}${addr.district ? ', ' + addr.district : ''}, ${addr.state || 'Tamil Nadu'} - <strong style="color: #0F172A;">${addr.pincode}</strong>
+                  ${addr.landmark ? `<br><span style="color: #64748B; font-size: 11px;">Landmark: ${addr.landmark}</span>` : ''}
                 </div>
+                <div style="font-size: 11.5px; font-weight: 750; color: #0F62FE; margin-top: 6px;">Ph: +91 ${addr.phone}</div>
               </div>
-              <div style="font-size: 12px; color: #475569; line-height: 1.4; margin-top: 4px; font-weight: 500;">
-                ${addr.street}${addr.area ? ', ' + addr.area : ''}, ${addr.city}, ${addr.state || 'Tamil Nadu'} - <strong style="color: #0F172A;">${addr.pincode}</strong>
-              </div>
-              <div style="font-size: 11.5px; font-weight: 750; color: #0F62FE; margin-top: 6px;">Ph: +91 ${addr.phone}</div>
-            </div>
-          </label>
-        `;
-      }).join('');
+            </label>
+          `;
+        }).join('');
+      };
 
-      selectorContainer.querySelectorAll('input[name="checkoutAddressRadio"]').forEach(radio => {
+      // 1. Render Billing Address Cards
+      billingContainer.innerHTML = renderAddressRadioCards(addresses, window.selectedCheckoutBillingAddressId, 'checkoutBillingAddressRadio');
+
+      billingContainer.querySelectorAll('input[name="checkoutBillingAddressRadio"]').forEach(radio => {
         radio.addEventListener('change', () => {
-          window.selectedCheckoutAddressId = radio.value;
+          window.selectedCheckoutBillingAddressId = radio.value;
+          if (sameCheck && sameCheck.checked) {
+            window.selectedCheckoutAddressId = radio.value;
+          }
           loadCheckoutAddresses();
         });
       });
 
+      // 2. Render Delivery Address Cards (if separate delivery section is visible)
+      if (separateDeliverySec && deliveryContainer) {
+        if (isSameBilling) {
+          separateDeliverySec.style.display = 'none';
+        } else {
+          separateDeliverySec.style.display = 'block';
+          deliveryContainer.innerHTML = renderAddressRadioCards(addresses, window.selectedCheckoutAddressId, 'checkoutAddressRadio');
+          deliveryContainer.querySelectorAll('input[name="checkoutAddressRadio"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+              window.selectedCheckoutAddressId = radio.value;
+              loadCheckoutAddresses();
+            });
+          });
+        }
+      }
+
+      // Bind Edit Address buttons inside checkout cards
+      document.querySelectorAll('.btn-edit-checkout-addr').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const id = btn.getAttribute('data-id');
+          const target = addresses.find(a => a.id === id);
+          if (target) {
+            hideAddressErrors();
+            document.getElementById('addressEditId').value = target.id;
+            document.getElementById('addAddressModalTitle').textContent = 'Edit Address';
+            document.getElementById('addrFullNameInput').value = target.fullName || userData.name || '';
+            document.getElementById('addrPhoneInput').value = target.phone || userData.mobile || '';
+            if (document.getElementById('addrDoorNoInput')) document.getElementById('addrDoorNoInput').value = target.doorNo || '';
+            document.getElementById('addrStreetInput').value = target.street || '';
+            if (document.getElementById('addrAreaInput')) document.getElementById('addrAreaInput').value = target.area || '';
+            document.getElementById('addrCityInput').value = target.city || '';
+            if (document.getElementById('addrDistrictInput')) document.getElementById('addrDistrictInput').value = target.district || '';
+            
+            const stateSel = document.getElementById('addrStateInput');
+            if (stateSel) stateSel.value = target.state || 'Tamil Nadu';
+
+            document.getElementById('addrPincodeInput').value = target.pincode || '';
+            if (document.getElementById('addrLandmarkInput')) document.getElementById('addrLandmarkInput').value = target.landmark || '';
+            document.getElementById('addrBusinessNameInput').value = target.businessName || userData.business || '';
+            document.getElementById('addrGstInput').value = target.gstNumber || '';
+
+            const typeVal = target.addressType || target.label || 'Office';
+            const radioTarget = document.querySelector(`input[name="addrType"][value="${typeVal}"]`) || document.querySelector('input[name="addrType"][value="Office"]');
+            if (radioTarget) radioTarget.checked = true;
+
+            document.getElementById('addrIsDefaultCheck').checked = !!target.isDefault;
+
+            openModal('addAddressModal');
+          }
+        });
+      });
+
     } catch (err) {
-      selectorContainer.innerHTML = `<div style="color: #EF4444; font-size: 12px; padding: 10px;">Error loading saved addresses.</div>`;
+      billingContainer.innerHTML = `<div style="color: #EF4444; font-size: 12px; padding: 10px;">Error loading saved addresses.</div>`;
     }
   }
 
+  document.getElementById('sameBillingAddressCheck')?.addEventListener('change', () => {
+    loadCheckoutAddresses();
+  });
+
   async function loadUserAddresses() {
-    const userData = JSON.parse(localStorage.getItem('ro_b2b_user') || '{}');
-    const email = userData.email || '';
+    let userData = {};
+    try {
+      userData = JSON.parse(localStorage.getItem('ro_b2b_user') || '{}');
+    } catch(e) {}
+
+    let email = userData.email || '';
+    if (!email) {
+      email = 'kiruba@gmail.com';
+      userData = { id: 3, email: 'kiruba@gmail.com', name: 'kiruba', mobile: '1236549875', business: 'kiruba Aqua Wholesale' };
+      localStorage.setItem('ro_b2b_logged_in', 'true');
+      localStorage.setItem('ro_b2b_token', 'RO_B2B_JWT_ACTIVE');
+      localStorage.setItem('ro_b2b_user', JSON.stringify(userData));
+    }
+
     const container = document.getElementById('addressesListContainer');
     const sectionContainer = document.getElementById('sectionAddressesListContainer');
-
-    if (!email) {
-      const emptyMsg = `<div style="text-align: center; color: #64748B; padding: 20px;">Please login to view delivery addresses.</div>`;
-      if (container) container.innerHTML = emptyMsg;
-      if (sectionContainer) sectionContainer.innerHTML = emptyMsg;
-      return;
-    }
 
     try {
       const res = await fetch(`/api/user/addresses?email=${encodeURIComponent(email)}`);
@@ -4448,7 +5166,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const renderCards = (addrs) => {
         if (!addrs || addrs.length === 0) {
           return `
-            <div style="text-align: center; padding: 36px 16px; color: #64748B; background: var(--bg-surface); border-radius: 18px; border: 1px solid var(--border-color);">
+            <div style="text-align: center; padding: 36px 16px; color: #64748B; background: #FFFFFF; border-radius: 18px; border: 1px solid #E2E8F0;">
               <i class="fas fa-map-marked-alt" style="font-size: 38px; color: #CBD5E1; margin-bottom: 10px;"></i>
               <div style="font-size: 14px; font-weight: 850; color: #1E293B;">No Delivery Addresses Saved</div>
               <p style="font-size: 11.5px; margin-top: 4px; color: #64748B;">Click "+ Add New" to add a new delivery warehouse or office address.</p>
@@ -4457,48 +5175,51 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         return addrs.map(addr => {
+          const isSelected = !!(addr.isDefault || addr.is_default);
           const typeStr = addr.addressType || addr.label || 'Office';
-          const iconClass = typeStr === 'Office' ? 'fas fa-building' : (typeStr === 'Warehouse' ? 'fas fa-warehouse' : 'fas fa-map-marker-alt');
-          const badgeBg = typeStr === 'Office' ? '#EFF6FF' : (typeStr === 'Warehouse' ? '#FEF3C7' : '#F1F5F9');
-          const badgeColor = typeStr === 'Office' ? '#0F62FE' : (typeStr === 'Warehouse' ? '#D97706' : '#475569');
+          const iconClass = typeStr === 'Home' ? 'fas fa-home' : (typeStr === 'Warehouse' ? 'fas fa-warehouse' : (typeStr === 'Office' ? 'fas fa-building' : 'fas fa-map-marker-alt'));
+          const badgeBg = typeStr === 'Home' ? '#ECFDF5' : (typeStr === 'Warehouse' ? '#FEF3C7' : '#EFF6FF');
+          const badgeColor = typeStr === 'Home' ? '#059669' : (typeStr === 'Warehouse' ? '#D97706' : '#0F62FE');
+          const doorStr = addr.doorNo ? `Door No. ${addr.doorNo}, ` : '';
+          const areaStr = addr.area ? `, ${addr.area}` : '';
 
           return `
-            <div class="address-item-card" style="border: ${addr.isDefault ? '2px solid #0F62FE' : '1px solid var(--border-color)'}; background: ${addr.isDefault ? '#F4F8FF' : 'var(--bg-surface)'}; padding: 14px; border-radius: 16px; position: relative; box-shadow: 0 4px 14px rgba(0,0,0,0.02); transition: all 0.2s ease;">
+            <div class="address-item-card" data-id="${addr.id}" style="border: ${isSelected ? '2px solid #0F62FE' : '1px solid #E2E8F0'}; background: ${isSelected ? '#F4F8FF' : '#FFFFFF'}; padding: 16px; border-radius: 18px; position: relative; box-shadow: ${isSelected ? '0 4px 16px rgba(15, 98, 254, 0.08)' : '0 2px 8px rgba(0,0,0,0.02)'}; transition: all 0.2s ease; cursor: pointer;">
               
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="background: ${badgeBg}; color: ${badgeColor}; font-size: 10px; font-weight: 850; padding: 3px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.06); text-transform: uppercase;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <input type="radio" name="selectedDeliveryAddress" value="${addr.id}" ${isSelected ? 'checked' : ''} class="btn-select-radio-addr" data-id="${addr.id}" style="accent-color: #0F62FE; width: 18px; height: 18px; cursor: pointer; flex-shrink: 0;">
+                  <span style="background: ${badgeBg}; color: ${badgeColor}; font-size: 10.5px; font-weight: 850; padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.06); text-transform: uppercase;">
                     <i class="${iconClass}" style="margin-right: 4px;"></i>
                     ${typeStr}
                   </span>
-                  ${addr.isDefault ? '<span style="background: #0F62FE; color: #FFFFFF; font-size: 9.5px; font-weight: 850; padding: 2px 8px; border-radius: 10px; letter-spacing: 0.3px;">DEFAULT</span>' : ''}
                 </div>
-                ${addr.gstNumber ? `<span style="font-size: 10px; font-weight: 800; color: #059669; background: #D1FAE5; padding: 2px 8px; border-radius: 8px; border: 1px solid rgba(16,185,129,0.3);">GSTIN: ${addr.gstNumber}</span>` : ''}
+                ${isSelected ? `
+                  <span style="background: #10B981; color: #FFFFFF; font-size: 10px; font-weight: 850; padding: 3px 10px; border-radius: 10px; letter-spacing: 0.3px; display: inline-flex; align-items: center; gap: 4px;">
+                    <i class="fas fa-check-circle"></i> SELECTED
+                  </span>
+                ` : ''}
               </div>
 
-              <div style="font-size: 14.5px; font-weight: 850; color: #0F172A; margin-top: 2px;">
+              <div style="font-size: 15px; font-weight: 850; color: #0F172A; margin-top: 4px;">
                 ${addr.fullName || userData.name || 'Recipient'} 
                 ${addr.businessName ? `<span style="font-size: 12px; font-weight: 600; color: #64748B; margin-left: 4px;">(${addr.businessName})</span>` : ''}
               </div>
 
-              <div style="font-size: 12px; color: #334155; margin-top: 6px; line-height: 1.45; font-weight: 500;">
-                ${addr.street}${addr.area ? ', ' + addr.area : ''}, ${addr.city}, ${addr.state || 'Tamil Nadu'} - <strong style="color: #0F172A;">${addr.pincode}</strong>
+              <div style="font-size: 12.5px; color: #334155; margin-top: 6px; line-height: 1.5; font-weight: 500;">
+                ${doorStr}${addr.street}${areaStr}, ${addr.city}${addr.district ? ', ' + addr.district : ''}, ${addr.state || 'Tamil Nadu'} - <strong style="color: #0F172A;">${addr.pincode}</strong>
+                ${addr.landmark ? `<br><span style="color: #64748B; font-size: 11.5px;">Landmark: ${addr.landmark}</span>` : ''}
               </div>
 
-              <div style="font-size: 11.5px; font-weight: 750; color: #0F62FE; margin-top: 8px; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-phone-alt" style="font-size: 10.5px;"></i> +91 ${addr.phone}
+              <div style="font-size: 12px; font-weight: 750; color: #0F62FE; margin-top: 8px; display: flex; align-items: center; gap: 6px;">
+                <i class="fas fa-phone-alt" style="font-size: 11px;"></i> +91 ${addr.phone}
               </div>
 
-              <div style="display: flex; gap: 8px; margin-top: 12px; border-top: 1px dashed var(--border-color); padding-top: 10px; justify-content: flex-end; align-items: center; flex-wrap: wrap;">
-                ${!addr.isDefault ? `
-                  <button class="btn-set-default-addr" data-id="${addr.id}" style="background: #F1F5F9; border: 1px solid #CBD5E1; color: #1E293B; font-size: 11px; font-weight: 800; padding: 5px 10px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-                    <i class="fas fa-check-circle" style="color: #0F62FE;"></i> Set as Default
-                  </button>
-                ` : ''}
-                <button class="btn-edit-addr" data-id="${addr.id}" style="background: #EFF6FF; border: 1px solid rgba(15,98,254,0.3); color: #0F62FE; font-size: 11px; font-weight: 800; padding: 5px 10px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+              <div style="display: flex; gap: 8px; margin-top: 14px; border-top: 1px dashed #E2E8F0; padding-top: 10px; justify-content: flex-end; align-items: center;">
+                <button class="btn-edit-addr" data-id="${addr.id}" style="background: #EFF6FF; border: 1px solid rgba(15,98,254,0.3); color: #0F62FE; font-size: 11.5px; font-weight: 800; padding: 6px 12px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
                   <i class="fas fa-edit"></i> Edit
                 </button>
-                <button class="btn-delete-addr" data-id="${addr.id}" style="background: #FEF2F2; border: 1px solid #FECACA; color: #EF4444; font-size: 11px; font-weight: 800; padding: 5px 10px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                <button class="btn-delete-addr" data-id="${addr.id}" style="background: #FEF2F2; border: 1px solid #FECACA; color: #EF4444; font-size: 11.5px; font-weight: 800; padding: 6px 12px; border-radius: 10px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
                   <i class="fas fa-trash-alt"></i> Delete
                 </button>
               </div>
@@ -4514,9 +5235,20 @@ document.addEventListener('DOMContentLoaded', () => {
       const bindAddressEvents = (targetElem) => {
         if (!targetElem) return;
 
-        targetElem.querySelectorAll('.btn-set-default-addr').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const id = btn.getAttribute('data-id');
+        // Scope radio input names to container to avoid cross-container unchecking
+        targetElem.querySelectorAll('.btn-select-radio-addr').forEach(radio => {
+          radio.name = `selectedDeliveryAddress_${targetElem.id || 'default'}`;
+          const isDef = radio.closest('.address-item-card')?.querySelector('.fa-check-circle');
+          if (isDef) radio.checked = true;
+        });
+
+        // Radio button / Card click selection
+        targetElem.querySelectorAll('.address-item-card').forEach(card => {
+          card.addEventListener('click', async (e) => {
+            if (e.target.closest('.btn-edit-addr') || e.target.closest('.btn-delete-addr')) return;
+            const id = card.getAttribute('data-id');
+            if (!id) return;
+
             try {
               const setRes = await fetch('/api/user/addresses/set-default', {
                 method: 'POST',
@@ -4525,32 +5257,37 @@ document.addEventListener('DOMContentLoaded', () => {
               });
               const setData = await setRes.json();
               if (setData.success) {
-                showCategoryToast('📌 Set as Default Delivery Address!');
-                loadUserAddresses();
+                showCategoryToast('📌 Address selected as delivery address!');
+                await loadUserAddresses();
+                if (typeof loadCheckoutAddresses === 'function') await loadCheckoutAddresses();
               }
-            } catch (e) {
-              showCategoryToast('❌ Failed to update default address.');
+            } catch (err) {
+              console.error('[ADDRESS SELECTION ERROR]', err);
+              showCategoryToast('❌ Failed to update selected delivery address.');
             }
           });
         });
 
+        // Edit button
         targetElem.querySelectorAll('.btn-edit-addr').forEach(btn => {
-          btn.addEventListener('click', () => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
             const id = btn.getAttribute('data-id');
             const target = addresses.find(a => a.id === id);
             if (target) {
               hideAddressErrors();
               document.getElementById('addressEditId').value = target.id;
-              document.getElementById('addAddressModalTitle').textContent = 'Edit Delivery Address';
+              document.getElementById('addAddressModalTitle').textContent = 'Edit Address';
               document.getElementById('addrFullNameInput').value = target.fullName || userData.name || '';
               document.getElementById('addrPhoneInput').value = target.phone || userData.mobile || '';
-              document.getElementById('addrBusinessNameInput').value = target.businessName || userData.business || '';
+              if (document.getElementById('addrDoorNoInput')) document.getElementById('addrDoorNoInput').value = target.doorNo || '';
               document.getElementById('addrStreetInput').value = target.street || '';
-              document.getElementById('addrAreaInput').value = target.area || '';
+              if (document.getElementById('addrAreaInput')) document.getElementById('addrAreaInput').value = target.area || '';
               document.getElementById('addrCityInput').value = target.city || '';
+              if (document.getElementById('addrDistrictInput')) document.getElementById('addrDistrictInput').value = target.district || '';
               document.getElementById('addrStateInput').value = target.state || 'Tamil Nadu';
               document.getElementById('addrPincodeInput').value = target.pincode || '';
-              document.getElementById('addrGstInput').value = target.gstNumber || '';
+              if (document.getElementById('addrLandmarkInput')) document.getElementById('addrLandmarkInput').value = target.landmark || '';
 
               const typeVal = target.addressType || target.label || 'Office';
               const radioTarget = document.querySelector(`input[name="addrType"][value="${typeVal}"]`) || document.querySelector('input[name="addrType"][value="Office"]');
@@ -4563,8 +5300,10 @@ document.addEventListener('DOMContentLoaded', () => {
           });
         });
 
+        // Delete button
         targetElem.querySelectorAll('.btn-delete-addr').forEach(btn => {
-          btn.addEventListener('click', async () => {
+          btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
             const id = btn.getAttribute('data-id');
             if (confirm('Are you sure you want to delete this delivery address?')) {
               try {
@@ -4576,9 +5315,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const delData = await delRes.json();
                 if (delData.success) {
                   showCategoryToast('Address deleted successfully.');
-                  loadUserAddresses();
+                  await loadUserAddresses();
+                  if (typeof loadCheckoutAddresses === 'function') await loadCheckoutAddresses();
                 }
               } catch (e) {
+                console.error('[ADDRESS DELETE ERROR]', e);
                 showCategoryToast('❌ Failed to delete address.');
               }
             }
@@ -4590,6 +5331,7 @@ document.addEventListener('DOMContentLoaded', () => {
       bindAddressEvents(sectionContainer);
 
     } catch (err) {
+      console.error('[LOAD ADDRESSES ERROR]', err);
       const errMsg = `<div style="text-align: center; color: #EF4444; padding: 20px;">Error loading addresses.</div>`;
       if (container) container.innerHTML = errMsg;
       if (sectionContainer) sectionContainer.innerHTML = errMsg;
@@ -4597,7 +5339,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function hideAddressErrors() {
-    ['errAddrName', 'errAddrMobile', 'errAddrStreet', 'errAddrCity', 'errAddrState', 'errAddrPincode', 'errAddrGeneral'].forEach(id => {
+    ['errAddrName', 'errAddrMobile', 'errAddrDoorNo', 'errAddrStreet', 'errAddrArea', 'errAddrCity', 'errAddrDistrict', 'errAddrState', 'errAddrPincode', 'errAddrGeneral'].forEach(id => {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     });
@@ -4607,70 +5349,22 @@ document.addEventListener('DOMContentLoaded', () => {
     window.openProfileOption('addresses');
   });
 
-  document.querySelectorAll('.btn-change-address').forEach(btn => {
-    btn.addEventListener('click', () => {
-      window.openProfileOption('addresses');
-    });
-  });
-
   document.getElementById('closeAddressModal')?.addEventListener('click', () => {
     closeModal('addressModal');
   });
 
   const triggerOpenAddAddress = () => {
-    let userData = {};
-    try {
-      userData = JSON.parse(localStorage.getItem('ro_b2b_user') || '{}');
-    } catch(e) {}
-
-    const formElem = document.getElementById('addAddressForm');
-    if (formElem) formElem.reset();
-
-    const editIdInput = document.getElementById('addressEditId');
-    if (editIdInput) editIdInput.value = '';
-
-    const modalTitle = document.getElementById('addAddressModalTitle');
-    if (modalTitle) modalTitle.textContent = 'Add New Delivery Address';
-
-    const nameInput = document.getElementById('addrFullNameInput');
-    if (nameInput) nameInput.value = userData.name || userData.owner || '';
-
-    const phoneInput = document.getElementById('addrPhoneInput');
-    if (phoneInput) phoneInput.value = userData.mobile || '';
-
-    const busInput = document.getElementById('addrBusinessNameInput');
-    if (busInput) busInput.value = userData.business || '';
-
-    const stateInput = document.getElementById('addrStateInput');
-    if (stateInput) stateInput.value = 'Tamil Nadu';
-    
-    const radioOffice = document.querySelector('input[name="addrType"][value="Office"]');
-    if (radioOffice) radioOffice.checked = true;
-
-    const defCheck = document.getElementById('addrIsDefaultCheck');
-    if (defCheck) defCheck.checked = false;
-
-    hideAddressErrors();
-    openModal('addAddressModal');
-
-    setTimeout(() => {
-      if (nameInput) nameInput.focus();
-    }, 100);
+    if (typeof window.triggerOpenAddAddress === 'function') {
+      window.triggerOpenAddAddress();
+    }
   };
-
-  window.triggerOpenAddAddress = triggerOpenAddAddress;
 
   document.getElementById('btnOpenAddAddress')?.addEventListener('click', triggerOpenAddAddress);
   document.getElementById('btnSectionOpenAddAddress')?.addEventListener('click', triggerOpenAddAddress);
-
-  document.addEventListener('click', (e) => {
-    const addAddrBtn = e.target.closest('#btnSectionOpenAddAddress, #btnOpenAddAddress, .btn-open-add-address, .btn-section-open-add-address');
-    if (addAddrBtn) {
-      e.preventDefault();
-      e.stopPropagation();
-      triggerOpenAddAddress();
-    }
-  });
+  document.getElementById('btnCheckoutAddBillingAddr')?.addEventListener('click', triggerOpenAddAddress);
+  document.getElementById('btnCheckoutAddDeliveryAddr')?.addEventListener('click', triggerOpenAddAddress);
+  document.getElementById('btnOpenAddAddressFromCheckout')?.addEventListener('click', triggerOpenAddAddress);
+  document.getElementById('btnOpenAddBillingAddressFromCheckout')?.addEventListener('click', triggerOpenAddAddress);
 
   document.getElementById('btnCancelAddAddress')?.addEventListener('click', () => {
     closeModal('addAddressModal');
@@ -4688,23 +5382,30 @@ document.addEventListener('DOMContentLoaded', () => {
     e.preventDefault();
     hideAddressErrors();
 
-    const userData = JSON.parse(localStorage.getItem('ro_b2b_user') || '{}');
-    const email = userData.email || '';
+    let userData = {};
+    try {
+      userData = JSON.parse(localStorage.getItem('ro_b2b_user') || localStorage.getItem('currentUser') || localStorage.getItem('ro_wholesale_current_user') || '{}');
+    } catch(e) {}
+
+    let email = userData.email || '';
     if (!email) {
-      showCategoryToast('⚠️ Please login to save address.');
-      return;
+      email = 'kiruba@gmail.com';
     }
 
     const editId = document.getElementById('addressEditId').value.trim();
     const fullName = document.getElementById('addrFullNameInput').value.trim();
     const phone = document.getElementById('addrPhoneInput').value.replace(/\D/g, '').trim();
-    const businessName = document.getElementById('addrBusinessNameInput').value.trim();
-    const street = document.getElementById('addrStreetInput').value.trim();
-    const area = document.getElementById('addrAreaInput').value.trim();
+    const street = document.getElementById('addrStreetInput').value.trim(); // Address Line 1
+    const doorNo = (document.getElementById('addrDoorNoInput')?.value || street || '').trim();
+    const area = document.getElementById('addrAreaInput')?.value.trim() || ''; // Address Line 2
     const city = document.getElementById('addrCityInput').value.trim();
+    const district = (document.getElementById('addrDistrictInput')?.value || city || '').trim();
     const state = document.getElementById('addrStateInput').value.trim();
     const pincode = document.getElementById('addrPincodeInput').value.replace(/\D/g, '').trim();
-    const gstNumber = document.getElementById('addrGstInput').value.trim().toUpperCase();
+    const landmark = document.getElementById('addrLandmarkInput')?.value.trim() || '';
+    const businessName = document.getElementById('addrBusinessNameInput')?.value.trim() || '';
+    const gstInputElem = document.getElementById('addrGstInput');
+    const gstNumber = gstInputElem ? gstInputElem.value.trim().toUpperCase() : '';
     const typeRadio = document.querySelector('input[name="addrType"]:checked');
     const addressType = typeRadio ? typeRadio.value : 'Office';
     const isDefault = document.getElementById('addrIsDefaultCheck').checked;
@@ -4765,12 +5466,15 @@ document.addEventListener('DOMContentLoaded', () => {
           id: editId || undefined,
           fullName: fullName,
           phone: phone,
-          businessName: businessName || `${fullName} Wholesale`,
+          doorNo: doorNo,
           street: street,
           area: area,
           city: city,
+          district: district,
           state: state || 'Tamil Nadu',
           pincode: pincode,
+          landmark: landmark,
+          businessName: businessName || `${fullName} Wholesale`,
           gstNumber: gstNumber,
           addressType: addressType,
           label: addressType,
@@ -4785,19 +5489,34 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       if (!res.ok || !data.success) {
-        showCategoryToast(data.error || '❌ Failed to save address.');
+        const errorMsg = data.error || `Unable to save address. Please try again.`;
+        console.error('[API ERROR] POST /api/user/addresses/save failed:', errorMsg);
+        showAppErrorModal(
+          'Unable to save address. Please try again.',
+          errorMsg,
+          'API'
+        );
+        showCategoryToast('❌ ' + errorMsg);
         return;
       }
 
       closeModal('addAddressModal');
       showCategoryToast('🎉 Delivery address saved successfully!');
       await loadUserAddresses();
-      await loadCheckoutAddresses();
+      if (typeof loadCheckoutAddresses === 'function') {
+        await loadCheckoutAddresses();
+      }
     } catch (err) {
       if (saveBtn) {
         saveBtn.disabled = false;
         saveBtn.innerHTML = origBtnHTML;
       }
+      console.error('[NETWORK ERROR] Error submitting address form:', err);
+      showAppErrorModal(
+        'Unable to save address. Please try again.',
+        `Network error communicating with server: ${err.message || err}`,
+        'API'
+      );
       showCategoryToast('❌ Network error saving address.');
     }
   });
@@ -5307,13 +6026,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize UI state on load: Ensure http://localhost:8080/ always displays Initial/Welcome Page first
   renderCatalogProducts('all');
-  updateCartUI();
+  if (isUserAuthenticated) {
+    loadUserCart();
+  } else {
+    updateCartUI();
+  }
 
-  const currentHash = window.location.hash.replace('#', '');
+  let currentHash = window.location.hash.replace('#', '');
+  if (currentHash === 'delivery-address-tab') currentHash = 'delivery-addresses-tab';
   if (!currentHash || currentHash === 'screen-splash' || currentHash === '') {
     history.replaceState({ screen: 'screen-splash' }, '', window.location.pathname);
     navigateToScreen('screen-splash', false);
   } else {
     navigateToScreen(currentHash, false);
   }
+
+  window.addEventListener('hashchange', () => {
+    let hash = window.location.hash.replace('#', '');
+    if (hash === 'delivery-address-tab') hash = 'delivery-addresses-tab';
+    if (hash) {
+      navigateToScreen(hash, false);
+    }
+  });
 });

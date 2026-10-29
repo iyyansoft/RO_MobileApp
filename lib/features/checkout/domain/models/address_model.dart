@@ -7,6 +7,7 @@ class AddressModel {
   final String state;
   final String pincode;
   final bool isDefault;
+  final String doorNo, street, area;
 
   const AddressModel({
     required this.id,
@@ -17,6 +18,9 @@ class AddressModel {
     required this.state,
     required this.pincode,
     this.isDefault = false,
+    this.doorNo = '',
+    this.street = '',
+    this.area = '',
   });
 
   AddressModel copyWith({
@@ -38,29 +42,9 @@ class AddressModel {
       state: state ?? this.state,
       pincode: pincode ?? this.pincode,
       isDefault: isDefault ?? this.isDefault,
+      doorNo: address == null ? doorNo : '',
+      street: address ?? street,
+      area: address == null ? area : '',
     );
   }
-
-  static const List<AddressModel> sampleAddresses = [
-    AddressModel(
-      id: 'addr_1',
-      name: 'Rajesh Kumar (Aqua Tech Solutions)',
-      mobile: '+91 98765 43210',
-      address: 'Plot 42, Industrial Area Phase 2, Near Water Plant',
-      city: 'Mumbai',
-      state: 'Maharashtra',
-      pincode: '400072',
-      isDefault: true,
-    ),
-    AddressModel(
-      id: 'addr_2',
-      name: 'Aqua Tech Warehouse Depot',
-      mobile: '+91 98200 11223',
-      address: 'Shed 12, Logistics Park, Bhiwandi Road',
-      city: 'Thane',
-      state: 'Maharashtra',
-      pincode: '421302',
-      isDefault: false,
-    ),
-  ];
 }

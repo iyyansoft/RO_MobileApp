@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../core/theme/app_colors.dart';
 import '../providers/product_provider.dart';
 
@@ -15,16 +16,14 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
   late bool _inStockOnly;
   late Set<String> _selectedBrands;
 
-  final List<String> _availableBrands = [
-    'AquaClean',
-    'Vontron',
-    'E-Chen',
-    'Kemflo',
-    'Hero',
-    'HydroShield',
-    'PowerAmp',
-    'AquaTech',
-  ];
+  List<String> get _availableBrands =>
+      ref
+          .read(allProductsProvider)
+          .map((p) => p.brand)
+          .where((b) => b.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
 
   @override
   void initState() {
@@ -80,7 +79,10 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
                     ref.read(productFilterProvider.notifier).clearFilters();
                     Navigator.pop(context);
                   },
-                  child: const Text('Reset All', style: TextStyle(color: Colors.redAccent)),
+                  child: const Text(
+                    'Reset All',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
                 ),
               ],
             ),
@@ -126,30 +128,40 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF8FAFC),
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.04)
+                    : const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+                border: Border.all(
+                  color: isDark ? Colors.white10 : Colors.black12,
+                ),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
                     children: [
-                      Icon(Icons.inventory_2_outlined, color: primaryColor, size: 20),
+                      Icon(
+                        Icons.inventory_2_outlined,
+                        color: primaryColor,
+                        size: 20,
+                      ),
                       const SizedBox(width: 10),
                       Text(
                         'In Stock Items Only',
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,
-                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          color: isDark
+                              ? Colors.white
+                              : const Color(0xFF0F172A),
                         ),
                       ),
                     ],
                   ),
                   Switch.adaptive(
                     value: _inStockOnly,
-                    activeColor: primaryColor,
+                    activeThumbColor: primaryColor,
                     onChanged: (val) {
                       setState(() {
                         _inStockOnly = val;
@@ -179,7 +191,7 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
                 return FilterChip(
                   label: Text(brand),
                   selected: isSelected,
-                  selectedColor: primaryColor.withOpacity(0.18),
+                  selectedColor: primaryColor.withValues(alpha: 0.18),
                   checkmarkColor: primaryColor,
                   labelStyle: TextStyle(
                     color: isSelected
@@ -217,11 +229,14 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
 
                   // Update selected brands
                   final notifier = ref.read(productFilterProvider.notifier);
-                  final current = ref.read(productFilterProvider).selectedBrands;
+                  final current = ref
+                      .read(productFilterProvider)
+                      .selectedBrands;
                   for (final b in _availableBrands) {
                     if (_selectedBrands.contains(b) && !current.contains(b)) {
                       notifier.toggleBrand(b);
-                    } else if (!_selectedBrands.contains(b) && current.contains(b)) {
+                    } else if (!_selectedBrands.contains(b) &&
+                        current.contains(b)) {
                       notifier.toggleBrand(b);
                     }
                   }

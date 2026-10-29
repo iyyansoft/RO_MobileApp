@@ -3,4 +3,22 @@ node_modules/
 *.log
 .DS_Store
 backup_*.sql
+# Generated Supabase data import contains real dealer data and password hashes.
+supabase_data_import.sql
+
+# Local JSON database snapshots are development data, not deployment assets.
+users_db.json
+orders_db.json
+products_db.json
+categories_db.json
 scratch/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+android/local.properties
+android/.gradle/
+.idea/
+*.iml
+inst_user_settings.tmp
+ios/Flutter/ephemeral/

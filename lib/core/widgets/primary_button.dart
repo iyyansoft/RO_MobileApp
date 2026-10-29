@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
@@ -24,7 +25,8 @@ class PrimaryButton extends StatefulWidget {
   State<PrimaryButton> createState() => _PrimaryButtonState();
 }
 
-class _PrimaryButtonState extends State<PrimaryButton> with SingleTickerProviderStateMixin {
+class _PrimaryButtonState extends State<PrimaryButton>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _scaleAnimation;
 
@@ -35,9 +37,10 @@ class _PrimaryButtonState extends State<PrimaryButton> with SingleTickerProvider
       vsync: this,
       duration: const Duration(milliseconds: 100),
     );
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.96).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.96,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
 
   @override
@@ -65,7 +68,6 @@ class _PrimaryButtonState extends State<PrimaryButton> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final buttonColor = isDark ? AppColors.secondaryDark : AppColors.primaryLight;
 
     return GestureDetector(
       onTapDown: _onTapDown,
@@ -79,7 +81,9 @@ class _PrimaryButtonState extends State<PrimaryButton> with SingleTickerProvider
           height: widget.height,
           decoration: BoxDecoration(
             gradient: widget.onPressed != null && !widget.isLoading
-                ? (isDark ? AppColors.waterGradientDark : AppColors.waterGradientLight)
+                ? (isDark
+                      ? AppColors.waterGradientDark
+                      : AppColors.waterGradientLight)
                 : null,
             color: widget.onPressed == null || widget.isLoading
                 ? (isDark ? Colors.white12 : Colors.black12)
@@ -111,12 +115,12 @@ class _PrimaryButtonState extends State<PrimaryButton> with SingleTickerProvider
                       Text(
                         widget.text,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                              color: widget.onPressed == null
-                                  ? (isDark ? Colors.white30 : Colors.black26)
-                                  : Colors.white,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 16,
-                            ),
+                          color: widget.onPressed == null
+                              ? (isDark ? Colors.white30 : Colors.black26)
+                              : Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
                       ),
                     ],
                   ),

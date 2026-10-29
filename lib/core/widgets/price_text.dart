@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 
 class PriceText extends StatelessWidget {
@@ -22,7 +23,9 @@ class PriceText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primaryTextColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
+    final primaryTextColor = isDark
+        ? AppColors.accentDark
+        : AppColors.primaryLight;
     final formattedPrice = '$currency${price.toStringAsFixed(0)}';
 
     return Column(
@@ -37,19 +40,21 @@ class PriceText extends StatelessWidget {
             Text(
               formattedPrice,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    fontSize: fontSize,
-                    color: primaryTextColor,
-                  ),
+                fontWeight: FontWeight.w700,
+                fontSize: fontSize,
+                color: primaryTextColor,
+              ),
             ),
             if (suffix != null) ...[
               const SizedBox(width: 2),
               Text(
                 suffix!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
-                      fontSize: fontSize * 0.65,
-                    ),
+                  color: isDark
+                      ? AppColors.textSecondaryDark
+                      : AppColors.textSecondaryLight,
+                  fontSize: fontSize * 0.65,
+                ),
               ),
             ],
           ],
@@ -62,19 +67,23 @@ class PriceText extends StatelessWidget {
               Text(
                 '$currency${originalPrice!.toStringAsFixed(0)}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      decoration: TextDecoration.lineThrough,
-                      color: isDark ? AppColors.textSecondaryDark.withOpacity(0.6) : AppColors.textSecondaryLight.withOpacity(0.6),
-                      fontSize: fontSize * 0.75,
-                    ),
+                  decoration: TextDecoration.lineThrough,
+                  color: isDark
+                      ? AppColors.textSecondaryDark.withValues(alpha: 0.6)
+                      : AppColors.textSecondaryLight.withValues(alpha: 0.6),
+                  fontSize: fontSize * 0.75,
+                ),
               ),
               const SizedBox(width: 4),
               Text(
                 '${(((originalPrice! - price) / originalPrice!) * 100).toStringAsFixed(0)}% OFF',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: isDark ? AppColors.successDark : AppColors.successLight,
-                      fontWeight: FontWeight.bold,
-                      fontSize: fontSize * 0.65,
-                    ),
+                  color: isDark
+                      ? AppColors.successDark
+                      : AppColors.successLight,
+                  fontWeight: FontWeight.bold,
+                  fontSize: fontSize * 0.65,
+                ),
               ),
             ],
           ),
@@ -84,17 +93,18 @@ class PriceText extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
             decoration: BoxDecoration(
-              color: (isDark ? AppColors.accentDark : AppColors.primaryLight).withOpacity(0.1),
+              color: (isDark ? AppColors.accentDark : AppColors.primaryLight)
+                  .withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(4),
             ),
             child: Text(
               'WHOLESALE PRICE',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontSize: 8,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? AppColors.accentDark : AppColors.primaryLight,
-                    letterSpacing: 0.5,
-                  ),
+                fontSize: 8,
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppColors.accentDark : AppColors.primaryLight,
+                letterSpacing: 0.5,
+              ),
             ),
           ),
         ],

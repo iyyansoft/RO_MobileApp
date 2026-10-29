@@ -88,7 +88,7 @@
 
     /* 1. Alternative Native Mobile App Header */
     .app-header {
-      padding: 42px 16px 12px 16px;
+      padding: 48px 18px 14px 18px;
       background: rgba(255, 255, 255, 0.95);
       backdrop-filter: blur(20px);
       -webkit-backdrop-filter: blur(20px);
@@ -209,7 +209,7 @@
 
     .header-actions {
       display: flex;
-      gap: 8px;
+      gap: 6px;
       align-items: center;
     }
 
@@ -219,8 +219,8 @@
       border-radius: 10px;
       cursor: pointer;
       color: #0A2B5A;
-      width: 36px;
-      height: 36px;
+      width: 34px;
+      height: 34px;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -712,114 +712,136 @@
       gap: 4px;
     }
 
-    /* Product Cards */
+    /* Product Cards Grid - Modern Mobile Styling */
     .products-grid {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      padding: 2px;
     }
 
     .product-card {
-      background-color: var(--bg-surface);
-      border-radius: var(--radius-m);
-      border: 1px solid var(--border-color);
+      background-color: #FFFFFF;
+      border-radius: 18px;
+      border: 1px solid #E2E8F0;
       overflow: hidden;
       display: flex;
       flex-direction: column;
       position: relative;
-      box-shadow: var(--shadow-light);
+      box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .product-card:active {
+      transform: scale(0.98);
     }
 
     .product-image-container {
-      height: 130px;
-      background-color: var(--bg-surface);
+      height: 148px;
+      background: #F8FAFC;
       display: flex;
       align-items: center;
       justify-content: center;
       position: relative;
-      padding: 10px;
+      padding: 32px 10px 10px 10px;
+      border-bottom: 1px dashed #F1F5F9;
+      box-sizing: border-box;
     }
 
     .product-image-container img {
       max-height: 100%;
       max-width: 100%;
       object-fit: contain;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.05));
     }
 
     .heart-btn {
       position: absolute;
-      top: 10px;
-      right: 10px;
-      background: none;
-      border: none;
-      color: var(--text-muted);
+      top: 8px;
+      right: 8px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(4px);
+      border: 1px solid #E2E8F0;
+      color: #64748B;
       cursor: pointer;
-      z-index: 10;
+      z-index: 5;
       display: flex;
       align-items: center;
       justify-content: center;
+      font-size: 12px;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+      transition: all 0.2s ease;
     }
 
     .badge {
       position: absolute;
-      top: 10px;
-      left: 10px;
-      padding: 3px 8px;
-      border-radius: 6px;
+      top: 8px;
+      left: 8px;
+      padding: 3px 7px;
+      border-radius: 8px;
       font-size: 8px;
-      font-weight: 800;
+      font-weight: 850;
       letter-spacing: 0.5px;
-      z-index: 10;
+      text-transform: uppercase;
+      z-index: 5;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }
 
     .badge-success {
-      background-color: var(--success-bg);
-      color: var(--success);
+      background: #ECFDF5;
+      color: #059669;
+      border: 1px solid #A7F3D0;
     }
 
-    .product-details {
-      padding: 12px;
+    .product-details, .product-info {
+      padding: 10px 12px 12px 12px;
       display: flex;
       flex-direction: column;
       flex: 1;
     }
 
     .product-brand {
-      font-size: 8px;
-      font-weight: 800;
-      letter-spacing: 1px;
-      color: var(--primary-blue);
+      font-size: 8.5px;
+      font-weight: 850;
+      letter-spacing: 0.8px;
+      color: #0F62FE;
       text-transform: uppercase;
-      margin-bottom: 2px;
+      margin-bottom: 3px;
     }
 
     .product-name {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-charcoal);
-      margin-bottom: 4px;
-      line-height: 1.4;
+      font-size: 12.5px;
+      font-weight: 750;
+      color: #0F172A;
+      margin-bottom: 6px;
+      line-height: 1.35;
       height: 34px;
       display: -webkit-box;
       -webkit-line-clamp: 2;
       -webkit-box-orient: vertical;
       overflow: hidden;
+      word-break: break-word;
     }
 
-    /* Rating stars layout */
-    .rating-row {
+    .rating-container, .rating-row {
       display: flex;
       align-items: center;
-      gap: 2px;
-      margin-bottom: 6px;
+      gap: 4px;
+      margin-bottom: 8px;
     }
-    .rating-stars {
-      color: #FFB300;
-      font-size: 9px;
+
+    .stars, .rating-stars {
+      color: #F59E0B;
+      font-size: 11px;
+      letter-spacing: 0.5px;
     }
+
     .rating-count {
-      font-size: 8px;
-      color: var(--text-muted);
+      font-size: 10.5px;
+      color: #64748B;
       font-weight: 600;
     }
 
@@ -839,13 +861,48 @@
 
     .price-container {
       display: flex;
-      flex-direction: column;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-top: auto;
+      padding-top: 4px;
     }
 
     .wholesale-price {
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 850;
-      color: var(--text-charcoal);
+      color: #0F172A;
+      line-height: 1.1;
+    }
+
+    .mrp-price {
+      font-size: 10.5px;
+      color: #94A3B8;
+      font-weight: 600;
+      text-decoration: line-through;
+      margin-left: 4px;
+    }
+
+    .popular-add-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: #0F62FE;
+      color: #FFFFFF;
+      border: none;
+      font-size: 19px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(15, 98, 254, 0.35);
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .popular-add-btn:active {
+      transform: scale(0.9);
+      background: #0043CE;
     }
 
     .wholesale-badge {
@@ -1441,7 +1498,7 @@
     /* ================= APPLE-STYLE CRISP PEARL GLASS CATALOG STYLING ================= */
     .catalog-pearl-header {
       background: rgba(255, 255, 255, 0.94);
-      padding: 42px 16px 14px 16px;
+      padding: 48px 18px 14px 18px;
       position: sticky;
       top: 0;
       z-index: 100;
@@ -1643,7 +1700,7 @@
 
     /* Crisp Light Stage Container */
     .pearl-img-stage {
-      height: 120px;
+      height: 148px;
       width: 100%;
       background: linear-gradient(135deg, #F8FAFC 0%, #EFF6FF 100%);
       border-radius: 16px;
@@ -1652,7 +1709,7 @@
       align-items: center;
       justify-content: center;
       margin-bottom: 10px;
-      padding: 8px;
+      padding: 32px 10px 10px 10px;
       position: relative;
       box-sizing: border-box;
     }
@@ -1673,15 +1730,17 @@
       position: absolute;
       top: 8px;
       left: 8px;
-      background: #10B981;
-      color: #FFFFFF;
+      background: #ECFDF5;
+      color: #059669;
+      border: 1px solid #A7F3D0;
       font-size: 8px;
       font-weight: 850;
-      padding: 3px 8px;
-      border-radius: 12px;
-      box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+      padding: 3px 7px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
       letter-spacing: 0.5px;
       z-index: 5;
+      text-transform: uppercase;
     }
 
     .pearl-wishlist-btn {
@@ -1818,6 +1877,261 @@
       transform: scale(0.92) !important;
     }
 
+    /* ==========================================
+       UNIFIED CLEAN MOBILE PRODUCT CARD SYSTEM
+       ========================================== */
+    .product-card,
+    .popular-product-card,
+    .pearl-product-card {
+      background: #FFFFFF !important;
+      border: 1px solid rgba(226, 232, 240, 0.9) !important;
+      border-radius: 22px !important;
+      padding: 10px !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: space-between !important;
+      box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04) !important;
+      position: relative !important;
+      cursor: pointer !important;
+      user-select: none !important;
+      transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+      overflow: hidden !important;
+    }
+
+    .product-card:hover,
+    .popular-product-card:hover,
+    .pearl-product-card:hover {
+      transform: translateY(-3px) !important;
+      box-shadow: 0 12px 28px rgba(0, 102, 255, 0.12) !important;
+      border-color: #0066FF !important;
+    }
+
+    .product-card:active,
+    .popular-product-card:active,
+    .pearl-product-card:active {
+      transform: scale(0.97) !important;
+    }
+
+    /* Image Stage Container */
+    .product-image-container,
+    .popular-img-wrapper,
+    .pearl-img-stage {
+      height: 148px !important;
+      width: 100% !important;
+      background: linear-gradient(180deg, #F6F8FD 0%, #FAFBFD 100%) !important;
+      border-radius: 16px !important;
+      border: 1px solid rgba(226, 232, 240, 0.8) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      margin-bottom: 10px !important;
+      padding: 34px 10px 10px 10px !important;
+      box-sizing: border-box !important;
+      position: relative !important;
+      overflow: hidden !important;
+    }
+
+    .product-image-container img,
+    .popular-img-wrapper img,
+    .pearl-img-stage img {
+      max-height: 100% !important;
+      max-width: 100% !important;
+      object-fit: contain !important;
+      filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.06)) !important;
+      transition: transform 0.3s ease !important;
+      margin: 0 auto !important;
+      display: block !important;
+    }
+
+    .product-card:hover img,
+    .popular-product-card:hover img,
+    .pearl-product-card:hover img {
+      transform: scale(1.06) !important;
+    }
+
+    /* Mint Pill Badge (Fresh Water / Discount) */
+    .badge,
+    .badge-success,
+    .pearl-discount-badge,
+    .wholesale-badge {
+      position: absolute !important;
+      top: 8px !important;
+      left: 8px !important;
+      background: #ECFDF5 !important;
+      color: #059669 !important;
+      border: 1px solid #A7F3D0 !important;
+      font-size: 8.5px !important;
+      font-weight: 850 !important;
+      padding: 4px 10px !important;
+      border-radius: 9999px !important;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.03) !important;
+      letter-spacing: 0.5px !important;
+      z-index: 5 !important;
+      text-transform: uppercase !important;
+      line-height: 1 !important;
+    }
+
+    /* Circular Floating Wishlist Button */
+    .heart-btn,
+    .pearl-wishlist-btn {
+      position: absolute !important;
+      top: 8px !important;
+      right: 8px !important;
+      width: 28px !important;
+      height: 28px !important;
+      border-radius: 50% !important;
+      background: #FFFFFF !important;
+      border: 1px solid rgba(226, 232, 240, 0.9) !important;
+      color: #64748B !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      font-size: 11px !important;
+      cursor: pointer !important;
+      z-index: 5 !important;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.06) !important;
+      transition: all 0.2s ease !important;
+    }
+
+    .heart-btn:hover,
+    .pearl-wishlist-btn:hover {
+      transform: scale(1.15) !important;
+      color: #FF4757 !important;
+      border-color: #FF4757 !important;
+    }
+
+    /* Product Brand Title */
+    .product-brand,
+    .pearl-product-brand {
+      font-size: 8.5px !important;
+      font-weight: 850 !important;
+      color: #0066FF !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.8px !important;
+      margin-bottom: 2px !important;
+      display: block !important;
+    }
+
+    /* Product Name */
+    .product-name,
+    .popular-name,
+    .pearl-product-title {
+      font-size: 13px !important;
+      font-weight: 800 !important;
+      color: #0F172A !important;
+      margin-bottom: 6px !important;
+      line-height: 1.3 !important;
+      height: 34px !important;
+      display: -webkit-box !important;
+      -webkit-line-clamp: 2 !important;
+      -webkit-box-orient: vertical !important;
+      overflow: hidden !important;
+      word-break: break-word !important;
+      text-align: left !important;
+    }
+
+    /* Rating Row */
+    .rating-container,
+    .rating-row,
+    .pearl-rating-row {
+      display: flex !important;
+      align-items: center !important;
+      gap: 4px !important;
+      margin-bottom: 8px !important;
+    }
+
+    .stars,
+    .rating-stars,
+    .pearl-rating-stars {
+      color: #F59E0B !important;
+      font-size: 11px !important;
+      letter-spacing: 0.5px !important;
+    }
+
+    .rating-count,
+    .pearl-rating-count {
+      font-size: 10.5px !important;
+      color: #64748B !important;
+      font-weight: 600 !important;
+    }
+
+    /* Price Row Layout - Left Price Column + Right Add Button */
+    .price-container,
+    .product-price-row,
+    .popular-price-row,
+    .pearl-price-row {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: flex-end !important;
+      justify-content: space-between !important;
+      margin-top: auto !important;
+      width: 100% !important;
+      padding-top: 4px !important;
+      border-top: none !important;
+      text-align: left !important;
+    }
+
+    .price-col,
+    .popular-price-col,
+    .pearl-price-col {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: flex-start !important;
+      text-align: left !important;
+      gap: 1px !important;
+    }
+
+    .wholesale-price,
+    .popular-price,
+    .pearl-dealer-price {
+      font-size: 19px !important;
+      font-weight: 900 !important;
+      color: #0F172A !important;
+      line-height: 1.1 !important;
+      text-align: left !important;
+    }
+
+    .mrp-price,
+    .pearl-mrp-price {
+      font-size: 11px !important;
+      color: #94A3B8 !important;
+      text-decoration: line-through !important;
+      font-weight: 600 !important;
+      text-align: left !important;
+      margin-top: 1px !important;
+    }
+
+    .popular-add-btn,
+    .pearl-add-btn,
+    .cart-icon-btn {
+      width: 38px !important;
+      height: 38px !important;
+      border-radius: 50% !important;
+      background: linear-gradient(135deg, #0066FF 0%, #0052CC 100%) !important;
+      color: #FFFFFF !important;
+      font-size: 20px !important;
+      font-weight: 700 !important;
+      border: none !important;
+      box-shadow: 0 4px 14px rgba(0, 102, 255, 0.35) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      cursor: pointer !important;
+      flex-shrink: 0 !important;
+      transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+      position: static !important;
+      align-self: flex-end !important;
+    }
+
+    .popular-add-btn:active,
+    .pearl-add-btn:active,
+    .cart-icon-btn:active {
+      transform: scale(0.9) !important;
+      background: #0043CE !important;
+    }
+
     /* Product Details Page Overlay - 100% Mobile First */
     .product-modal-overlay {
       position: absolute;
@@ -1868,7 +2182,7 @@
     }
 
     .product-modal-header {
-      padding: 38px 16px 12px 16px;
+      padding: 48px 18px 14px 18px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -4029,28 +4343,55 @@
         </div>
 
         <div style="padding: 0 16px 70px 16px;">
-          <!-- DELIVERY ADDRESS SELECTION CARD -->
+          <!-- 1. BILLING ADDRESS SECTION (DISPLAYED FIRST) -->
           <div class="checkout-address-card" style="background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 18px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.02);">
             <div class="address-card-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid #E2E8F0; padding-bottom: 10px;">
               <span class="address-card-title" style="font-size: 13.5px; font-weight: 850; color: #0F172A; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-truck-loading" style="color: #0F62FE;"></i> Select Delivery Address
+                <i class="fas fa-file-invoice" style="color: #0F62FE;"></i> 1. Billing Address
               </span>
-              <button class="btn-change-address" onclick="if(window.openProfileOption) window.openProfileOption('addresses')" style="background: #EFF6FF; border: 1px solid rgba(15,98,254,0.3); color: #0F62FE; font-size: 11px; font-weight: 850; padding: 4px 10px; border-radius: 10px; cursor: pointer;">
-                + Add / Manage
+              <button type="button" class="btn-change-address" id="btnCheckoutAddBillingAddr" onclick="if(window.triggerOpenAddAddress) window.triggerOpenAddAddress();" style="background: #EFF6FF; border: 1px solid rgba(15,98,254,0.3); color: #0F62FE; font-size: 11px; font-weight: 850; padding: 4px 10px; border-radius: 10px; cursor: pointer;">
+                + Add Billing Address
               </button>
             </div>
             
-            <!-- Dynamic saved address list for checkout selection -->
-            <div id="checkoutAddressSelectorContainer" style="display: flex; flex-direction: column; gap: 10px;">
-              <div style="text-align: center; color: #64748B; font-size: 12px; padding: 10px;"><i class="fas fa-spinner fa-spin"></i> Loading saved addresses...</div>
+            <!-- Dynamic saved billing address list for checkout selection -->
+            <div id="checkoutBillingAddressSelectorContainer" style="display: flex; flex-direction: column; gap: 10px;">
+              <div style="text-align: center; color: #64748B; font-size: 12px; padding: 10px;"><i class="fas fa-spinner fa-spin"></i> Loading billing address...</div>
             </div>
           </div>
+
+          <!-- SAME BILLING & DELIVERY ADDRESS CHECKBOX -->
+          <div style="margin-bottom: 16px;">
+            <label style="display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 750; color: #0F172A; cursor: pointer; background: #FFFFFF; padding: 14px 16px; border-radius: 16px; border: 1.5px solid #CBD5E1; box-shadow: 0 4px 14px rgba(0,0,0,0.02); transition: all 0.2s ease;">
+              <input type="checkbox" id="sameBillingAddressCheck" checked style="accent-color: #0F62FE; width: 19px; height: 19px; cursor: pointer; flex-shrink: 0;">
+              <span>Billing address is the same as delivery address</span>
+            </label>
+          </div>
+
+          <!-- 2. DELIVERY ADDRESS SECTION (DISPLAYED SECOND, VISIBLE WHEN CHECKBOX IS UNCHECKED) -->
+          <div id="separateDeliveryAddressSection" class="checkout-address-card" style="display: none; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 18px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 14px rgba(0,0,0,0.02);">
+            <div class="address-card-header" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid #E2E8F0; padding-bottom: 10px;">
+              <span class="address-card-title" style="font-size: 13.5px; font-weight: 850; color: #0F172A; display: flex; align-items: center; gap: 6px;">
+                <i class="fas fa-truck-loading" style="color: #0F62FE;"></i> 2. Delivery Address
+              </span>
+              <button type="button" class="btn-change-address" id="btnCheckoutAddDeliveryAddr" onclick="if(window.triggerOpenAddAddress) window.triggerOpenAddAddress();" style="background: #EFF6FF; border: 1px solid rgba(15,98,254,0.3); color: #0F62FE; font-size: 11px; font-weight: 850; padding: 4px 10px; border-radius: 10px; cursor: pointer;">
+                + Add New Address
+              </button>
+            </div>
+            
+            <!-- Dynamic saved delivery address list for checkout selection -->
+            <div id="checkoutAddressSelectorContainer" style="display: flex; flex-direction: column; gap: 10px;">
+              <div style="text-align: center; color: #64748B; font-size: 12px; padding: 10px;"><i class="fas fa-spinner fa-spin"></i> Loading delivery addresses...</div>
+            </div>
+          </div>
+
+
 
           <!-- DELIVERY NOTE -->
           <div class="auth-input-group">
             <label class="auth-input-label">DELIVERY NOTE (OPTIONAL)</label>
             <div class="auth-input-box" style="height: auto; padding: 12px 16px;">
-              <textarea id="deliveryNoteInput" placeholder="Add a note for delivery" style="width: 100%; border: none; outline: none; background: none; font-size: 13px; font-weight: 500; font-family: inherit; resize: none; min-height: 60px;"></textarea>
+              <textarea id="deliveryNoteInput" placeholder="Add a note for delivery (e.g. deliver before 5 PM)" style="width: 100%; border: none; outline: none; background: none; font-size: 13px; font-weight: 500; font-family: inherit; resize: none; min-height: 60px;"></textarea>
             </div>
           </div>
 
@@ -4070,110 +4411,163 @@
             </div>
           </div>
 
-          <button class="btn-auth-primary" id="btnContinueToPayment" style="margin-top: 24px;">Continue to Payment</button>
+          <button class="btn-auth-primary" id="btnContinueToPayment" style="margin-top: 24px;">Proceed & Place B2B Order</button>
         </div>
       </div>
 
-      <!-- ================= PROFILE TAB ================= -->
-      <div id="profile-tab" class="tab-content" style="display: none;">
-        <div class="catalog-pearl-header">
-          <div class="catalog-pearl-title-row" style="display: flex; align-items: center; justify-content: space-between;">
-            <div class="catalog-pearl-title-group" style="display: flex; align-items: center; gap: 10px;">
-              <button class="app-top-back-btn" id="btnBackFromProfileTab" aria-label="Go back">
-                <i class="fas fa-chevron-left"></i>
-              </button>
-              <h3 class="catalog-pearl-title">Dealer Profile & Account</h3>
-            </div>
-            <span style="font-size: 10px; font-weight: 850; color: #10B981; background: rgba(16, 185, 129, 0.1); padding: 4px 10px; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.2);">VERIFIED DEALER</span>
-          </div>
+      <!-- ================= PROFILE TAB (CLEAN NATIVE MOBILE REDESIGN) ================= -->
+      <div id="profile-tab" class="tab-content" style="display: none; background: #F8FAFC; min-height: 100vh;">
+        
+        <!-- 1. LIGHT NATIVE MOBILE APP BAR -->
+        <div class="clean-mobile-appbar">
+          <button class="clean-back-btn" id="btnBackFromProfileTab" aria-label="Go back">
+            <i class="fas fa-arrow-left"></i>
+          </button>
+          <h3 class="clean-mobile-title">Dealer Account</h3>
+          <span class="clean-verified-pill">
+            <i class="fas fa-check-circle"></i> VERIFIED
+          </span>
         </div>
 
-        <div class="section-container" style="padding-top: 16px; padding-bottom: 70px;">
-
-          <!-- DYNAMIC USER PROFILE CARD -->
-          <div style="background: var(--bg-surface); padding: 22px 18px; border-radius: 20px; border: 1px solid var(--border-color); margin-bottom: 16px; text-align: center; box-shadow: 0 4px 16px rgba(15, 98, 254, 0.04);">
-            
-            <!-- User Avatar Circle -->
-            <div id="profileUserAvatar" style="width: 76px; height: 76px; border-radius: 50%; background: linear-gradient(135deg, #0F62FE 0%, #0052EC 100%); border: 3px solid #FFFFFF; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; font-size: 32px; font-weight: 850; color: #FFFFFF; box-shadow: 0 8px 20px rgba(15, 98, 254, 0.3);">
-              P
-            </div>
-
-            <!-- User Name -->
-            <h3 style="font-size: 18px; font-weight: 850; color: var(--text-charcoal); margin: 0 0 4px 0;" id="profileUserName">Priya Angel</h3>
-            
-            <!-- Company / Business Name -->
-            <div style="font-size: 13px; font-weight: 700; color: var(--primary-blue); margin-bottom: 10px;" id="profileUserBusiness">Priya Aqua Wholesale</div>
-
-            <!-- User Contact Details Badges (Email & Mobile) -->
-            <div style="display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: var(--bg-page); padding: 12px 14px; border-radius: 14px; border: 1px solid var(--border-color); margin-top: 8px;">
-              <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-charcoal);">
-                <i class="fas fa-envelope" style="color: var(--primary-blue); font-size: 13px;"></i>
-                <span id="profileUserEmail">priya@gmail.com</span>
+        <!-- 2. CLEAN PROFILE IDENTITY & CONTACT CARD -->
+        <div class="clean-profile-container">
+          <div class="clean-hero-card">
+            <!-- Header User Row -->
+            <div class="clean-hero-user-row">
+              <div class="clean-avatar-box">
+                <div id="profileUserAvatar" class="clean-avatar-circle">
+                  K
+                </div>
+                <span class="clean-active-dot" title="Active B2B Account"></span>
               </div>
-              <div style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: var(--text-charcoal);">
-                <i class="fas fa-phone-alt" style="color: #10B981; font-size: 13px;"></i>
-                <span id="profileUserMobile">+91 9876543210</span>
-              </div>
-            </div>
-
-          </div>
-
-          <!-- ACCOUNT ACTIONS MENU LIST -->
-          <div style="background: var(--bg-surface); border-radius: 18px; border: 1px solid var(--border-color); overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.02);">
-            
-            <!-- Edit Profile -->
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border-color); cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;" id="profileEditBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('edit');">
-              <div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px; font-weight: 750; color: var(--text-charcoal); pointer-events: none;">
-                <i class="fas fa-user-edit" style="color: var(--primary-blue); font-size: 16px;"></i> Edit Profile
-              </div>
-              <i class="fas fa-chevron-right" style="font-size: 13px; color: var(--text-muted); pointer-events: none;"></i>
-            </div>
-
-            <!-- My Orders & History -->
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border-color); cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;" id="profileMyOrdersBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('orders');">
-              <div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px; font-weight: 750; color: var(--text-charcoal); pointer-events: none;">
-                <i class="fas fa-box-open" style="color: var(--primary-blue); font-size: 16px;"></i> My Orders & Order History
-              </div>
-              <i class="fas fa-chevron-right" style="font-size: 13px; color: var(--text-muted); pointer-events: none;"></i>
-            </div>
-
-            <!-- Delivery Addresses -->
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border-color); cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;" id="profileAddressesBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('addresses');">
-              <div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px; font-weight: 750; color: var(--text-charcoal); pointer-events: none;">
-                <i class="fas fa-map-marker-alt" style="color: var(--primary-blue); font-size: 16px;"></i> Delivery Addresses
-              </div>
-              <i class="fas fa-chevron-right" style="font-size: 13px; color: var(--text-muted); pointer-events: none;"></i>
-            </div>
-
-            <!-- My Reward Points -->
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border-color); cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;" id="profileRewardsBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('rewards');">
-              <div style="display: flex; align-items: center; gap: 12px; pointer-events: none;">
-                <div style="width: 32px; height: 32px; border-radius: 8px; background: rgba(245, 158, 11, 0.12); display: flex; align-items: center; justify-content: center; font-size: 16px; color: #F59E0B; flex-shrink: 0;">⭐</div>
-                <div>
-                  <div style="font-size: 13.5px; font-weight: 750; color: var(--text-charcoal);">My Reward Points</div>
-                  <div style="font-size: 11px; font-weight: 600; color: #64748B; margin-top: 1px;" id="profileRewardPointsSubtitle">Total Points: 0 Points • View Points History →</div>
+              <div class="clean-user-meta">
+                <h2 id="profileUserName" class="clean-user-name">kiruba</h2>
+                <div id="profileUserBusiness" class="clean-business-name">kiruba Aqua Wholesale</div>
+                <div class="clean-b2b-badge">
+                  <i class="fas fa-shield-alt"></i> Official B2B Wholesale Partner
                 </div>
               </div>
-              <i class="fas fa-chevron-right" style="font-size: 13px; color: var(--text-muted); pointer-events: none;"></i>
             </div>
 
-            <!-- Wholesale Support -->
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px; border-bottom: 1px solid var(--border-color); cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;" id="profileSupportBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('support');">
-              <div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px; font-weight: 750; color: var(--text-charcoal); pointer-events: none;">
-                <i class="fas fa-headset" style="color: var(--primary-blue); font-size: 16px;"></i> Wholesale Dealer Support (24/7)
+            <!-- Soft Divider -->
+            <div class="clean-card-divider"></div>
+
+            <!-- Integrated Contact Rows -->
+            <div class="clean-contact-list">
+              <div class="clean-contact-row">
+                <div class="clean-contact-icon icon-blue">
+                  <i class="fas fa-envelope"></i>
+                </div>
+                <div class="clean-contact-info">
+                  <span class="clean-contact-label">EMAIL ADDRESS</span>
+                  <span id="profileUserEmail" class="clean-contact-val">kiruba@gmail.com</span>
+                </div>
               </div>
-              <i class="fas fa-chevron-right" style="font-size: 13px; color: var(--text-muted); pointer-events: none;"></i>
+
+              <div class="clean-contact-row">
+                <div class="clean-contact-icon icon-green">
+                  <i class="fas fa-phone-alt"></i>
+                </div>
+                <div class="clean-contact-info">
+                  <span class="clean-contact-label">PHONE NUMBER</span>
+                  <span id="profileUserMobile" class="clean-contact-val">+91 1236549875</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. NATIVE GROUPED MENU OPTIONS -->
+
+          <!-- Section 1: Account Management -->
+          <div class="clean-group-label">ACCOUNT MANAGEMENT</div>
+          <div class="clean-menu-card">
+            
+            <!-- Edit Profile -->
+            <div class="clean-menu-row" id="profileEditBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('edit');">
+              <div class="clean-row-icon icon-blue">
+                <i class="fas fa-user-edit"></i>
+              </div>
+              <div class="clean-row-content">
+                <div class="clean-row-title">Edit Profile</div>
+                <div class="clean-row-sub">Personal & business contact details</div>
+              </div>
+              <i class="fas fa-chevron-right clean-row-chevron"></i>
             </div>
 
-            <!-- Logout -->
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px; cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent;" id="btnLogoutApp" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('logout');">
-              <div style="display: flex; align-items: center; gap: 12px; font-size: 13.5px; font-weight: 750; color: #EF4444; pointer-events: none;">
-                <i class="fas fa-sign-out-alt" style="font-size: 16px;"></i> Logout
+            <!-- My Addresses -->
+            <div class="clean-menu-row" id="profileAddressesBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('addresses');">
+              <div class="clean-row-icon icon-indigo">
+                <i class="fas fa-map-marker-alt"></i>
               </div>
-              <i class="fas fa-chevron-right" style="font-size: 13px; color: #EF4444; pointer-events: none;"></i>
+              <div class="clean-row-content">
+                <div class="clean-row-title">My Addresses</div>
+                <div class="clean-row-sub">Primary warehouse & shipping locations</div>
+              </div>
+              <i class="fas fa-chevron-right clean-row-chevron"></i>
             </div>
 
           </div>
+
+          <!-- Section 2: Orders & Loyalty -->
+          <div class="clean-group-label">ORDERS & REWARDS</div>
+          <div class="clean-menu-card">
+
+            <!-- Order History -->
+            <div class="clean-menu-row" id="profileMyOrdersBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('orders');">
+              <div class="clean-row-icon icon-purple">
+                <i class="fas fa-box-open"></i>
+              </div>
+              <div class="clean-row-content">
+                <div class="clean-row-title">Order History</div>
+                <div class="clean-row-sub">Track past orders & download invoices</div>
+              </div>
+              <i class="fas fa-chevron-right clean-row-chevron"></i>
+            </div>
+
+            <!-- Rewards -->
+            <div class="clean-menu-row" id="profileRewardsBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('rewards');">
+              <div class="clean-row-icon icon-amber">
+                <i class="fas fa-star"></i>
+              </div>
+              <div class="clean-row-content">
+                <div class="clean-row-title">Rewards</div>
+                <div class="clean-row-sub" id="profileRewardPointsSubtitle">Total Points: 0 Points • View Points History →</div>
+              </div>
+              <i class="fas fa-chevron-right clean-row-chevron"></i>
+            </div>
+
+          </div>
+
+          <!-- Section 3: Support & System -->
+          <div class="clean-group-label">SUPPORT & SYSTEM</div>
+          <div class="clean-menu-card">
+
+            <!-- Help & Support -->
+            <div class="clean-menu-row" id="profileSupportBtn" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('support');">
+              <div class="clean-row-icon icon-teal">
+                <i class="fas fa-headset"></i>
+              </div>
+              <div class="clean-row-content">
+                <div class="clean-row-title">Help & Support</div>
+                <div class="clean-row-sub">24/7 Wholesale dealer helpdesk</div>
+              </div>
+              <i class="fas fa-chevron-right clean-row-chevron"></i>
+            </div>
+
+          </div>
+
+          <!-- 4. STANDALONE RED LOGOUT ROW -->
+          <div class="clean-logout-card" id="btnLogoutApp" role="button" tabindex="0" onclick="if(window.openProfileOption) window.openProfileOption('logout');">
+            <div class="clean-row-icon icon-red">
+              <i class="fas fa-sign-out-alt"></i>
+            </div>
+            <div class="clean-row-content">
+              <div class="clean-row-title text-red">Logout</div>
+              <div class="clean-row-sub sub-red">Sign out of dealer portal</div>
+            </div>
+            <i class="fas fa-chevron-right clean-row-chevron chevron-red"></i>
+          </div>
+
         </div>
       </div>
 
@@ -4191,7 +4585,7 @@
           </div>
         </div>
 
-        <div class="section-container" style="padding-top: 16px; padding-bottom: 80px;">
+        <div class="section-container" style="padding-top: 16px; padding-bottom: 120px;">
           <div style="background: var(--bg-surface); padding: 20px 16px; border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.02);">
             <form id="editProfileSectionForm" style="display: flex; flex-direction: column; gap: 14px;">
               <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -4260,7 +4654,7 @@
           </div>
         </div>
 
-        <div class="section-container" style="padding-top: 16px; padding-bottom: 80px;">
+        <div class="section-container" style="padding-top: 16px; padding-bottom: 120px;">
           <div style="display: flex; gap: 8px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px;">
             <button class="order-filter-pill active" data-filter="all" style="background: #0F62FE; color: white; border: none; padding: 6px 14px; border-radius: 20px; font-size: 11.5px; font-weight: 800; cursor: pointer;">All Orders</button>
             <button class="order-filter-pill" data-filter="processing" style="background: #F1F5F9; color: #475569; border: 1px solid #CBD5E1; padding: 6px 14px; border-radius: 20px; font-size: 11.5px; font-weight: 800; cursor: pointer;">Processing</button>
@@ -4287,7 +4681,7 @@
           </div>
         </div>
 
-        <div class="section-container" style="padding-top: 16px; padding-bottom: 80px;">
+        <div class="section-container" style="padding-top: 16px; padding-bottom: 120px;">
           <div style="background: linear-gradient(135deg, #051937 0%, #0F62FE 100%); padding: 20px; border-radius: 20px; color: white; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(15,98,254,0.25);">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
               <span style="font-size: 11px; opacity: 0.85; font-weight: 700; letter-spacing: 0.5px;">APPROVED B2B WHOLESALE CREDIT</span>
@@ -4324,7 +4718,7 @@
           </div>
         </div>
 
-        <div class="section-container" style="padding-top: 16px; padding-bottom: 80px;">
+        <div class="section-container" style="padding-top: 16px; padding-bottom: 120px;">
           <div id="sectionAddressesListContainer" style="display: flex; flex-direction: column; gap: 12px;">
             <!-- Dynamic addresses list -->
           </div>
@@ -4345,7 +4739,7 @@
           </div>
         </div>
 
-        <div class="section-container" style="padding-top: 16px; padding-bottom: 80px;">
+        <div class="section-container" style="padding-top: 16px; padding-bottom: 120px;">
           <div style="background: var(--bg-surface); padding: 20px 16px; border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 4px 16px rgba(0,0,0,0.02);">
             <form id="changePasswordSectionForm" style="display: flex; flex-direction: column; gap: 14px;">
               <div class="auth-input-group" style="margin-bottom: 0;">
@@ -4395,7 +4789,7 @@
           </div>
         </div>
 
-        <div class="section-container" style="padding-top: 16px; padding-bottom: 80px;">
+        <div class="section-container" style="padding-top: 16px; padding-bottom: 120px;">
           <div style="background: var(--bg-surface); padding: 20px; border-radius: 20px; border: 1px solid var(--border-color); text-align: center; margin-bottom: 16px;">
             <div style="width: 60px; height: 60px; border-radius: 50%; background: #EFF6FF; color: #0F62FE; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px auto; font-size: 24px;">
               <i class="fas fa-headset"></i>
@@ -4442,7 +4836,7 @@
           </div>
         </div>
 
-        <div class="section-container" style="padding-top: 16px; padding-bottom: 80px;">
+        <div class="section-container" style="padding-top: 16px; padding-bottom: 120px;">
           
           <!-- Summary Banner Card -->
           <div style="background: linear-gradient(135deg, #051937 0%, #0F52BA 60%, #1E40AF 100%); padding: 22px 18px; border-radius: 20px; color: white; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(5, 25, 55, 0.25); position: relative; overflow: hidden;">
@@ -4601,7 +4995,7 @@
     <div class="product-modal-container" style="width: 100%; height: 100%; border-radius: 0; background: #F8FAFC; display: flex; flex-direction: column;">
       
       <!-- Top Header -->
-      <div class="product-modal-header" style="padding: 42px 16px 14px 16px; background: #FFFFFF; border-bottom: 1px solid #E2E8F0;">
+      <div class="product-modal-header" style="padding: 48px 18px 14px 18px; background: #FFFFFF; border-bottom: 1px solid #E2E8F0;">
         <div style="display: flex; align-items: center; gap: 10px;">
           <button id="closeRoCatModal" class="app-top-back-btn" style="width: 36px; height: 36px; border-radius: 50%; background: #F1F5F9; border: none; color: #0F172A; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
             <i class="fas fa-chevron-left"></i>
@@ -5071,122 +5465,168 @@
     </div>
   </div>
 
-  <!-- ADD / EDIT ADDRESS MODAL -->
-  <div id="addAddressModal" class="product-modal-overlay" style="display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 10012; background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(8px); justify-content: center; align-items: flex-end;">
-    <div class="product-modal-container" style="width: 100%; max-width: 100%; max-height: 90%; border-radius: 24px 24px 0 0; margin-top: auto; background: #FFFFFF; display: flex; flex-direction: column;">
-      
-      <div class="product-modal-header" style="padding: 16px 20px; border-bottom: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: space-between;">
+  <!-- ERROR DIAGNOSTIC MODAL POPUP -->
+  <div id="appErrorModal" class="product-modal-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 100005; background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px); justify-content: center; align-items: center; padding: 16px;">
+    <div class="product-modal-container" style="width: 100%; max-width: 400px; border-radius: 20px; background: #FFFFFF; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(239, 68, 68, 0.2); overflow: hidden; border: 1px solid #FECACA;">
+      <div style="padding: 16px 20px; background: #FEF2F2; border-bottom: 1px solid #FCA5A5; display: flex; align-items: center; justify-content: space-between;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <button id="btnCancelAddAddress" class="app-top-back-btn" style="width: 32px; height: 32px; border-radius: 50%; background: #F1F5F9; border: none; color: #0F172A; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
-            <i class="fas fa-chevron-left"></i>
-          </button>
-          <h3 style="font-size: 16px; font-weight: 850; margin: 0; color: #0F172A;" id="addAddressModalTitle">Add New Delivery Address</h3>
+          <i class="fas fa-exclamation-triangle" style="color: #EF4444; font-size: 20px;"></i>
+          <h3 id="appErrorModalTitle" style="font-size: 15px; font-weight: 850; margin: 0; color: #991B1B;">Error Diagnostic</h3>
         </div>
-        <button id="closeAddAddressModal" class="btn-back-modal" style="color: #64748B; background: none; border: none; cursor: pointer;">
+        <button id="closeAppErrorModal" class="btn-back-modal" onclick="if(window.closeAppErrorModal) window.closeAppErrorModal();" style="color: #991B1B; background: none; border: none; cursor: pointer;">
+          <i class="fas fa-times" style="font-size: 18px;"></i>
+        </button>
+      </div>
+      <div style="padding: 20px; display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 10.5px; font-weight: 850; color: #EF4444; background: #FEE2E2; padding: 3px 8px; border-radius: 6px; text-transform: uppercase;" id="appErrorModalLocation">LOCATION: BUTTON</span>
+        </div>
+        <p id="appErrorModalMessage" style="font-size: 13px; color: #1E293B; line-height: 1.5; font-weight: 600; margin: 0; word-break: break-word;">An unexpected error occurred.</p>
+        <button type="button" id="btnDismissAppErrorModal" onclick="if(window.closeAppErrorModal) window.closeAppErrorModal();" style="height: 42px; border-radius: 12px; background: #EF4444; color: #FFFFFF; font-size: 13px; font-weight: 800; border: none; cursor: pointer; margin-top: 8px; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ADD / EDIT ADDRESS MODAL -->
+  <div id="addAddressModal" class="product-modal-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100%; height: 100%; z-index: 100000; background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(8px); justify-content: center; align-items: center; padding: 16px;">
+    <div class="product-modal-container" style="width: 100%; max-width: 440px; max-height: 90vh; border-radius: 20px; background: #FFFFFF; display: flex; flex-direction: column; box-shadow: 0 20px 40px rgba(0,0,0,0.2); overflow: hidden;">
+      
+      <!-- Modal Header -->
+      <div class="product-modal-header" style="padding: 16px 18px; border-bottom: 1px solid #E2E8F0; display: flex; align-items: center; justify-content: space-between; background: #FFFFFF;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button type="button" id="btnCancelAddAddress" class="app-top-back-btn" aria-label="Go back" style="width: 34px; height: 34px; border-radius: 10px; background: #F1F5F9; border: none; color: #0F172A; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center;">
+            <i class="fas fa-arrow-left"></i>
+          </button>
+          <h3 style="font-size: 16px; font-weight: 800; margin: 0; color: #0F172A;" id="addAddressModalTitle">Add New Address</h3>
+        </div>
+        <button type="button" id="closeAddAddressModal" class="btn-back-modal" aria-label="Close modal" style="color: #64748B; background: none; border: none; cursor: pointer; padding: 4px;">
           <i class="fas fa-times" style="font-size: 18px;"></i>
         </button>
       </div>
 
-      <div class="product-modal-body" style="padding: 20px 16px; flex: 1; overflow-y: auto;">
-        <form id="addAddressForm" style="display: flex; flex-direction: column; gap: 12px;">
+      <!-- Modal Body Form -->
+      <div class="product-modal-body" style="padding: 18px 16px; flex: 1; overflow-y: auto;">
+        <form id="addAddressForm" style="display: flex; flex-direction: column; gap: 14px;">
           <input type="hidden" id="addressEditId" value="">
           
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <div class="auth-input-group" style="margin-bottom: 0;">
-              <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">FULL NAME *</label>
-              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-                <input type="text" id="addrFullNameInput" placeholder="Recipient Full Name" style="font-size: 12.5px; font-weight: 600;">
-              </div>
-            </div>
-            <div class="auth-input-group" style="margin-bottom: 0;">
-              <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">MOBILE NUMBER *</label>
-              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-                <input type="tel" id="addrPhoneInput" placeholder="10-digit mobile" maxlength="10" style="font-size: 12.5px; font-weight: 600;">
-              </div>
-            </div>
-          </div>
-          <span class="inline-error" id="errAddrName" style="display: none; font-size: 11px; color: #EF4444; font-weight: 600; margin-top: -6px;">Please enter full name</span>
-          <span class="inline-error" id="errAddrMobile" style="display: none; font-size: 11px; color: #EF4444; font-weight: 600; margin-top: -6px;">Mobile number must be exactly 10 digits</span>
-
+          <!-- 1. Address Type Selector -->
           <div class="auth-input-group" style="margin-bottom: 0;">
-            <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">COMPANY / BUSINESS NAME</label>
-            <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-              <input type="text" id="addrBusinessNameInput" placeholder="e.g. Priya Aqua Wholesale" style="font-size: 12.5px; font-weight: 600;">
-            </div>
-          </div>
-
-          <div class="auth-input-group" style="margin-bottom: 0;">
-            <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">DOOR NO. / STREET ADDRESS *</label>
-            <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-              <input type="text" id="addrStreetInput" placeholder="Door No., Building, Street Name" style="font-size: 12.5px; font-weight: 600;">
-            </div>
-          </div>
-          <span class="inline-error" id="errAddrStreet" style="display: none; font-size: 11px; color: #EF4444; font-weight: 600; margin-top: -6px;">Please enter street / building address</span>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <div class="auth-input-group" style="margin-bottom: 0;">
-              <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">AREA / LANDMARK</label>
-              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-                <input type="text" id="addrAreaInput" placeholder="Area / Landmark" style="font-size: 12.5px; font-weight: 600;">
-              </div>
-            </div>
-            <div class="auth-input-group" style="margin-bottom: 0;">
-              <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">CITY *</label>
-              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-                <input type="text" id="addrCityInput" placeholder="City" style="font-size: 12.5px; font-weight: 600;">
-              </div>
-            </div>
-          </div>
-          <span class="inline-error" id="errAddrCity" style="display: none; font-size: 11px; color: #EF4444; font-weight: 600; margin-top: -6px;">Please enter city</span>
-
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
-            <div class="auth-input-group" style="margin-bottom: 0;">
-              <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">STATE *</label>
-              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-                <input type="text" id="addrStateInput" placeholder="State" value="Tamil Nadu" style="font-size: 12.5px; font-weight: 600;">
-              </div>
-            </div>
-            <div class="auth-input-group" style="margin-bottom: 0;">
-              <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">PINCODE *</label>
-              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-                <input type="text" id="addrPincodeInput" placeholder="6-digit pincode" maxlength="6" style="font-size: 12.5px; font-weight: 600;">
-              </div>
-            </div>
-          </div>
-          <span class="inline-error" id="errAddrState" style="display: none; font-size: 11px; color: #EF4444; font-weight: 600; margin-top: -6px;">Please enter state</span>
-          <span class="inline-error" id="errAddrPincode" style="display: none; font-size: 11px; color: #EF4444; font-weight: 600; margin-top: -6px;">Pincode must be exactly 6 digits</span>
-
-          <div class="auth-input-group" style="margin-bottom: 0;">
-            <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">GST NUMBER (IF APPLICABLE)</label>
-            <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
-              <input type="text" id="addrGstInput" placeholder="15-digit GSTIN (Optional)" maxlength="15" style="font-size: 12.5px; font-weight: 600; text-transform: uppercase;">
-            </div>
-          </div>
-
-          <div class="auth-input-group" style="margin-bottom: 0;">
-            <label class="auth-input-label" style="font-size: 10.5px; font-weight: 700; color: #64748B;">ADDRESS TYPE</label>
-            <div style="display: flex; gap: 10px; margin-top: 4px;">
-              <label class="addr-type-pill" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 1.5px solid #CBD5E1; border-radius: 10px; font-size: 12px; font-weight: 750; color: #1E293B; cursor: pointer; background: #F8FAFC;">
-                <input type="radio" name="addrType" value="Office" checked style="accent-color: #0F62FE;"> Office
+            <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B; letter-spacing: 0.5px;">ADDRESS TYPE *</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 6px;">
+              <label class="addr-type-pill" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border: 1.5px solid #E2E8F0; border-radius: 12px; font-size: 12px; font-weight: 700; color: #0F172A; cursor: pointer; background: #F8FAFC; transition: all 0.15s ease;">
+                <input type="radio" name="addrType" value="Home" style="accent-color: #0F62FE;"> <i class="fas fa-home" style="color: #059669;"></i> Home
               </label>
-              <label class="addr-type-pill" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 1.5px solid #CBD5E1; border-radius: 10px; font-size: 12px; font-weight: 750; color: #1E293B; cursor: pointer; background: #F8FAFC;">
-                <input type="radio" name="addrType" value="Warehouse" style="accent-color: #0F62FE;"> Warehouse
+              <label class="addr-type-pill" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border: 1.5px solid #E2E8F0; border-radius: 12px; font-size: 12px; font-weight: 700; color: #0F172A; cursor: pointer; background: #F8FAFC; transition: all 0.15s ease;">
+                <input type="radio" name="addrType" value="Office" checked style="accent-color: #0F62FE;"> <i class="fas fa-building" style="color: #0F62FE;"></i> Office
               </label>
-              <label class="addr-type-pill" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 8px; border: 1.5px solid #CBD5E1; border-radius: 10px; font-size: 12px; font-weight: 750; color: #1E293B; cursor: pointer; background: #F8FAFC;">
-                <input type="radio" name="addrType" value="Other" style="accent-color: #0F62FE;"> Other
+              <label class="addr-type-pill" style="display: flex; align-items: center; justify-content: center; gap: 6px; padding: 10px 6px; border: 1.5px solid #E2E8F0; border-radius: 12px; font-size: 12px; font-weight: 700; color: #0F172A; cursor: pointer; background: #F8FAFC; transition: all 0.15s ease;">
+                <input type="radio" name="addrType" value="Other" style="accent-color: #0F62FE;"> <i class="fas fa-map-marker-alt" style="color: #64748B;"></i> Other
               </label>
             </div>
           </div>
 
-          <label style="display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: #1E293B; margin-top: 6px; cursor: pointer;">
-            <input type="checkbox" id="addrIsDefaultCheck" style="accent-color: #0F62FE; width: 16px; height: 16px;"> Set as Default Delivery Address
+          <!-- 2. Recipient Name & Mobile -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="auth-input-group" style="margin-bottom: 0;">
+              <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B;">FULL NAME *</label>
+              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
+                <input type="text" id="addrFullNameInput" placeholder="Full name" style="font-size: 13px; font-weight: 600; color: #0F172A;">
+              </div>
+              <span class="inline-error" id="errAddrName" style="display: none; font-size: 10.5px; color: #EF4444; font-weight: 600; margin-top: 3px;">Full name is required</span>
+            </div>
+            <div class="auth-input-group" style="margin-bottom: 0;">
+              <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B;">MOBILE NUMBER *</label>
+              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
+                <input type="tel" id="addrPhoneInput" placeholder="10-digit mobile" maxlength="10" style="font-size: 13px; font-weight: 600; color: #0F172A;">
+              </div>
+              <span class="inline-error" id="errAddrMobile" style="display: none; font-size: 10.5px; color: #EF4444; font-weight: 600; margin-top: 3px;">Enter 10-digit mobile number</span>
+            </div>
+          </div>
+
+          <!-- 3. Address Line 1 -->
+          <div class="auth-input-group" style="margin-bottom: 0;">
+            <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B;">ADDRESS LINE 1 *</label>
+            <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
+              <input type="text" id="addrStreetInput" placeholder="Flat / House No., Building, Street Name" style="font-size: 13px; font-weight: 600; color: #0F172A;">
+            </div>
+            <span class="inline-error" id="errAddrStreet" style="display: none; font-size: 10.5px; color: #EF4444; font-weight: 600; margin-top: 3px;">Address Line 1 is required</span>
+          </div>
+
+          <!-- 4. Address Line 2 (Optional) -->
+          <div class="auth-input-group" style="margin-bottom: 0;">
+            <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B;">ADDRESS LINE 2 (OPTIONAL)</label>
+            <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
+              <input type="text" id="addrAreaInput" placeholder="Area, Locality or Sector" style="font-size: 13px; font-weight: 600; color: #0F172A;">
+            </div>
+          </div>
+
+          <!-- 5. City & State -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="auth-input-group" style="margin-bottom: 0;">
+              <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B;">CITY *</label>
+              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
+                <input type="text" id="addrCityInput" placeholder="City / Town" style="font-size: 13px; font-weight: 600; color: #0F172A;">
+              </div>
+              <span class="inline-error" id="errAddrCity" style="display: none; font-size: 10.5px; color: #EF4444; font-weight: 600; margin-top: 3px;">City is required</span>
+            </div>
+            <div class="auth-input-group" style="margin-bottom: 0;">
+              <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B;">STATE *</label>
+              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
+                <select id="addrStateInput" style="width: 100%; height: 100%; border: none; background: transparent; outline: none; font-size: 13px; font-weight: 600; color: #0F172A; cursor: pointer;">
+                  <option value="Tamil Nadu" selected>Tamil Nadu</option>
+                  <option value="Kerala">Kerala</option>
+                  <option value="Karnataka">Karnataka</option>
+                  <option value="Andhra Pradesh">Andhra Pradesh</option>
+                  <option value="Telangana">Telangana</option>
+                  <option value="Maharashtra">Maharashtra</option>
+                  <option value="Gujarat">Gujarat</option>
+                  <option value="Delhi">Delhi</option>
+                  <option value="West Bengal">West Bengal</option>
+                  <option value="Uttar Pradesh">Uttar Pradesh</option>
+                  <option value="Rajasthan">Rajasthan</option>
+                  <option value="Punjab">Punjab</option>
+                  <option value="Madhya Pradesh">Madhya Pradesh</option>
+                  <option value="Bihar">Bihar</option>
+                  <option value="Other State">Other State</option>
+                </select>
+              </div>
+              <span class="inline-error" id="errAddrState" style="display: none; font-size: 10.5px; color: #EF4444; font-weight: 600; margin-top: 3px;">State is required</span>
+            </div>
+          </div>
+
+          <!-- 6. Pincode & Landmark -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="auth-input-group" style="margin-bottom: 0;">
+              <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B;">PINCODE *</label>
+              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
+                <input type="text" id="addrPincodeInput" placeholder="6-digit PIN" maxlength="6" style="font-size: 13px; font-weight: 600; color: #0F172A;">
+              </div>
+              <span class="inline-error" id="errAddrPincode" style="display: none; font-size: 10.5px; color: #EF4444; font-weight: 600; margin-top: 3px;">Pincode must be 6 digits</span>
+            </div>
+            <div class="auth-input-group" style="margin-bottom: 0;">
+              <label class="auth-input-label" style="font-size: 11px; font-weight: 700; color: #64748B;">LANDMARK (OPTIONAL)</label>
+              <div class="auth-input-box" style="height: 44px; background: #F8FAFC; border: 1px solid #CBD5E1; border-radius: 10px; padding: 0 10px;">
+                <input type="text" id="addrLandmarkInput" placeholder="e.g. Near Metro / Park" style="font-size: 13px; font-weight: 600; color: #0F172A;">
+              </div>
+            </div>
+          </div>
+
+          <!-- Hidden optional fields for compatibility -->
+          <input type="hidden" id="addrDoorNoInput" value="">
+          <input type="hidden" id="addrDistrictInput" value="">
+          <input type="hidden" id="addrBusinessNameInput" value="">
+
+          <!-- 7. Checkbox: Set as Default Address -->
+          <label style="display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; color: #0F172A; margin-top: 4px; cursor: pointer; user-select: none;">
+            <input type="checkbox" id="addrIsDefaultCheck" style="accent-color: #0F62FE; width: 18px; height: 18px; cursor: pointer;"> Set as default address
           </label>
 
           <span class="inline-error" id="errAddrGeneral" style="display: none; font-size: 11px; color: #EF4444; font-weight: 600;">Please fill in all required fields marked with *</span>
 
+          <!-- 8. Action Buttons -->
           <div style="display: flex; gap: 10px; margin-top: 10px;">
-            <button type="button" id="btnCancelAddressForm" style="flex: 1; height: 46px; border-radius: 12px; border: 1px solid #CBD5E1; background: #F8FAFC; color: #475569; font-size: 13px; font-weight: 800; cursor: pointer;">Cancel</button>
-            <button type="submit" id="btnSaveAddressSubmit" class="btn-auth-primary" style="flex: 2; height: 46px; border-radius: 12px; background: linear-gradient(135deg, #0F62FE 0%, #0052EC 100%);">Save Address</button>
+            <button type="button" id="btnCancelAddressForm" style="flex: 1; height: 46px; border-radius: 12px; border: 1px solid #CBD5E1; background: #F8FAFC; color: #475569; font-size: 13.5px; font-weight: 700; cursor: pointer;">Cancel</button>
+            <button type="submit" id="btnSaveAddressSubmit" class="btn-auth-primary" style="flex: 2; height: 46px; border-radius: 12px; background: #0F62FE; color: #FFFFFF; font-size: 13.5px; font-weight: 700; border: none; cursor: pointer;">Save Address</button>
           </div>
         </form>
       </div>

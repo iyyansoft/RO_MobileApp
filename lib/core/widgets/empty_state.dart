@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import 'primary_button.dart';
@@ -13,7 +14,8 @@ class EmptyState extends StatelessWidget {
   const EmptyState({
     super.key,
     this.title = 'No items found',
-    this.description = 'It looks like there is nothing in this section right now.',
+    this.description =
+        'It looks like there is nothing in this section right now.',
     this.icon = Icons.water_drop_outlined,
     this.actionText,
     this.onActionPressed,
@@ -39,7 +41,9 @@ class EmptyState extends StatelessWidget {
                   width: 100,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: (isDark ? AppColors.accentDark : AppColors.primaryLight).withOpacity(0.06),
+                    color:
+                        (isDark ? AppColors.accentDark : AppColors.primaryLight)
+                            .withValues(alpha: 0.06),
                   ),
                 ),
                 Container(
@@ -47,7 +51,9 @@ class EmptyState extends StatelessWidget {
                   width: 70,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: (isDark ? AppColors.accentDark : AppColors.primaryLight).withOpacity(0.12),
+                    color:
+                        (isDark ? AppColors.accentDark : AppColors.primaryLight)
+                            .withValues(alpha: 0.12),
                   ),
                 ),
                 Icon(
@@ -62,17 +68,21 @@ class EmptyState extends StatelessWidget {
               title,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                    color: isDark ? AppColors.textPrimaryDark : AppColors.textPrimaryLight,
-                    fontWeight: FontWeight.bold,
-                  ),
+                color: isDark
+                    ? AppColors.textPrimaryDark
+                    : AppColors.textPrimaryLight,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: AppTheme.spaceS),
             Text(
               description,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
-                  ),
+                color: isDark
+                    ? AppColors.textSecondaryDark
+                    : AppColors.textSecondaryLight,
+              ),
             ),
             if (actionText != null && onActionPressed != null) ...[
               const SizedBox(height: AppTheme.spaceXL),

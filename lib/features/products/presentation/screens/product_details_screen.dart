@@ -1,22 +1,28 @@
+import 'package:share_plus/share_plus.dart';
+
+import '../../../cart/presentation/providers/cart_provider.dart';
+import '../../../../core/widgets/app_image.dart';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../../core/theme/app_colors.dart';
-import '../../../../core/theme/app_theme.dart';
 import '../../domain/models/product_model.dart';
+import '../../domain/models/product_share.dart';
 import '../providers/product_provider.dart';
 import '../widgets/product_card.dart';
+import '../widgets/product_share_card.dart';
 
 class ProductDetailsScreen extends ConsumerStatefulWidget {
   final ProductModel product;
+  final String? heroTag;
 
-  const ProductDetailsScreen({
-    super.key,
-    required this.product,
-  });
+  const ProductDetailsScreen({super.key, required this.product, this.heroTag});
 
   @override
-  ConsumerState<ProductDetailsScreen> createState() => _ProductDetailsScreenState();
+  ConsumerState<ProductDetailsScreen> createState() =>
+      _ProductDetailsScreenState();
 }
 
 class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
@@ -24,13 +30,14 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
   late int _quantity;
   int _activeImageIndex = 0;
   bool _isFavorite = false;
+  bool _isSharing = false;
   late PageController _pageController;
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _quantity = widget.product.moq;
+    _quantity = 1;
     _pageController = PageController();
     _tabController = TabController(length: 3, vsync: this);
   }
@@ -49,17 +56,15 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
   }
 
   void _decrementQuantity() {
-    if (_quantity > widget.product.moq) {
+    if (_quantity > 1) {
       setState(() {
         _quantity--;
       });
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Minimum Order Quantity for this product is ${widget.product.moq} Pcs.'),
-          duration: const Duration(seconds: 1),
-        ),
-      );
+    } else if (ref
+        .read(cartProvider)
+        .items
+        .any((item) => item.product.id == widget.product.id)) {
+      ref.read(cartProvider.notifier).removeItem(widget.product.id);
     }
   }
 
@@ -68,7 +73,7 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
       context: context,
       builder: (context) {
         return Dialog(
-          backgroundColor: Colors.black.withOpacity(0.9),
+          backgroundColor: Colors.black.withValues(alpha: 0.9),
           insetPadding: EdgeInsets.zero,
           child: Stack(
             children: [
@@ -77,14 +82,18 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                   panEnabled: true,
                   minScale: 0.5,
                   maxScale: 4.0,
-                  child: Image.asset(imagePath, fit: BoxFit.contain),
+                  child: AppImage(imagePath, fit: BoxFit.contain),
                 ),
               ),
               Positioned(
                 top: 40,
                 right: 20,
                 child: IconButton(
-                  icon: const Icon(Icons.close_rounded, color: Colors.white, size: 30),
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
                   onPressed: () => Navigator.pop(context),
                 ),
               ),
@@ -101,7 +110,11 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
     final primaryColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
     final allProducts = ref.watch(allProductsProvider);
     final relatedProducts = allProducts
-        .where((p) => p.id != widget.product.id && p.categoryId == widget.product.categoryId)
+        .where(
+          (p) =>
+              p.id != widget.product.id &&
+              p.categoryId == widget.product.categoryId,
+        )
         .toList();
 
     final images = widget.product.allImages;
@@ -110,7 +123,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
     return Scaffold(
       appBar: AppBar(
         elevation: 0,
-        backgroundColor: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
+        backgroundColor: isDark
+            ? AppColors.backgroundDark
+            : AppColors.backgroundLight,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_rounded),
           onPressed: () => Navigator.pop(context),
@@ -126,8 +141,12 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
         ),
         actions: [
           IconButton(
-            icon: Icon(_isFavorite ? Icons.favorite_rounded : Icons.favorite_outline_rounded,
-                color: _isFavorite ? Colors.redAccent : null),
+            icon: Icon(
+              _isFavorite
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_outline_rounded,
+              color: _isFavorite ? Colors.redAccent : null,
+            ),
             onPressed: () {
               setState(() {
                 _isFavorite = !_isFavorite;
@@ -135,12 +154,42 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
             },
           ),
           IconButton(
+            tooltip: 'Share product',
             icon: const Icon(Icons.share_outlined),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Product catalog link copied to clipboard!')),
-              );
-            },
+            onPressed: _isSharing
+                ? null
+                : () async {
+                    setState(() => _isSharing = true);
+                    try {
+                      final box = context.findRenderObject() as RenderBox?;
+                      final shareOrigin = box == null
+                          ? null
+                          : box.localToGlobal(Offset.zero) & box.size;
+                      final image = await renderProductShareImage(
+                        widget.product,
+                        imageSource: images[_activeImageIndex],
+                      );
+                      await SharePlus.instance.share(
+                        ShareParams(
+                          files: [XFile.fromData(image, mimeType: 'image/png')],
+                          fileNameOverrides: ['product.png'],
+                          text: productShareText(widget.product),
+                          sharePositionOrigin: shareOrigin,
+                        ),
+                      );
+                    } catch (error) {
+                      if (!context.mounted) {
+                        return;
+                      }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Could not share product: $error'),
+                        ),
+                      );
+                    } finally {
+                      if (mounted) setState(() => _isSharing = false);
+                    }
+                  },
           ),
           const SizedBox(width: 8),
         ],
@@ -169,7 +218,10 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                               const SizedBox(width: 8),
                               if (widget.product.discountPercentage > 0)
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
                                   decoration: BoxDecoration(
                                     color: const Color(0xFFEF4444),
                                     borderRadius: BorderRadius.circular(6),
@@ -186,19 +238,28 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                               const Spacer(),
                               Row(
                                 children: [
-                                  const Icon(Icons.star_rounded, size: 16, color: Color(0xFFFFB300)),
+                                  const Icon(
+                                    Icons.star_rounded,
+                                    size: 16,
+                                    color: Color(0xFFFFB300),
+                                  ),
                                   const SizedBox(width: 3),
                                   Text(
                                     '${widget.product.rating}',
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
                                       fontSize: 12,
-                                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                      color: isDark
+                                          ? Colors.white
+                                          : const Color(0xFF0F172A),
                                     ),
                                   ),
                                   Text(
                                     ' (${widget.product.reviewCount})',
-                                    style: const TextStyle(fontSize: 10.5, color: Colors.grey),
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      color: Colors.grey,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -213,7 +274,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                               fontSize: 20,
                               fontWeight: FontWeight.w900,
                               height: 1.25,
-                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                              color: isDark
+                                  ? Colors.white
+                                  : const Color(0xFF0F172A),
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -221,7 +284,11 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                           // SKU & Category
                           Text(
                             'SKU: ${widget.product.sku} • Category: ${widget.product.categoryName}',
-                            style: const TextStyle(fontSize: 11.5, color: Colors.grey, fontWeight: FontWeight.w600),
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.grey,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                           const SizedBox(height: 16),
 
@@ -229,52 +296,61 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                           Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: isDark ? AppColors.surfaceDark : const Color(0xFFF8FAFC),
+                              color: isDark
+                                  ? AppColors.surfaceDark
+                                  : const Color(0xFFF8FAFC),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE2E8F0),
+                                color: isDark
+                                    ? const Color(0xFF1E2D3D)
+                                    : const Color(0xFFE2E8F0),
                               ),
                             ),
                             child: Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Dealer Price (Excl. GST)',
-                                      style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Row(
-                                      crossAxisAlignment: CrossAxisAlignment.baseline,
-                                      textBaseline: TextBaseline.alphabetic,
-                                      children: [
-                                        Text(
-                                          '₹${widget.product.dealerPrice.toStringAsFixed(0)}',
-                                          style: TextStyle(
-                                            fontSize: 24,
-                                            fontWeight: FontWeight.w900,
-                                            color: isDark ? Colors.white : const Color(0xFF0F172A),
-                                          ),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Dealer Price (Excl. GST)',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: Colors.grey,
+                                          fontWeight: FontWeight.w600,
                                         ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          'MRP ₹${widget.product.mrp.toStringAsFixed(0)}',
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            decoration: TextDecoration.lineThrough,
-                                            color: Colors.grey,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Wrap(
+                                        spacing: 8,
+                                        crossAxisAlignment:
+                                            WrapCrossAlignment.center,
+                                        children: [
+                                          Text(
+                                            '₹${widget.product.dealerPrice.toStringAsFixed(0)}',
+                                            style: TextStyle(
+                                              fontSize: 24,
+                                              fontWeight: FontWeight.w900,
+                                              color: isDark
+                                                  ? Colors.white
+                                                  : const Color(0xFF0F172A),
+                                            ),
                                           ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                        ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                                const SizedBox(width: 8),
                                 Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: primaryColor.withOpacity(0.12),
+                                    color: primaryColor.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(10),
                                   ),
                                   child: Text(
@@ -299,67 +375,97 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                       child: Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
+                          color: isDark
+                              ? AppColors.surfaceDark
+                              : AppColors.surfaceLight,
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE2E8F0),
+                            color: isDark
+                                ? const Color(0xFF1E2D3D)
+                                : const Color(0xFFE2E8F0),
                           ),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Select Order Quantity',
-                                  style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: Colors.grey),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Total: ₹${totalPrice.toStringAsFixed(0)}',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w900,
-                                    color: primaryColor,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Select Order Quantity',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Colors.grey,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Total: ₹${totalPrice.toStringAsFixed(0)}',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w900,
+                                      color: primaryColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
 
                             // Minus / Counter / Plus Controls
                             Container(
                               decoration: BoxDecoration(
-                                color: isDark ? Colors.white.withOpacity(0.04) : const Color(0xFFF1F5F9),
+                                color: isDark
+                                    ? Colors.white.withValues(alpha: 0.04)
+                                    : const Color(0xFFF1F5F9),
                                 borderRadius: BorderRadius.circular(12),
                                 border: Border.all(
-                                  color: isDark ? Colors.white10 : Colors.black12,
+                                  color: isDark
+                                      ? Colors.white10
+                                      : Colors.black12,
                                 ),
                               ),
                               child: Row(
                                 children: [
                                   IconButton(
-                                    icon: const Icon(Icons.remove_rounded, size: 18),
+                                    icon: const Icon(
+                                      Icons.remove_rounded,
+                                      size: 18,
+                                    ),
                                     onPressed: _decrementQuantity,
                                     padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                                    constraints: const BoxConstraints(
+                                      minWidth: 38,
+                                      minHeight: 38,
+                                    ),
                                   ),
                                   Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                    ),
                                     child: Text(
                                       '$_quantity',
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w900,
-                                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                        color: isDark
+                                            ? Colors.white
+                                            : const Color(0xFF0F172A),
                                       ),
                                     ),
                                   ),
                                   IconButton(
-                                    icon: const Icon(Icons.add_rounded, size: 18),
+                                    icon: const Icon(
+                                      Icons.add_rounded,
+                                      size: 18,
+                                    ),
                                     onPressed: _incrementQuantity,
                                     padding: EdgeInsets.zero,
-                                    constraints: const BoxConstraints(minWidth: 38, minHeight: 38),
+                                    constraints: const BoxConstraints(
+                                      minWidth: 38,
+                                      minHeight: 38,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -377,7 +483,10 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                       unselectedLabelColor: Colors.grey,
                       indicatorColor: primaryColor,
                       indicatorWeight: 3,
-                      labelStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                      labelStyle: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
                       tabs: const [
                         Tab(text: 'Overview'),
                         Tab(text: 'Specifications'),
@@ -399,7 +508,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                                 style: TextStyle(
                                   fontSize: 13,
                                   height: 1.5,
-                                  color: isDark ? Colors.white70 : const Color(0xFF334155),
+                                  color: isDark
+                                      ? Colors.white70
+                                      : const Color(0xFF334155),
                                 ),
                               ),
                             ),
@@ -409,37 +520,44 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                             padding: const EdgeInsets.all(16),
                             child: SingleChildScrollView(
                               child: Column(
-                                children: widget.product.specifications.entries.map((e) {
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        SizedBox(
-                                          width: 140,
-                                          child: Text(
-                                            e.key,
-                                            style: const TextStyle(
-                                              fontSize: 12,
-                                              color: Colors.grey,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
+                                children: widget.product.specifications.entries
+                                    .map((e) {
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 8,
                                         ),
-                                        Expanded(
-                                          child: Text(
-                                            e.value,
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w700,
-                                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                        child: Row(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            SizedBox(
+                                              width: 140,
+                                              child: Text(
+                                                e.key,
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
                                             ),
-                                          ),
+                                            Expanded(
+                                              child: Text(
+                                                e.value,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: isDark
+                                                      ? Colors.white
+                                                      : const Color(0xFF0F172A),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                      ],
-                                    ),
-                                  );
-                                }).toList(),
+                                      );
+                                    })
+                                    .toList(),
                               ),
                             ),
                           ),
@@ -452,9 +570,14 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: 8),
                                     child: Row(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Icon(Icons.check_circle_rounded, size: 16, color: primaryColor),
+                                        Icon(
+                                          Icons.check_circle_rounded,
+                                          size: 16,
+                                          color: primaryColor,
+                                        ),
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: Text(
@@ -462,7 +585,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                                             style: TextStyle(
                                               fontSize: 12.5,
                                               fontWeight: FontWeight.w600,
-                                              color: isDark ? Colors.white70 : const Color(0xFF0F172A),
+                                              color: isDark
+                                                  ? Colors.white70
+                                                  : const Color(0xFF0F172A),
                                             ),
                                           ),
                                         ),
@@ -486,7 +611,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w900,
-                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            color: isDark
+                                ? Colors.white
+                                : const Color(0xFF0F172A),
                           ),
                         ),
                       ),
@@ -505,10 +632,15 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                                 product: relProduct,
                                 isGrid: true,
                                 onTap: () {
-                                  Navigator.pushReplacement(
+                                  Navigator.of(
                                     context,
+                                    rootNavigator: true,
+                                  ).pushReplacement(
                                     MaterialPageRoute(
-                                      builder: (context) => ProductDetailsScreen(product: relProduct),
+                                      builder: (context) =>
+                                          ProductDetailsScreen(
+                                            product: relProduct,
+                                          ),
                                     ),
                                   );
                                 },
@@ -531,12 +663,14 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                 color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
                 border: Border(
                   top: BorderSide(
-                    color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE2E8F0),
+                    color: isDark
+                        ? const Color(0xFF1E2D3D)
+                        : const Color(0xFFE2E8F0),
                   ),
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.06),
+                    color: Colors.black.withValues(alpha: 0.06),
                     blurRadius: 16,
                     offset: const Offset(0, -4),
                   ),
@@ -554,12 +688,22 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                         },
                         style: OutlinedButton.styleFrom(
                           side: BorderSide(color: primaryColor, width: 1.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
-                        icon: Icon(Icons.add_shopping_cart_rounded, size: 18, color: primaryColor),
+                        icon: Icon(
+                          Icons.add_shopping_cart_rounded,
+                          size: 18,
+                          color: primaryColor,
+                        ),
                         label: Text(
                           'Add to Cart',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: primaryColor),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: primaryColor,
+                          ),
                         ),
                       ),
                     ),
@@ -571,19 +715,27 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                     child: SizedBox(
                       height: 48,
                       child: ElevatedButton.icon(
-                        onPressed: () {
-                          context.go('/orders');
+                        onPressed: () async {
+                          final added = await _handleAddToCartAnimation(
+                            context,
+                          );
+                          if (added && context.mounted) context.push('/cart');
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: primaryColor,
                           foregroundColor: Colors.white,
                           elevation: 2,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
                         ),
                         icon: const Icon(Icons.flash_on_rounded, size: 18),
                         label: const Text(
                           'Buy Now',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -598,7 +750,12 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
   }
 
   // Gallery Carousel Widget
-  Widget _buildImageGallery(BuildContext context, List<String> images, bool isDark, Color primaryColor) {
+  Widget _buildImageGallery(
+    BuildContext context,
+    List<String> images,
+    bool isDark,
+    Color primaryColor,
+  ) {
     return Column(
       children: [
         Stack(
@@ -606,7 +763,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
             Container(
               height: 240,
               width: double.infinity,
-              color: isDark ? Colors.white.withOpacity(0.03) : const Color(0xFFF8FAFC),
+              color: isDark
+                  ? Colors.white.withValues(alpha: 0.03)
+                  : const Color(0xFFF8FAFC),
               child: PageView.builder(
                 controller: _pageController,
                 onPageChanged: (idx) {
@@ -621,14 +780,16 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                     child: Padding(
                       padding: const EdgeInsets.all(20),
                       child: Hero(
-                        tag: 'product_img_${widget.product.id}_$index',
-                        child: Image.asset(
+                        tag: index == 0 && widget.heroTag != null
+                            ? widget.heroTag!
+                            : 'product_img_${widget.product.id}_$index',
+                        child: AppImage(
                           images[index],
                           fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => Icon(
                             Icons.water_drop_rounded,
                             size: 80,
-                            color: primaryColor.withOpacity(0.5),
+                            color: primaryColor.withValues(alpha: 0.5),
                           ),
                         ),
                       ),
@@ -643,16 +804,20 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
+                  color: Colors.black.withValues(alpha: 0.6),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Row(
-                  children: const [
+                child: const Row(
+                  children: [
                     Icon(Icons.zoom_in_rounded, color: Colors.white, size: 14),
                     SizedBox(width: 4),
                     Text(
                       'Tap to Zoom',
-                      style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ],
                 ),
@@ -665,35 +830,49 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
         // Thumbnails Strip
         SizedBox(
           height: 48,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(images.length, (idx) {
-              final isSelected = _activeImageIndex == idx;
-              return GestureDetector(
-                onTap: () {
-                  _pageController.animateToPage(
-                    idx,
-                    duration: const Duration(milliseconds: 300),
-                    curve: Curves.easeInOut,
-                  );
-                },
-                child: Container(
-                  width: 44,
-                  height: 44,
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: isSelected ? primaryColor : (isDark ? Colors.white10 : Colors.black12),
-                      width: isSelected ? 2.0 : 1.0,
-                    ),
-                  ),
-                  child: Image.asset(images[idx], fit: BoxFit.contain),
+          child: LayoutBuilder(
+            builder: (context, constraints) => SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              primary: false,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minWidth: constraints.maxWidth),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(images.length, (idx) {
+                    final isSelected = _activeImageIndex == idx;
+                    return GestureDetector(
+                      key: ValueKey('product-thumbnail-$idx'),
+                      onTap: () {
+                        _pageController.animateToPage(
+                          idx,
+                          duration: const Duration(milliseconds: 300),
+                          curve: Curves.easeInOut,
+                        );
+                      },
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        margin: const EdgeInsets.symmetric(horizontal: 4),
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? AppColors.surfaceDark
+                              : AppColors.surfaceLight,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSelected
+                                ? primaryColor
+                                : (isDark ? Colors.white10 : Colors.black12),
+                            width: isSelected ? 2.0 : 1.0,
+                          ),
+                        ),
+                        child: AppImage(images[idx], fit: BoxFit.contain),
+                      ),
+                    );
+                  }),
                 ),
-              );
-            }),
+              ),
+            ),
           ),
         ),
       ],
@@ -705,22 +884,25 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
     Color fg;
     switch (status) {
       case StockStatus.inStock:
-        bg = const Color(0xFF10B981).withOpacity(0.12);
+        bg = const Color(0xFF10B981).withValues(alpha: 0.12);
         fg = const Color(0xFF10B981);
         break;
       case StockStatus.lowStock:
-        bg = const Color(0xFFF59E0B).withOpacity(0.12);
+        bg = const Color(0xFFF59E0B).withValues(alpha: 0.12);
         fg = const Color(0xFFF59E0B);
         break;
       case StockStatus.outOfStock:
-        bg = const Color(0xFF64748B).withOpacity(0.12);
+        bg = const Color(0xFF64748B).withValues(alpha: 0.12);
         fg = const Color(0xFF64748B);
         break;
     }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(6)),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(6),
+      ),
       child: Text(
         status.label,
         style: TextStyle(color: fg, fontSize: 9.5, fontWeight: FontWeight.w900),
@@ -728,7 +910,21 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
     );
   }
 
-  void _handleAddToCartAnimation(BuildContext context) {
+  Future<bool> _handleAddToCartAnimation(BuildContext context) async {
+    try {
+      await ref
+          .read(cartProvider.notifier)
+          .addToCart(widget.product, quantity: _quantity);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+      return false;
+    }
+    if (!context.mounted) {
+      return true;
+    }
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -750,5 +946,6 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
         duration: const Duration(seconds: 2),
       ),
     );
+    return true;
   }
 }
