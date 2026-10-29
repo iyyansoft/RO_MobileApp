@@ -21,12 +21,59 @@ test('inline CA values support escaped newlines for hosted environment variables
     '-----BEGIN CERTIFICATE-----\npublic-ca\n-----END CERTIFICATE-----');
 });
 
+test('inline PEM CA takes precedence over the optional CA file', () => {
+  let fileRead = false;
+  const ca = resolveSslCa({
+    inline: '-----BEGIN CERTIFICATE-----\\ninline-ca\\n-----END CERTIFICATE-----',
+    file: 'certs/supabase-root.crt',
+    fileSystem: { readFileSync: () => { fileRead = true; return 'file-ca'; } }
+  });
+  assert.equal(ca, '-----BEGIN CERTIFICATE-----\ninline-ca\n-----END CERTIFICATE-----');
+  assert.equal(fileRead, false);
+});
+
 test('relative CA file paths resolve from the application directory', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const caPath = path.join(__dirname, '..', 'certs', 'supabase-root.crt');
   assert.ok(fs.existsSync(caPath), 'the repository Supabase CA certificate should be present');
   assert.equal(resolveSslCa({ file: 'certs/supabase-root.crt' }), fs.readFileSync(caPath, 'utf8'));
+});
+
+test('Windows absolute CA paths remain absolute during local Windows development', () => {
+  const requestedPaths = [];
+  const ca = resolveSslCa({
+    file: String.raw`D:\RO_Mobile_App\certs\supabase-root.crt`,
+    platform: 'win32',
+    projectDir: String.raw`D:\RO_Mobile_App`,
+    fileSystem: { readFileSync: file => { requestedPaths.push(file); return 'windows-ca'; } }
+  });
+  assert.equal(ca, 'windows-ca');
+  assert.deepEqual(requestedPaths, [String.raw`D:\RO_Mobile_App\certs\supabase-root.crt`]);
+});
+
+test('relative CA paths resolve with Windows and Linux path semantics', () => {
+  const windowsPaths = [];
+  resolveSslCa({
+    file: 'certs/supabase-root.crt', platform: 'win32',
+    projectDir: String.raw`C:\Users\priya\RO_Mobile_App`,
+    fileSystem: { readFileSync: file => { windowsPaths.push(file); return 'windows-ca'; } }
+  });
+  assert.deepEqual(windowsPaths, [String.raw`C:\Users\priya\RO_Mobile_App\certs\supabase-root.crt`]);
+
+  const linuxPaths = [];
+  resolveSslCa({
+    file: 'certs/supabase-root.crt', platform: 'linux', projectDir: '/opt/render/project/src',
+    fileSystem: { readFileSync: file => { linuxPaths.push(file); return 'linux-ca'; } }
+  });
+  assert.deepEqual(linuxPaths, ['/opt/render/project/src/certs/supabase-root.crt']);
+});
+
+test('a Windows absolute CA path is rejected clearly on Linux instead of becoming a malformed path', () => {
+  assert.throws(
+    () => resolveSslCa({ file: String.raw`D:\RO_Mobile_App\certs\supabase-root.crt`, platform: 'linux', projectDir: '/opt/render/project/src' }),
+    /SUPABASE_DB_SSL_CA_FILE must be a project-relative path on Linux/
+  );
 });
 
 test('SQL binds positional values with PostgreSQL placeholders while preserving quoted question marks', () => {

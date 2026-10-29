@@ -13,13 +13,15 @@ types.setTypeParser(1114, value => new Date(`${value.replace(' ', 'T')}Z`));
 const connectionString = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
 const hasDiscreteConfig = Boolean(process.env.PGHOST || process.env.SUPABASE_DB_HOST);
 const sslCaFile = process.env.SUPABASE_DB_SSL_CA_FILE;
+// Render/Linux deployments can supply the public Supabase CA directly as a
+// multiline secret, or use a repository-relative certificate path. Never use
+// a developer-machine absolute path in the hosted service configuration.
+const sslCaInline = process.env.SUPABASE_DB_SSL_CA;
 const parsedConnection = connectionString
   ? parsePostgresConnectionString(connectionString)
   : { config: {}, ca: undefined };
 const connectionConfig = parsedConnection.config;
-const sslCa = sslCaFile
-  ? fs.readFileSync(path.resolve(sslCaFile), 'utf8')
-  : parsedConnection.ca;
+const sslCa = resolveSslCa({ inline: sslCaInline, file: sslCaFile, connectionCa: parsedConnection.ca });
 // node-postgres reparses `connectionString` after applying other options, which
 // can discard a supplied CA. Parse it here, then pass discrete fields only.
 const pgPool = new Pool({
@@ -35,8 +37,9 @@ const pgPool = new Pool({
   connectionTimeoutMillis: Number.parseInt(process.env.DB_CONNECTION_TIMEOUT_MS || '5000', 10),
   idleTimeoutMillis: Number.parseInt(process.env.DB_IDLE_TIMEOUT_MS || '30000', 10),
   // Keep TLS and certificate/hostname verification mandatory. If Supabase
-  // requires its project CA, point SUPABASE_DB_SSL_CA_FILE at the CA downloaded
-  // from that project's Database > SSL Configuration settings.
+  // requires its project CA, set SUPABASE_DB_SSL_CA to the PEM text or point
+  // SUPABASE_DB_SSL_CA_FILE at a repository-relative CA file. Both options keep
+  // certificate-chain and hostname verification enabled.
   ssl: {
     rejectUnauthorized: true,
     ...(sslCa ? { ca: sslCa } : {})
@@ -52,6 +55,22 @@ function parsePostgresConnectionString(value) {
   const ca = config.ssl?.ca;
   delete config.ssl;
   return { config, ca };
+}
+
+function resolveSslCa({ inline, file, connectionCa, platform = process.platform, projectDir = __dirname, fileSystem = fs } = {}) {
+  if (inline) return inline.replace(/\\n/g, '\n');
+  if (!file) return connectionCa;
+  const isWindowsAbsolute = path.win32.isAbsolute(file);
+  const isPlatformAbsolute = platform === 'win32' ? isWindowsAbsolute : path.posix.isAbsolute(file);
+  if (platform !== 'win32' && isWindowsAbsolute && !path.posix.isAbsolute(file)) {
+    throw new Error('SUPABASE_DB_SSL_CA_FILE must be a project-relative path on Linux (for example: certs/supabase-root.crt).');
+  }
+  const certificatePath = isPlatformAbsolute
+    ? file
+    : (platform === process.platform
+      ? path.resolve(projectDir, file)
+      : (platform === 'win32' ? path.win32.resolve(projectDir, file) : path.posix.resolve(projectDir, file)));
+  return fileSystem.readFileSync(certificatePath, 'utf8');
 }
 pgPool.on('error', error => {
   // Avoid leaking connection details or ending the process on an idle socket error.
@@ -199,5 +218,6 @@ module.exports = {
   toPostgresPlaceholders,
   adaptResult,
   normalizeDatabaseError,
-  parsePostgresConnectionString
+  parsePostgresConnectionString,
+  resolveSslCa
 };

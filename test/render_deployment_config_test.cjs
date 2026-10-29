@@ -26,7 +26,8 @@ test('production startup requires Supabase and non-default authentication secret
 
 test('PostgreSQL TLS verification remains required and hosted CA paths are portable', () => {
   assert.match(database, /rejectUnauthorized:\s*true/);
-  assert.match(database, /path\.join\(__dirname,\s*file\)/);
+  assert.match(database, /path\.resolve\(projectDir,\s*file\)/);
+  assert.match(database, /path\.win32\.isAbsolute\(file\)/);
   assert.match(envExample, /^SUPABASE_DB_SSL_CA_FILE=certs\/supabase-root\.crt$/m);
   assert.doesNotMatch(envExample, /[A-Z]:\\/i);
 });
