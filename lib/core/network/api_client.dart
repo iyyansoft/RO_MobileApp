@@ -22,7 +22,7 @@ class ApiClient {
   static String get defaultBaseUrl {
     return const String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://10.0.2.2:8081/api/',
+      defaultValue: 'https://ro-mobileapp.onrender.com',
     );
   }
 
