@@ -40,18 +40,6 @@ if (isProduction) {
   if (!process.env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD.length < 16) {
     missingProductionConfig.push('ADMIN_PASSWORD (16+ characters)');
   }
-  const brevoConfigured = Boolean(
-    process.env.BREVO_API_KEY &&
-    /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(String(process.env.BREVO_SENDER_EMAIL || '').trim())
-  );
-  const secureSmtpConfigured = Boolean(
-    process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM &&
-    ((Number(process.env.SMTP_PORT) === 465 && process.env.SMTP_SECURE === 'true') ||
-      (Number(process.env.SMTP_PORT) === 587 && process.env.SMTP_SECURE === 'false'))
-  );
-  if (!brevoConfigured && (process.env.BREVO_API_KEY || !secureSmtpConfigured)) {
-    missingProductionConfig.push('BREVO_API_KEY and BREVO_SENDER_EMAIL (or explicitly configured TLS SMTP fallback)');
-  }
   if (missingProductionConfig.length) {
     throw new Error(`Missing required production configuration: ${missingProductionConfig.join(', ')}`);
   }

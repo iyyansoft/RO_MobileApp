@@ -31,14 +31,14 @@ test('PostgreSQL TLS verification remains required and hosted CA paths are porta
   assert.doesNotMatch(envExample, /[A-Z]:\\/i);
 });
 
-test('transactional email uses HTTPS and SMTP fallback requires certificate verification', () => {
+test('transactional email is optional at startup, uses HTTPS when configured, and secure SMTP fallback verifies certificates', () => {
   assert.match(emailProvider, /https:\/\/api\.brevo\.com\/v3\/smtp\/email/);
   assert.match(emailProvider, /tls:\s*\{\s*rejectUnauthorized:\s*true\s*\}/);
   assert.match(emailProvider, /requireTLS:\s*true/);
   assert.doesNotMatch(emailProvider, /rejectUnauthorized:\s*false/);
   assert.match(envExample, /^BREVO_API_KEY=$/m);
   assert.match(envExample, /^BREVO_SENDER_EMAIL=$/m);
-  assert.match(server, /BREVO_API_KEY and BREVO_SENDER_EMAIL/);
+  assert.doesNotMatch(server, /missingProductionConfig\.push\([^\n]*(BREVO_API_KEY|BREVO_SENDER_EMAIL|SMTP_HOST)/);
 });
 
 test('environment template contains placeholders only and sensitive local files are ignored', () => {
