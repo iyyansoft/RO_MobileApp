@@ -3214,7 +3214,7 @@
       let filtered = allUsers;
 
       if (userFilterStatus !== 'all') {
-        filtered = filtered.filter(u => u.status === userFilterStatus);
+        filtered = filtered.filter(u => u.status.toLowerCase() === userFilterStatus.toLowerCase());
       }
 
       if (q) {
@@ -3273,13 +3273,14 @@
         const res = await adminFetch('/api/admin/set-status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId, status })
+          body: JSON.stringify({ identifier: userId, status: status.toLowerCase() })
         });
         const data = await res.json();
-        if (data.success) {
+        if (res.ok && data.success) {
           showToast(`User status updated to ${status}`, '#10B981');
-          loadUsers();
-          loadStats();
+          await Promise.all([loadUsers(), loadStats()]);
+        } else {
+          showToast(data.error || 'Error updating status', '#EF4444');
         }
       } catch (err) {
         showToast('Error updating status', '#EF4444');

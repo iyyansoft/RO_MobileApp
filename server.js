@@ -974,10 +974,12 @@ app.get('/api/admin/dealers', requireAdminAuth, async (req, res) => {
 
 app.post('/api/admin/set-status', requireAdminAuth, async (req, res) => {
   try {
-    const { identifier, email, status } = req.body;
-    const cleanId = (identifier || email || '').trim().toLowerCase();
+    const { identifier, userId, email, status } = req.body || {};
+    // The portal historically sent userId; keep it as an alias for older tabs.
+    const target = identifier || userId || email;
+    const cleanId = typeof target === 'string' ? target.trim().toLowerCase() : '';
     const validStatuses = ['approved', 'pending', 'rejected'];
-    const cleanStatus = (status || '').toLowerCase();
+    const cleanStatus = typeof status === 'string' ? status.trim().toLowerCase() : '';
 
     if (!cleanId || !validStatuses.includes(cleanStatus)) {
       return res.status(400).json({ success: false, error: 'Invalid identifier or status.' });
@@ -1002,7 +1004,8 @@ app.post('/api/admin/set-status', requireAdminAuth, async (req, res) => {
       user: { email: cleanId, status: cleanStatus, isApproved: cleanStatus === 'approved' }
     });
   } catch (err) {
-    console.error('[API ERROR] Admin set-status:', err);
+    // Database error details can contain personal data or connection details.
+    console.error('[API ERROR] Admin set-status:', err.code || err.name);
     return res.status(503).json({ success: false, error: 'database is unavailable. Dealer status was not changed.' });
   }
 });
