@@ -1,0 +1,18 @@
+# Vercel hosts ONLY the Flutter Web frontend. The Node/Express backend
+# (server.js, package.json, ...) runs on Render and must never be uploaded
+# here, or Vercel would try to run it as a serverless function.
+#
+# Allowlist: ignore everything, then re-include only what `flutter build web`
+# needs. This also keeps .env files, SQL backups and JSON data snapshots off
+# Vercel when deploying with the Vercel CLI from this folder.
+/*
+!/lib
+!/web
+!/assets
+!/pubspec.yaml
+!/pubspec.lock
+!/analysis_options.yaml
+!/vercel.json
+!/scripts
+/scripts/*
+!/scripts/vercel-build.sh
