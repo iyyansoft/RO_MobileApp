@@ -6,18 +6,25 @@ const crypto = require('node:crypto');
 const { validGstin, createDealerToken } = require('../checkout_service');
 function setup(options = {}) {
   const routes = {}, users = {}, queries = [], memoryOtps = new Map();
-  let sent;
+  let sent, savedOtp;
   const context = { app: { post: (path, fn) => routes[path] = fn }, console: { log() {}, error() {} }, crypto, Buffer, validGstin, createDealerToken,
     SESSION_SECRET: 'test-secret', memoryOtps, process: { env: { SMTP_USER: 'sender@example.test' } },
     isValidEmailAddress: email => /^[^@]+@[^@]+\.[^@]+$/.test(email),
     logEmailFailure: () => {},
     findUserByEmailOrMobile: async email => options.registered && email === 'dealer@example.test' ? { id: 'dealer', email, name: 'Registered Name', status: options.status || 'approved', gstNumber: '27AAPFU0939F1ZV', passwordHash: options.passwordHash, emailVerified: true, isApproved: options.isApproved ?? (options.status !== 'pending') } : null,
-    findAuthUserByEmailOrMobile: async email => options.registered && email === 'dealer@example.test' ? { id: 'dealer', email, name: 'Registered Name', status: options.status || 'approved', gstNumber: '27AAPFU0939F1ZV', passwordHash: options.passwordHash, emailVerified: true, isApproved: options.isApproved ?? (options.status !== 'pending'), addresses: [] } : null,
+    findAuthUserByEmailOrMobile: async email => options.registered && email === 'dealer@example.test' ? { id: 'dealer', email, name: 'Registered Name', status: options.status || 'approved', gstNumber: '27AAPFU0939F1ZV', passwordHash: options.passwordHash, emailVerified: options.emailVerified ?? true, isApproved: options.isApproved ?? (options.status !== 'pending'), addresses: [] } : null,
     sendTransactionalEmail: async message => { if (options.mailError) throw Object.assign(Error('test provider unavailable'), { code: 'EMAIL_PROVIDER_ERROR', provider: 'test' }); sent = message; return { accepted: [message.to], provider: 'test' }; },
     hashOtp: (email, code) => crypto.createHmac('sha256', 'test-secret').update(email + ':' + code).digest('hex'),
     bcrypt: require('bcryptjs'), parseAddressString: () => ({city:'',state:'',pincode:''}),
     loadJsonUsers: () => users, saveJsonUsers: () => {},
     pool: { query: async (sql, values) => { queries.push([sql, values]);
+      if (sql.startsWith('WITH removed AS')) {
+        savedOtp = { otp_code: values[2], attempts: 0, unexpired: true };
+        return [{ affectedRows: 1 }];
+      }
+      if (sql.startsWith('SELECT otp_code, attempts')) return [savedOtp ? [savedOtp] : []];
+      if (sql.startsWith('UPDATE otp_codes SET attempts') && savedOtp) savedOtp.attempts++;
+      if (sql.startsWith('WITH consumed AS')) { const affectedRows = savedOtp ? 1 : 0; savedOtp = null; return [{ affectedRows }]; }
       if (sql.startsWith('SELECT id, email, status FROM users')) return [options.registered ? [{ id: 'dealer', email: 'dealer@example.test', status: options.status || 'approved' }] : []];
       return sql.startsWith('SELECT') ? [[]] : [{ affectedRows: 1 }]; },
       getConnection: async () => { if (options.dbError) throw Error('PostgreSQL unavailable'); return { beginTransaction: async () => {}, query: async (sql, values) => { queries.push([sql, values]); return sql.startsWith('SELECT') ? [[]] : [{ affectedRows: 1 }]; }, commit: async () => {}, rollback: async () => {}, release: async () => {} }; } },
@@ -53,12 +60,14 @@ test('real email code is hashed, verified once, and preserves registered name/GS
   const login = await api.call('verify-otp', {email:'dealer@example.test',otp:code}); assert.equal(login.body.user.name, 'Registered Name'); assert.equal(login.body.user.gstNumber, '27AAPFU0939F1ZV');
   assert.equal((await api.call('verify-otp', {email:'dealer@example.test',otp:code})).code, 400);
 });
-test('signup requires confirmation, leaves new dealers pending, and writes PostgreSQL first', async () => {
+test('signup requires confirmation and email verification, and writes PostgreSQL first', async () => {
   const body = {name:'Dealer',email:'new@example.test',mobile:'9876543210',address:'Saved address',password:'Password1',confirmPassword:'Password1'};
   const api = setup(); assert.equal((await api.call('signup', {...body,confirmPassword:'wrong'})).code, 400);
   assert.equal((await api.call('signup', body)).code, 200);
   const userInsert = api.queries.find(([sql]) => sql.startsWith('INSERT INTO users'));
   assert.match(userInsert[0], /'pending', FALSE, 0\)/i);
+  assert.match(userInsert[0], /VALUES \(\?, \?, \?, \?, \?, FALSE,/);
+  assert.equal((await api.call('signup', body)).body.requiresEmailVerification, true);
   assert.equal((await api.call('signup', body)).body.isApproved, false);
   assert.ok(userInsert); assert.equal(userInsert[1][5], ''); assert.equal(userInsert[1][7], body.address);
   assert.equal(await require('bcryptjs').compare(body.password, userInsert[1][4]), true);
@@ -71,21 +80,31 @@ test('password login requires the actual saved password and returns name/GST', a
   assert.equal(response.body.success, true); assert.equal(response.body.user.name, 'Registered Name'); assert.equal(response.body.user.gstNumber, '27AAPFU0939F1ZV'); assert.ok(response.body.token.includes('.'));
 });
 
-test('pending dealers cannot password-login before an admin approves them', async () => {
+test('verified pending dealers can password-login without admin approval', async () => {
   const api = setup({registered:true, status:'pending', isApproved:false, passwordHash: await require('bcryptjs').hash('ActualPassword1', 4)});
   const response = await api.call('login', {email:'dealer@example.test',password:'ActualPassword1'});
-  assert.equal(response.code, 403);
-  assert.equal(response.body.status, 'pending');
-  assert.equal(response.body.isApproved, false);
-  assert.equal(response.body.token, undefined);
+  assert.equal(response.code, 200);
+  assert.equal(response.body.user.status, 'pending');
+  assert.equal(response.body.user.isApproved, false);
+  assert.ok(response.body.token);
 });
 
-test('pending dealers can verify an email code but do not receive an app session', async () => {
+test('pending dealers receive an app session immediately after email verification', async () => {
   const api = setup({registered:true, status:'pending', isApproved:false});
   assert.equal((await api.call('send-otp', {email:'dealer@example.test'})).code, 200);
   const code = api.sent().text.match(/\b\d{6}\b/)[0];
   const response = await api.call('verify-otp', {email:'dealer@example.test',otp:code});
-  assert.equal(response.code, 403);
-  assert.equal(response.body.status, 'pending');
-  assert.equal(response.body.token, undefined);
+  assert.equal(response.code, 200);
+  assert.equal(response.body.user.status, 'pending');
+  assert.ok(response.body.token);
+});
+
+test('unverified and rejected dealers still cannot password-login', async () => {
+  const passwordHash = await require('bcryptjs').hash('ActualPassword1', 4);
+  for (const options of [{ emailVerified: false }, { status: 'rejected' }]) {
+    const api = setup({ registered: true, passwordHash, ...options });
+    const response = await api.call('login', { email: 'dealer@example.test', password: 'ActualPassword1' });
+    assert.equal(response.code, 403);
+    assert.equal(response.body.token, undefined);
+  }
 });

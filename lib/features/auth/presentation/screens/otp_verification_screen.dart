@@ -46,11 +46,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
         .verifyOtp(otp, signIn: !isSignup);
 
     if (success && mounted) {
-      if (isSignup) {
-        context.go('/login');
-      } else {
-        context.go('/home');
-      }
+      context.go(isSignup ? '/login?mode=password' : '/home');
     }
   }
 

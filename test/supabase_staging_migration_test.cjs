@@ -34,7 +34,7 @@ test('profile/address stage links verified Auth identities without approving dea
   assert.doesNotMatch(profileSql, /\b(?:DROP\s+TABLE|TRUNCATE|DELETE\s+FROM)\b/i);
 });
 
-test('Express fallback keeps new password and Google dealers pending until approval', () => {
+test('Express fallback preserves approval metadata without requiring it for login', () => {
   const signupStart = expressServer.indexOf('// 3. Sign Up Endpoint');
   const signupEnd = expressServer.indexOf('// 4. Password Login Endpoint', signupStart);
   const signupRoute = expressServer.slice(signupStart, signupEnd);
@@ -44,8 +44,8 @@ test('Express fallback keeps new password and Google dealers pending until appro
   assert.match(signupRoute, /'pending', FALSE, 0/i);
   assert.doesNotMatch(signupRoute, /'approved',\s*TRUE/i);
   assert.match(googleRoute, /'pending', FALSE, 0/i);
-  assert.match(expressServer, /user\.status !== 'approved'[\s\S]*?awaiting admin approval/);
-  assert.match(expressServer, /user\.isApproved !== true/);
+  assert.doesNotMatch(expressServer, /awaiting admin approval/);
+  assert.match(expressServer, /user\.emailVerified !== true/);
   assert.match(profileSql, /'pending',false/);
   assert.doesNotMatch(migrationPlan, /current Express signup and Google-signup handlers set new rows with `status='approved'`/);
 });

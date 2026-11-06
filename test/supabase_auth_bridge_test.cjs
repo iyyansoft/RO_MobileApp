@@ -38,6 +38,22 @@ const validProfile = {
   address: '', business_name: 'Dealer Co', gst_number: '', status: 'approved', is_approved: true,
 };
 
+test('verified pending Supabase dealer exchanges a session without admin approval; rejected stays blocked', async () => {
+  for (const status of ['pending', 'rejected']) {
+    const api = setup({
+      env: { SUPABASE_URL: 'https://project.example.test', SUPABASE_ANON_KEY: 'public-test-key' },
+      profile: { ...validProfile, status, is_approved: false },
+    });
+    const response = await api.call({ authorization: 'Bearer verified-test-jwt' });
+    assert.equal(response.statusCode, status === 'pending' ? 200 : 403);
+    if (status === 'pending') {
+      assert.equal(response.body.user.isApproved, false);
+      assert.equal(response.body.user.status, 'pending');
+      assert.ok(response.body.token);
+    } else assert.equal(response.body.token, undefined);
+  }
+});
+
 test('Supabase exchange validates the bearer with Auth and uses its identity, not a body-supplied email', async () => {
   const api = setup({
     env: { SUPABASE_URL: 'https://project.example.test', SUPABASE_ANON_KEY: 'public-test-key' },

@@ -47,9 +47,11 @@ class CartState {
     return _money(subtotal - dealerDiscount);
   }
 
+  double get b2bGstRate => 0.18;
+
   double get gstAmount {
-    // 18% B2B GST tax rate
-    return _money(taxableAmount * 0.18);
+    // 18% B2B GST tax rate (calculated at checkout when "With GST" is selected)
+    return _money(taxableAmount * b2bGstRate);
   }
 
   double get deliveryFee {
@@ -59,7 +61,18 @@ class CartState {
 
   double get grandTotal {
     if (items.isEmpty) return 0.0;
+    // GST is not added during shopping or when viewing the cart.
+    return _money(taxableAmount + deliveryFee);
+  }
+
+  double get grandTotalWithGst {
+    if (items.isEmpty) return 0.0;
     return _money(taxableAmount + gstAmount + deliveryFee);
+  }
+
+  double get grandTotalWithoutGst {
+    if (items.isEmpty) return 0.0;
+    return _money(taxableAmount + deliveryFee);
   }
 
   int get totalItemCount {

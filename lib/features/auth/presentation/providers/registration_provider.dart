@@ -8,27 +8,34 @@ import '../../domain/models/dealer_registration_model.dart';
 class RegistrationState {
   final DealerRegistrationModel data;
   final bool isSubmitting;
+  final bool confirmationEmailSent;
   final String? errorMessage;
   const RegistrationState({
     required this.data,
     this.isSubmitting = false,
+    this.confirmationEmailSent = false,
     this.errorMessage,
   });
   RegistrationState copyWith({
     DealerRegistrationModel? data,
     bool? isSubmitting,
+    bool? confirmationEmailSent,
     String? errorMessage,
     bool clearError = false,
   }) => RegistrationState(
     data: data ?? this.data,
     isSubmitting: isSubmitting ?? this.isSubmitting,
+    confirmationEmailSent: confirmationEmailSent ?? this.confirmationEmailSent,
     errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
   );
 }
 
 class RegistrationNotifier extends StateNotifier<RegistrationState> {
-  RegistrationNotifier()
-    : super(const RegistrationState(data: DealerRegistrationModel.empty));
+  RegistrationNotifier({ApiClient? client})
+    : _client = client ?? ApiClient(),
+      super(const RegistrationState(data: DealerRegistrationModel.empty));
+
+  final ApiClient _client;
 
   void clearError() {
     if (state.errorMessage != null) state = state.copyWith(clearError: true);
@@ -53,8 +60,13 @@ class RegistrationNotifier extends StateNotifier<RegistrationState> {
     required String password,
     required String confirmPassword,
   }) async {
-    state = state.copyWith(isSubmitting: true, clearError: true);
+    state = state.copyWith(
+      isSubmitting: true,
+      confirmationEmailSent: false,
+      clearError: true,
+    );
     try {
+      var confirmationEmailSent = false;
       final fullAddress = [
         address,
         city,
@@ -62,7 +74,7 @@ class RegistrationNotifier extends StateNotifier<RegistrationState> {
         pincode,
       ].where((part) => part.trim().isNotEmpty).join(', ');
       if (SupabaseConfig.authEnabled) {
-        await const SupabaseAuthAdapter().signUpDealer(
+        confirmationEmailSent = await const SupabaseAuthAdapter().signUpDealer(
           email: email,
           password: password,
           name: ownerName,
@@ -72,7 +84,7 @@ class RegistrationNotifier extends StateNotifier<RegistrationState> {
           gstNumber: gstNumber,
         );
       } else {
-        final response = await ApiClient().post<Map<String, dynamic>>(
+        final response = await _client.post<Map<String, dynamic>>(
           'auth/signup',
           data: {
             'name': ownerName.trim(),
@@ -94,6 +106,7 @@ class RegistrationNotifier extends StateNotifier<RegistrationState> {
       }
       state = state.copyWith(
         isSubmitting: false,
+        confirmationEmailSent: confirmationEmailSent,
         data: DealerRegistrationModel(
           applicationId: '',
           businessName: businessName,
@@ -109,8 +122,8 @@ class RegistrationNotifier extends StateNotifier<RegistrationState> {
           businessType: businessType,
           dealerType: dealerType,
           documents: const [],
-          // Account creation never grants wholesale access. Only the existing
-          // administrator approval workflow may move a dealer out of pending.
+          // Approval is admin metadata; verified dealers can sign in while
+          // this value is pending. Signup alone never authenticates a user.
           status: ApprovalStatus.pending,
           submittedDate: DateTime.now().toLocal().toString(),
         ),

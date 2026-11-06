@@ -196,7 +196,7 @@ void main() {
                       },
                     ],
                     'order': {
-                      'orderId': 'test-order',
+                      'orderId': 'A12B3C',
                       'id': 'gateway_order',
                       'amount': 35678,
                       'key': 'test_key',
@@ -231,14 +231,16 @@ void main() {
       expect(cart.state.subtotal, 100.55);
       expect(cart.state.dealerDiscount, 10.06);
       expect(cart.state.gstAmount, 16.29);
-      expect(cart.state.grandTotal, 356.78);
+      expect(cart.state.grandTotal, 340.49);
+      expect(cart.state.grandTotalWithGst, 356.78);
 
       expect(cart.updateQuantity(product.id, 2), isTrue);
       await settleCart();
       expect(cart.state.totalItemCount, 2);
       expect(cart.state.subtotal, 201.10);
       expect(cart.state.gstAmount, 32.58);
-      expect(cart.state.grandTotal, 463.57);
+      expect(cart.state.grandTotal, 430.99);
+      expect(cart.state.grandTotalWithGst, 463.57);
       expect(cart.updateQuantity(product.id, 1), isTrue);
       await settleCart();
       final checkout = container.read(checkoutProvider.notifier);
@@ -250,21 +252,21 @@ void main() {
         checkout.selectPaymentMethod(method);
         expect(
           await checkout.placeOrder(withGst: true, gstin: '27AAPFU0939F1ZV'),
-          'test-order',
+          'A12B3C',
         );
         expect(order!['paymentMethod'], method.label);
       }
       expect((order!['items'] as List).single['quantity'], 1);
       expect(order!['subtotal'], cart.state.subtotal);
       expect(order!['gst'], cart.state.gstAmount);
-      expect(order!['grandTotal'], cart.state.grandTotal);
+      expect(order!['grandTotal'], cart.state.grandTotalWithGst);
       expect(order!['razorpay_payment_id'], 'gateway_payment');
       checkout.selectPaymentMethod(PaymentMethodType.cashOnDelivery);
       await expectLater(
         checkout.placeOrder(withGst: true, gstin: 'invalid'),
         throwsStateError,
       );
-      expect(await checkout.placeOrder(withGst: false), 'test-order');
+      expect(await checkout.placeOrder(withGst: false), 'A12B3C');
       expect(order!['gst'], 0);
       expect(order!['grandTotal'], 340.49);
 

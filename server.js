@@ -8,7 +8,9 @@ const bcrypt = require('bcryptjs');
 const { validGstin, createDealerToken, verifyDealerToken } = require('./checkout_service');
 const { allocateDeliveryValues } = require('./shop_service');
 require('dotenv').config();
-const { createEmailSender } = require('./email_provider');
+const { createEmailSender, getEmailConfiguration } = require('./email_provider');
+
+console.log('[EMAIL configuration]', JSON.stringify(getEmailConfiguration()));
 
 const sendTransactionalEmail = createEmailSender({
   env: process.env,
@@ -59,7 +61,11 @@ const allowedOrigins = process.env.CORS_ORIGINS
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+    if (
+      allowedOrigins.indexOf(origin) !== -1 ||
+      process.env.NODE_ENV !== 'production' ||
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+    ) {
       return callback(null, true);
     }
     return callback(null, false);
@@ -86,6 +92,8 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 app.use('/uploads', express.static(uploadsDir));
+// Category/product images bundled with the app, served at /images/<filename>
+app.use('/images', express.static(path.join(__dirname, 'assets', 'images'), { maxAge: '7d' }));
 app.use(express.static(path.join(__dirname, 'web_preview')));
 
 // Helper: Save uploaded base64 image file persistently
@@ -272,13 +280,16 @@ async function findAuthUserByEmailOrMobile(identifier) {
   if (!identifier) return null;
   const cleanId = String(identifier).trim().toLowerCase();
   const cleanDigits = String(identifier).replace(/\D/g, '');
+  const isEmail = cleanId.includes('@');
+  if (!isEmail && !/^(?:91)?\d{10}$/.test(cleanDigits)) return null;
   const [rows] = await pool.query(
-    `SELECT * FROM users
-     WHERE LOWER(email) = ?
-        OR (mobile IS NOT NULL AND mobile != '' AND mobile = ?)
-        OR (mobile IS NOT NULL AND RIGHT(REGEXP_REPLACE(mobile, '[^0-9]', '', 'g'), 10) = RIGHT(?, 10))
-     LIMIT 1`,
-    [cleanId, cleanId, cleanDigits]
+    isEmail
+      ? 'SELECT * FROM users WHERE LOWER(email) = ? LIMIT 1'
+      : `SELECT * FROM users
+         WHERE mobile IS NOT NULL AND mobile != ''
+           AND RIGHT(REGEXP_REPLACE(mobile, '[^0-9]', '', 'g'), 10) = RIGHT(?, 10)
+         LIMIT 1`,
+    [isEmail ? cleanId : cleanDigits]
   );
   if (!rows.length) return null;
   const userRow = rows[0];
@@ -336,7 +347,12 @@ async function findAuthUserByEmailOrMobile(identifier) {
 // 0. Auth Config Endpoint
 app.get('/api/auth/config', (req, res) => {
   res.json({
-    googleClientId: process.env.GOOGLE_CLIENT_ID || ''
+    googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+    // Public deployment diagnostic only; enforcement remains server-side.
+    dealerPasswordLogin: {
+      requiresAdminApproval: false,
+      requiresEmailVerification: false
+    }
   });
 });
 
@@ -352,8 +368,8 @@ app.get('/api/auth/session', async (req, res) => {
   }
   if (!user || user.id !== identity.id) return res.status(401).json({success:false,error:'This registered account is no longer active.'});
   if (user.status === 'rejected') return res.status(403).json({success:false,status:'rejected',isApproved:false,error:'This account is not approved for login.'});
-  if (user.status !== 'approved' || user.isApproved !== true) {
-    return res.status(403).json({success:false,status:user.status || 'pending',isApproved:false,error:'Your dealer account is awaiting admin approval.'});
+  if (user.emailVerified !== true) {
+    return res.status(403).json({success:false,error:'Verify your email before signing in.'});
   }
   return res.json({success:true,user:{id:user.id,name:user.name,email:user.email,mobile:user.mobile,address:user.address,business:user.business||'',gstNumber:user.gstNumber||'',status:user.status,isApproved:user.isApproved,token:String(req.headers.authorization).replace(/^Bearer /, '')}});
 });
@@ -392,9 +408,6 @@ app.post('/api/auth/supabase/exchange', async (req, res) => {
       return res.status(409).json({ success: false, error: 'Dealer profile is not linked. Sign in again after profile setup.' });
     }
     if (user.status === 'rejected') return res.status(403).json({ success: false, error: 'This account is not approved for login.' });
-    if (user.status !== 'approved' || !isDatabaseTrue(user.is_approved)) {
-      return res.status(403).json({ success: false, status: user.status || 'pending', isApproved: false, error: 'Your dealer account is awaiting admin approval.' });
-    }
     const dealer = {
       id: String(user.id), email, mobile: user.mobile || '', name: user.name || '',
       address: user.address || '', business: user.business_name || '',
@@ -422,6 +435,10 @@ app.post('/api/auth/send-otp', async (req, res) => {
     if (user.status === 'rejected') return res.status(403).json({ success: false, error: 'This account is not approved for login.' });
     const previous = memoryOtps.get(email);
     if (previous && Date.now() - previous.sentAt < 30000) return res.status(429).json({ success: false, error: 'Wait 30 seconds before requesting another code.' });
+    const [recentCodes] = await pool.query("SELECT created_at > CURRENT_TIMESTAMP - INTERVAL '30 seconds' AS cooling_down FROM otp_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1", [email]);
+    if (recentCodes[0]?.cooling_down === true) {
+      return res.status(429).json({ success: false, error: 'Wait 30 seconds before requesting another code.' });
+    }
     const otp = crypto.randomInt(100000, 1000000).toString();
     let delivery;
     try {
@@ -435,11 +452,14 @@ app.post('/api/auth/send-otp', async (req, res) => {
       return res.status(502).json({ success: false, error: 'The email server rejected delivery.' });
     }
     const record = { otp: hashOtp(email, otp), expiresAt: Date.now() + 300000, sentAt: Date.now(), attempts: 0 };
-    memoryOtps.set(email, record);
     try {
-      await pool.query('DELETE FROM otp_codes WHERE email = ?', [email]);
-      await pool.query("INSERT INTO otp_codes (email, otp_code, expires_at, attempts) VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL '5 minutes', 0)", [email, record.otp]);
-    } catch (_) { /* Delivered codes remain valid in the active server if database is offline. */ }
+      // Replace the previous code in one atomic PostgreSQL statement.
+      await pool.query("WITH removed AS (DELETE FROM otp_codes WHERE email = ?) INSERT INTO otp_codes (email, otp_code, expires_at, attempts) VALUES (?, ?, CURRENT_TIMESTAMP + INTERVAL '5 minutes', 0)", [email, email, record.otp]);
+    } catch (error) {
+      console.error('[OTP persistence failed]', error.code || 'DB_ERROR');
+      return res.status(503).json({ success: false, error: 'The code could not be saved. Request a new email code.' });
+    }
+    memoryOtps.set(email, record);
     return res.json({ success: true, email, message: 'OTP sent to your registered email.' });
   } catch (error) {
     console.error('[API ERROR] OTP account lookup failed:', error.code || 'DB_ERROR');
@@ -454,37 +474,29 @@ app.post('/api/auth/verify-otp', async (req, res) => {
     if (!isValidEmailAddress(email) || !/^\d{6}$/.test(otp)) return res.status(400).json({ success: false, error: 'Enter your email and complete six-digit code.' });
     const user = await findAuthUserByEmailOrMobile(email);
     if (!user) return res.status(404).json({ success: false, error: 'Email is not registered. Please sign up.' });
-    let record = memoryOtps.get(email), fromMemory = Boolean(record);
-    if (!record) {
-      try {
-        const [rows] = await pool.query('SELECT otp_code, expires_at, attempts FROM otp_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1', [email]);
-        if (rows.length) record = { otp: rows[0].otp_code, expiresAt: new Date(rows[0].expires_at).getTime(), attempts: rows[0].attempts || 0 };
-      } catch (_) {}
-    }
+    if (user.status === 'rejected') return res.status(403).json({ success: false, error: 'This account is not approved for login.' });
+    // PostgreSQL is authoritative, including after a Render restart or when
+    // another instance has already consumed the code or counted an attempt.
+    const [rows] = await pool.query('SELECT otp_code, attempts, expires_at > CURRENT_TIMESTAMP AS unexpired FROM otp_codes WHERE email = ? ORDER BY created_at DESC LIMIT 1', [email]);
+    const record = rows[0] ? { otp: rows[0].otp_code, unexpired: rows[0].unexpired === true, attempts: rows[0].attempts || 0 } : null;
     const actual = hashOtp(email, otp);
-    const valid = record && record.expiresAt > Date.now() && record.attempts < 5 && record.otp.length === actual.length && crypto.timingSafeEqual(Buffer.from(record.otp), Buffer.from(actual));
+    const valid = record && record.unexpired && record.attempts < 5 && record.otp.length === actual.length && crypto.timingSafeEqual(Buffer.from(record.otp), Buffer.from(actual));
     if (!valid) {
-      if (record) record.attempts++;
-      try { await pool.query('UPDATE otp_codes SET attempts = attempts + 1 WHERE email = ?', [email]); } catch (_) {}
+      if (record) await pool.query('UPDATE otp_codes SET attempts = attempts + 1 WHERE email = ? AND otp_code = ?', [email, record.otp]);
       return res.status(400).json({ success: false, error: 'Code is invalid, expired, or has too many attempts. Request a new code.' });
     }
-    try {
-      await pool.query('UPDATE users SET email_verified = TRUE WHERE id = ?', [user.id]);
-      user.emailVerified = true;
-    } catch (_) {
-      return res.status(503).json({ success: false, error: 'Email verification could not be saved. Please try again.' });
-    }
-    // Mark consumed before awaiting database so concurrent requests cannot reuse it.
-    if (record) record.expiresAt = 0;
-    try {
-      const [removed] = await pool.query('DELETE FROM otp_codes WHERE email = ? AND otp_code = ?', [email, actual]);
-      if (!fromMemory && !removed.affectedRows) return res.status(400).json({ success: false, error: 'This code has already been used.' });
-    } catch (_) { if (!fromMemory) return res.status(503).json({ success: false, error: 'Could not verify the code. Try again.' }); }
+    const [verified] = await pool.query(
+      `WITH consumed AS (
+        DELETE FROM otp_codes WHERE email = ? AND otp_code = ?
+          AND expires_at > CURRENT_TIMESTAMP AND attempts < 5 RETURNING email
+      ) UPDATE users SET email_verified = TRUE WHERE id = ?
+        AND EXISTS (SELECT 1 FROM consumed)`,
+      [email, actual, user.id]
+    );
+    if (!verified.affectedRows) return res.status(400).json({ success: false, error: 'Code is invalid, expired, or has already been used.' });
+    user.emailVerified = true;
     memoryOtps.delete(email);
     if (user.status === 'rejected') return res.status(403).json({ success: false, error: 'This account is not approved for login.' });
-    if (user.status !== 'approved' || user.isApproved !== true) {
-      return res.status(403).json({ success: false, status: user.status || 'pending', isApproved: false, error: 'Your dealer account is awaiting admin approval.' });
-    }
     const token = createDealerToken(user, SESSION_SECRET);
     return res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email, mobile: user.mobile, address: user.address, business: user.business || '', gstNumber: user.gstNumber || '', status: user.status || 'approved', isApproved: user.isApproved, addresses: user.addresses || [], token } });
   } catch (error) {
@@ -568,7 +580,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-// 3. Sign Up Endpoint (new dealers remain pending until admin approval)
+// 3. Sign Up Endpoint (email verification is required before dealer access)
 app.post('/api/auth/signup', async (req, res) => {
   let connection;
   try {
@@ -592,12 +604,12 @@ app.post('/api/auth/signup', async (req, res) => {
     if (mobileRows.length) return res.status(409).json({ success: false, field: 'mobile', error: 'An account with this mobile number already exists.' });
     const id = 'DEALER_' + crypto.randomUUID(), hash = await bcrypt.hash(password, 10), parsed = parseAddressString(address), addressId = 'ADDR_' + crypto.randomUUID();
     await connection.beginTransaction();
-    // Email/password registration remains unchanged, but account approval is
-    // an explicit admin action. Never elevate a new dealer during signup.
+    // Signup does not verify an email or grant an admin/employee role.
+    // Approval fields remain admin-managed metadata, independent of login.
     await connection.query("INSERT INTO users (id, email, mobile, name, password_hash, email_verified, business_name, owner_name, address, gst_number, status, is_approved, reward_points) VALUES (?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, 'pending', FALSE, 0)", [id, email, mobile || null, name, hash, company, name, address || null, gst || null]);
     if (address) await connection.query("INSERT INTO user_addresses (id, user_id, label, business_name, street, city, state, pincode, phone, gst_number, is_default) VALUES (?, ?, 'Main address', ?, ?, ?, ?, ?, ?, ?, TRUE)", [addressId, id, company, address, parsed.city || '', parsed.state || '', parsed.pincode || '', mobile, gst]);
     await connection.commit();
-    return res.json({ success: true, status: 'pending', isApproved: false, message: 'Account created. Your dealer account is awaiting admin approval.' });
+    return res.json({ success: true, status: 'pending', isApproved: false, requiresEmailVerification: false, message: 'Account created. Sign in with your email and password.' });
   } catch (error) {
     if (connection) await connection.rollback().catch(() => {});
     if (error.code === 'ER_DUP_ENTRY') {
@@ -637,10 +649,6 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    if (user.emailVerified === false) {
-      return res.status(403).json({ success: false, error: 'Verify your email with the OTP sent during signup before signing in.' });
-    }
-
     if (!user.passwordHash) {
       return res.status(400).json({
         success: false,
@@ -675,15 +683,9 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    if (user.status !== 'approved' || user.isApproved !== true) {
-      return res.status(403).json({
-        success: false,
-        status: user.status || 'pending',
-        isApproved: false,
-        error: 'Your dealer account is awaiting admin approval.'
-      });
-    }
-
+    // A verified dealer with a matching bcrypt password may sign in even when
+    // status is pending / is_approved is false. Approval is admin metadata,
+    // never a password-login prerequisite or a grant of admin/employee access.
     const token = createDealerToken(user, SESSION_SECRET);
     const userPayload = {
       id: user.id,
@@ -699,7 +701,9 @@ app.post('/api/auth/login', async (req, res) => {
       token: token
     };
 
-    console.log(`🔑 [LOGIN SUCCESS] Logged in user: ${user.email}`);
+    console.log('[DEALER LOGIN]', JSON.stringify({
+      outcome: 'authenticated', status: user.status, isApproved: user.isApproved
+    }));
 
     return res.status(200).json({
       success: true,
@@ -724,31 +728,15 @@ async function verifyGoogleToken(credentialOrToken) {
   if (!credentialOrToken) throw new Error('No Google token provided.');
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (clientId) {
-    try {
-      const ticket = await googleClient.verifyIdToken({ idToken: credentialOrToken, audience: clientId });
-      return ticket.getPayload();
-    } catch (err) {}
+  if (!clientId) throw new Error('Google sign-in is not configured.');
+  // Signature, issuer, expiry and audience must be verified before login.
+  // Decoding a JWT payload alone is never proof of identity.
+  const ticket = await googleClient.verifyIdToken({ idToken: credentialOrToken, audience: clientId });
+  const payload = ticket.getPayload();
+  if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+    throw new Error('A verified Google email is required.');
   }
-
-  try {
-    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credentialOrToken}`);
-    if (res.ok) {
-      const payload = await res.json();
-      if (payload.email) return payload;
-    }
-  } catch (err) {}
-
-  try {
-    const parts = credentialOrToken.split('.');
-    if (parts.length === 3) {
-      const payloadBuf = Buffer.from(parts[1], 'base64url');
-      const payload = JSON.parse(payloadBuf.toString('utf-8'));
-      if (payload.email) return payload;
-    }
-  } catch (err) {}
-
-  throw new Error('Google OAuth token verification failed.');
+  return payload;
 }
 
 app.post('/api/auth/google-signin', async (req, res) => {
@@ -757,7 +745,9 @@ app.post('/api/auth/google-signin', async (req, res) => {
     const tokenToVerify = credential || accessToken;
     if (!tokenToVerify) return res.status(400).json({ success: false, error: 'Missing Google credential.' });
 
-    const googlePayload = await verifyGoogleToken(tokenToVerify);
+    let googlePayload;
+    try { googlePayload = await verifyGoogleToken(tokenToVerify); }
+    catch (_) { return res.status(401).json({ success: false, error: 'Google credential is invalid or expired.' }); }
     const cleanEmail = (googlePayload.email || '').trim().toLowerCase();
     const name = googlePayload.name || cleanEmail.split('@')[0];
 
@@ -778,8 +768,8 @@ app.post('/api/auth/google-signin', async (req, res) => {
       try {
         await conn.beginTransaction();
         await conn.query(
-          `INSERT INTO users (id, email, mobile, name, password_hash, business_name, owner_name, address, status, is_approved, reward_points)
-           VALUES (?, ?, ?, ?, '', ?, ?, 'Wholesale Dealer Hub', 'pending', FALSE, 0)`,
+          `INSERT INTO users (id, email, mobile, name, password_hash, business_name, owner_name, address, status, is_approved, reward_points, email_verified)
+           VALUES (?, ?, ?, ?, '', ?, ?, 'Wholesale Dealer Hub', 'pending', FALSE, 0, TRUE)`,
           [userId, cleanEmail, googleMobile, name, businessName, name]
         );
         await conn.query(
@@ -798,15 +788,11 @@ app.post('/api/auth/google-signin', async (req, res) => {
       if (!user) throw new Error('Google dealer account was not saved to PostgreSQL.');
     }
 
-    if (user.status !== 'approved' || user.isApproved !== true) {
-      return res.status(403).json({
-        success: false,
-        status: user.status || 'pending',
-        isApproved: false,
-        error: 'Your dealer account is awaiting admin approval.'
-      });
+    // A verified Google identity proves ownership of this registered email.
+    if (user.emailVerified !== true) {
+      await pool.query('UPDATE users SET email_verified = TRUE WHERE id = ?', [user.id]);
+      user.emailVerified = true;
     }
-
     const token = createDealerToken(user, SESSION_SECRET);
     return res.status(200).json({
       success: true,
@@ -1598,6 +1584,7 @@ app.get('/api/user/orders', async (req, res) => {
             gst: parseFloat(o.gst),
             deliveryFee: parseFloat(o.delivery_fee),
             grandTotal: parseFloat(o.grand_total),
+            withGst: isDatabaseTrue(o.with_gst),
             paymentMethod: o.payment_method,
             deliveryAddress: o.delivery_address,
             billingAddress: o.billing_address || o.delivery_address,

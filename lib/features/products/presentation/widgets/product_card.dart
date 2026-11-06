@@ -60,7 +60,7 @@ class ProductCard extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final imageHeight = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight - 140).clamp(80.0, 125.0).toDouble()
+            ? (constraints.maxHeight - 140).clamp(80.0, 160.0).toDouble()
             : 125.0;
 
         return _buildGridCardContent(

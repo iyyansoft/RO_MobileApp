@@ -19,7 +19,7 @@ void main() {
       (image.image as AssetImage).assetName,
       'assets/images/RO_LOGO.png',
     );
-    expect(image.fit, BoxFit.cover);
+    expect(image.fit, BoxFit.contain);
     expect(tester.takeException(), isNull);
   });
 }

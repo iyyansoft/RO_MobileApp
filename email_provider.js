@@ -27,6 +27,26 @@ function smtpSenderFromEnvironment(env) {
   return parseSender(env.SMTP_FROM);
 }
 
+// Safe for Render logs: never return configuration values or recipients.
+function getEmailConfiguration(env = process.env) {
+  const issues = [];
+  const provider = String(env.BREVO_API_KEY || '').trim() ? 'brevo' : 'smtp';
+  if (provider === 'brevo') {
+    if (!brevoSenderFromEnvironment(env)) issues.push('BREVO_SENDER_EMAIL_REQUIRED');
+  } else {
+    for (const name of ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM']) {
+      if (!String(env[name] || '').trim()) issues.push(`${name}_REQUIRED`);
+    }
+    if (!smtpSenderFromEnvironment(env)) issues.push('SMTP_FROM_INVALID');
+    const port = Number(env.SMTP_PORT);
+    const secure = String(env.SMTP_SECURE || '').trim().toLowerCase();
+    if (!((port === 465 && secure === 'true') || (port === 587 && secure === 'false'))) issues.push('SMTP_TLS_CONFIGURATION_INVALID');
+  }
+  return { provider, configured: issues.length === 0, issues,
+    warnings: provider === 'smtp' && env.RENDER === 'true'
+      ? ['RENDER_FREE_BLOCKS_SMTP_USE_BREVO_HTTPS_OR_PAID_COMPUTE'] : [] };
+}
+
 function createEmailSender({ env = process.env, fetchImpl = globalThis.fetch, smtpTransportFactory } = {}) {
   let smtpTransport;
 
@@ -108,4 +128,4 @@ function createEmailSender({ env = process.env, fetchImpl = globalThis.fetch, sm
   };
 }
 
-module.exports = { BREVO_TRANSACTIONAL_EMAIL_URL, createEmailSender };
+module.exports = { BREVO_TRANSACTIONAL_EMAIL_URL, createEmailSender, getEmailConfiguration };

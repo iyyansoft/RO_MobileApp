@@ -41,4 +41,60 @@ void main() {
     expect(find.text('Enter password'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('desktop web displays two-column layout with left hero panel and right form', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: LoginScreen())),
+    );
+    await tester.pump();
+
+    // Verify left column branding & visual elements
+    expect(find.text("India's Premier RO Wholesale Network"), findsOneWidget);
+    expect(find.text('B2B PORTAL'), findsOneWidget);
+    expect(find.text('Factory-Direct Pricing'), findsOneWidget);
+    expect(find.text('100% Tax Compliant GST Billing'), findsOneWidget);
+    expect(find.text('Priority Dealer Dispatch'), findsOneWidget);
+
+    // Verify right column login form elements
+    expect(find.text('AUTHORIZED DEALER ACCESS'), findsOneWidget);
+    expect(find.text('Welcome back, partner'), findsOneWidget);
+    expect(find.text('Send sign in code'), findsOneWidget);
+    expect(find.text('Create a dealer account'), findsOneWidget);
+    expect(find.text('Shop Employee Login'), findsOneWidget);
+
+    // Test switching to password mode on desktop
+    await tester.tap(find.text('Sign in with password'));
+    await tester.pump();
+    expect(find.text('Password'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
+
+    final error = tester.takeException();
+    expect(error, isNull);
+  });
+
+  testWidgets('tablet displays balanced centered card without overflow', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1024);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: LoginScreen())),
+    );
+    await tester.pump();
+
+    expect(find.text('Dealer Sign In'), findsOneWidget);
+    expect(find.text('Welcome back, partner'), findsOneWidget);
+    expect(find.text('Send sign in code'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }

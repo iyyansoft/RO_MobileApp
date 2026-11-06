@@ -9,12 +9,14 @@ class BrandLogo extends StatelessWidget {
     this.height = 79,
     this.onDark = false,
     this.alignment = Alignment.center,
+    this.fit = BoxFit.contain,
   });
 
   final double width;
   final double height;
   final bool onDark;
   final AlignmentGeometry alignment;
+  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) => SizedBox(
@@ -33,14 +35,12 @@ class BrandLogo extends StatelessWidget {
                   ? const EdgeInsets.symmetric(horizontal: 2, vertical: 1)
                   : const EdgeInsets.symmetric(horizontal: 8, vertical: 4)
             : EdgeInsets.zero,
-        child: ClipRect(
-          child: Image.asset(
-            'assets/images/RO_LOGO.png',
-            fit: BoxFit.cover,
-            alignment: alignment,
-            filterQuality: FilterQuality.high,
-            semanticLabel: 'RO logo',
-          ),
+        child: Image.asset(
+          'assets/images/RO_LOGO.png',
+          fit: fit,
+          alignment: alignment,
+          filterQuality: FilterQuality.high,
+          semanticLabel: 'RO logo',
         ),
       ),
     ),

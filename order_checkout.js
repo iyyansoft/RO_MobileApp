@@ -2,14 +2,49 @@ const crypto = require('crypto');
 const { quoteCheckout, verifyDealerToken, razorpayRequest, verifyCapturedPayment } = require('./checkout_service');
 
 module.exports = function installCheckout(app, pool, secret, findUser) {
+  const ALPHANUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+  function generate6CharAlphanumeric(buffer) {
+    let result = '';
+    for (let i = 0; i < 6; i++) {
+      result += ALPHANUM[buffer[i] % ALPHANUM.length];
+    }
+    // Guarantee it contains both letters and numbers
+    const hasLetter = /[A-Z]/.test(result);
+    const hasDigit = /[0-9]/.test(result);
+    if (!hasLetter) {
+      const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+      const pos = buffer[6 % buffer.length] % 6;
+      result = result.substring(0, pos) + letters[buffer[7 % buffer.length] % letters.length] + result.substring(pos + 1);
+    }
+    if (!hasDigit) {
+      const digits = '123456789';
+      const pos = (buffer[8 % buffer.length] % 5);
+      result = result.substring(0, pos) + digits[buffer[9 % buffer.length] % digits.length] + result.substring(pos + 1);
+    }
+    return result;
+  }
+
   function idempotentOrderId(userId, requestId) {
-    const digest = crypto.createHash('sha256').update(`ro-checkout:${userId}:${requestId}`).digest();
-    // Format the deterministic digest as a UUID so it fits the existing RO order ID column.
-    digest[6] = (digest[6] & 0x0f) | 0x50;
-    digest[8] = (digest[8] & 0x3f) | 0x80;
-    const hex = digest.subarray(0, 16).toString('hex');
-    const uuid = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-    return `RO-${uuid}`;
+    const hash = crypto.createHash('sha256').update(`ro-checkout:${userId}:${requestId}`).digest();
+    return generate6CharAlphanumeric(hash);
+  }
+
+  async function generateUniqueOrderId(conn) {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const bytes = crypto.randomBytes(12);
+      const candidate = generate6CharAlphanumeric(bytes);
+      if (conn) {
+        const [existing] = await conn.query('SELECT order_id FROM orders WHERE order_id = ? LIMIT 1', [candidate]);
+        if (existing && existing.length > 0) continue;
+      }
+      return candidate;
+    }
+    const ts = Date.now().toString(36).toUpperCase();
+    let fb = ts.slice(-6);
+    if (!/[A-Z]/.test(fb)) fb = 'A' + fb.slice(1);
+    if (!/[0-9]/.test(fb)) fb = fb.slice(0, 5) + '7';
+    return fb;
   }
   function identity(req) {
     const user = verifyDealerToken(String(req.headers.authorization || '').replace(/^Bearer /, ''), secret);
@@ -115,9 +150,12 @@ module.exports = function installCheckout(app, pool, secret, findUser) {
       if (requestId && !/^[a-f0-9-]{32,36}$/i.test(requestId)) {
         const error = new Error('Checkout retry identifier is invalid. Please retry checkout.'); error.status = 400; throw error;
       }
-      const orderId = session?.local_order_id || (requestId
+      const clientOrderId = typeof req.body.orderId === 'string' && /^[A-Z0-9]{6}$/.test(req.body.orderId.trim())
+        ? req.body.orderId.trim()
+        : null;
+      const orderId = session?.local_order_id || clientOrderId || (requestId
         ? idempotentOrderId(user.id, requestId)
-        : `RO-${crypto.randomUUID()}`);
+        : await generateUniqueOrderId(conn));
       if (requestId) {
         // Serialize retries that carry the same key so concurrent requests
         // return the first committed order instead of racing on its PK.

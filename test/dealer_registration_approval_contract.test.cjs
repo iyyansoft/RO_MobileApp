@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 
-test('successful client signup keeps the submitted dealer pending until admin approval', () => {
+test('signup keeps approval metadata separate from verification and access', () => {
   const provider = fs.readFileSync(
     path.join(root, 'lib/features/auth/presentation/providers/registration_provider.dart'),
     'utf8',
@@ -16,6 +16,6 @@ test('successful client signup keeps the submitted dealer pending until admin ap
   );
   assert.match(provider, /status:\s*ApprovalStatus\.pending/);
   assert.doesNotMatch(provider, /status:\s*ApprovalStatus\.approved/);
-  assert.match(submittedScreen, /pending administrator approval/i);
-  assert.doesNotMatch(submittedScreen, /is approved for dealer access/i);
+  assert.doesNotMatch(submittedScreen, /pending administrator approval/i);
+  assert.match(submittedScreen, /Verify your email and sign in/);
 });

@@ -19,7 +19,7 @@ Run:
 flutter pub get
 flutter analyze
 flutter test
-flutter run --dart-define=API_BASE_URL=https://romobileapp-production.up.railway.app/api/
+flutter run --dart-define=API_BASE_URL=https://ro-mobileapp.onrender.com
 ```
 
 To use the local backend on an Android emulator:
@@ -36,9 +36,9 @@ defines or app assets. Do not bundle Node, MySQL, or database backups in the app
 `scripts/setup-android.ps1` installs Android SDK packages and creates the
 `RO_Dealer_API_36` virtual device after Java and command-line tools
 are installed. `scripts/run-android.ps1` starts it and runs the app against the
-local backend at `http://10.0.2.2:8080/api/` by default. Pass
-`-ApiBaseUrl https://romobileapp-production.up.railway.app/api/` when you
-explicitly want the production API. Hardware virtualization and Windows
+deployed backend at `https://ro-mobileapp.onrender.com` by default. Pass
+`-ApiBaseUrl http://10.0.2.2:8080/api/` only when you explicitly run a local
+backend on port 8080. Hardware virtualization and Windows
 Hypervisor Platform must be available for acceleration.
 
 Dealer and admin sessions are stored with Flutter Secure Storage. Admin tokens
@@ -51,12 +51,55 @@ Razorpay. Set `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` in the server `.env`;
 the secret never goes to Flutter. The server validates signatures and checks or
 captures the matching payment with Razorpay before saving a paid order.
 
-Configure `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` for the
-existing MySQL database. `AUTO_APPLY_SCHEMA=true` applies the additional GST,
-OTP-attempt, and payment-session columns/tables on startup. Signup and checkout
-require confirmed MySQL writes. Configure real `SMTP_*` credentials for email
-OTP; failed email delivery never logs a user in. Codes expire in five minutes,
-allow five attempts and are stored as hashes.
+Configure the server-only `SUPABASE_DB_URL` and verified PostgreSQL TLS settings
+from `.env.example`. Signup and OTP verification require confirmed PostgreSQL
+writes. OTPs expire after five minutes, allow five attempts, and are stored as
+HMAC hashes. Successful verification preserves the password sign-in flow.
+
+Dealer sign-in flow: create account, verify the email OTP, then sign in with the
+registered email and password to open Home. `status=pending` and
+`is_approved=false` do not block this login. The server compares the password
+against the saved PostgreSQL bcrypt hash; unverified and rejected accounts stay
+blocked. Dealer tokens do not grant admin or shop employee permissions.
+Deploy the updated `server.js` to Render as well as distributing the rebuilt
+APK: an APK update alone cannot remove an approval gate in an older backend.
+Deploy the complete reviewed backend commit, including `email_provider.js`,
+`package.json`, and `package-lock.json`; retain existing Render secrets and
+database settings. Use Render's deployment branch, build with `npm ci`, and
+start with `npm start`. No approval backfill or database migration is needed.
+After deployment, `GET /api/auth/config` must report
+`dealerPasswordLogin.requiresAdminApproval=false` and
+`dealerPasswordLogin.requiresEmailVerification=true`. A missing field means
+this diagnostic is not deployed; it does not establish the older policy.
+
+To debug existing dealer login locally, first run `$env:PORT='8081'` and
+`npm start` in a terminal at the project root. In a second terminal run
+`./scripts/run-android.ps1 -LocalBackend`. This starts a debug app against
+`http://10.0.2.2:8081/api/` and refuses to proceed if the local backend is absent
+or its policy still requires approval. Enter the existing credentials directly
+in the emulator. Verify the backend's sanitized `[DEALER LOGIN]` result and that
+Home opens before building a release. Existing email verification and rejected
+account checks remain enforced; do not change database flags to make a test pass.
+
+On Render Free, outbound SMTP ports 25, 465 and 587 are blocked. Configure
+`BREVO_API_KEY`, `BREVO_SENDER_EMAIL` (a verified sender/domain), and optionally
+`BREVO_SENDER_NAME` in Render Environment to send through HTTPS. Existing SMTP
+support remains available on hosts that allow SMTP, with certificate validation.
+See [Render restrictions](https://render.com/docs/free).
+
+After deployment, run `node test_smtp.js` in Render Shell for a configuration-only
+check; it prints provider/configuration status without secrets or sending mail.
+To explicitly send a non-login smoke-test email to a test inbox, run
+`node test_smtp.js --send-to <test-recipient>`. Provider acceptance does not prove
+inbox delivery: check the provider's delivery events, sender verification,
+suppression list, and the recipient's spam folder.
+
+When `USE_SUPABASE_AUTH=true`, Auth sends mail using **Supabase's** email settings,
+independently of Render's email provider. Configure its custom email delivery and
+put `{{ .Token }}` in the Confirm Signup and Magic Link email templates to match
+the app's six-digit form. Signup reuses the confirmation already sent by Auth
+instead of immediately sending a second email. See
+[Supabase email templates](https://supabase.com/docs/guides/auth/auth-email-templates).
 
 Home and Product Details display Dealer Price. Native shared image cards and
 their accompanying text display MRP only. Checkout supports With GST (GSTIN

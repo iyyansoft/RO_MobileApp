@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/loading_skeleton.dart';
+import '../../../../core/widgets/responsive_layout.dart';
 import '../../../products/domain/models/product_model.dart';
 import '../providers/cart_provider.dart';
 
@@ -67,7 +68,9 @@ class CartScreen extends ConsumerWidget {
             ? _buildSkeletonLoading()
             : cartState.items.isEmpty
             ? _buildEmptyCart(context, isDark, primaryColor)
-            : Column(
+            : ResponsiveContentWrapper(
+                maxWidth: 1000,
+                child: Column(
                 children: [
                   // Cart Items & Summary Scrollable View
                   Expanded(
@@ -119,6 +122,7 @@ class CartScreen extends ConsumerWidget {
                   ),
                 ],
               ),
+            ),
       ),
     );
   }
@@ -374,9 +378,9 @@ class CartScreen extends ConsumerWidget {
             isDiscount: true,
           ),
           const SizedBox(height: 8),
-          _buildSummaryRow(
-            'B2B GST Input Tax (18%)',
-            '+ ₹${cartState.gstAmount.toStringAsFixed(2)}',
+                    _buildSummaryRow(
+            'GST',
+            '₹0.00 (Optional at checkout)',
             isDark,
           ),
           const SizedBox(height: 8),
@@ -400,7 +404,7 @@ class CartScreen extends ConsumerWidget {
                   color: isDark ? Colors.white : const Color(0xFF0F172A),
                 ),
               ),
-              Text(
+                            Text(
                 '₹${cartState.grandTotal.toStringAsFixed(2)}',
                 style: TextStyle(
                   fontSize: 20,
@@ -409,6 +413,30 @@ class CartScreen extends ConsumerWidget {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: primaryColor.withValues(alpha: isDark ? 0.12 : 0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.info_outline_rounded, size: 15, color: primaryColor),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'No GST added in cart. Choose With GST or Without GST at checkout.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: isDark ? Colors.white70 : const Color(0xFF334155),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -578,7 +606,7 @@ class CartScreen extends ConsumerWidget {
               ),
               icon: const Icon(Icons.storefront_rounded),
               label: const Text(
-                'Browse Wholesale Catalog',
+                'Browse Categories',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),

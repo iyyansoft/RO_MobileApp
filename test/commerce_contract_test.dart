@@ -38,7 +38,9 @@ void main() {
     expect(cart.dealerDiscount, 500);
     expect(cart.gstAmount, 810);
     expect(cart.deliveryFee, 250);
-    expect(cart.grandTotal, 5560);
+    expect(cart.grandTotal, 4750);
+    expect(cart.grandTotalWithGst, 5560);
+    expect(cart.grandTotalWithoutGst, 4750);
     expect(
       CartState(items: [CartItemModel(product: product, quantity: 6)])
           .deliveryFee,

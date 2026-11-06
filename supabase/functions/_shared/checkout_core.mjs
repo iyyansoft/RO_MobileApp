@@ -48,7 +48,7 @@ export function quoteCheckout(input, products, dealer) {
   const deliveryAddress = validAddress(input.deliveryAddress, 'Delivery address');
   const sameAsDelivery = input.sameAsDelivery !== false;
   const billingAddress = sameAsDelivery ? deliveryAddress : validAddress(input.billingAddress, 'Billing address');
-  const withGst = input.withGst !== false;
+  const withGst = input.withGst === true || input.withGst === 'true';
   const gstin = withGst ? String(input.gstin ?? '').trim().toUpperCase() : '';
   if (withGst && !validGstin(gstin)) throw new Error('With GST requires a valid GST number.');
 

@@ -3,6 +3,7 @@ import '../../../../core/widgets/app_image.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../cart/presentation/providers/cart_provider.dart';
@@ -10,6 +11,7 @@ import '../../domain/models/address_model.dart';
 import '../providers/checkout_provider.dart';
 import 'order_success_screen.dart';
 import '../../../../core/utils/gstin.dart';
+import '../../../../core/widgets/responsive_layout.dart';
 
 class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
@@ -353,14 +355,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     }
 
     if (mounted) {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => OrderSuccessScreen(
-            orderId: orderId,
-            withGst: _withGst,
-            paymentMethod: paymentMethod,
-          ),
+      // A real route (not an imperative push) so the success screen's
+      // "Track Order Status" / "Back to Home" buttons navigate normally and
+      // the page survives a browser refresh.
+      context.go(
+        OrderSuccessScreen.location(
+          orderId: orderId,
+          withGst: _withGst,
+          paymentMethod: paymentMethod,
         ),
       );
     }
@@ -389,83 +391,89 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       ),
       body: SafeArea(
         bottom: false,
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // 1. DELIVERY ADDRESS SECTION
-                    _buildSectionHeader(
-                      '1. Delivery & Billing Address',
-                      isDark,
-                    ),
-                    const SizedBox(height: 10),
-                    _buildAddressCard(
-                      context,
-                      ref,
-                      selectedAddress,
-                      checkoutState.addresses,
-                      isDark,
-                      primaryColor,
-                    ),
+        child: ResponsiveContentWrapper(
+          maxWidth: 1000,
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 1. DELIVERY ADDRESS SECTION
+                      _buildSectionHeader(
+                        '1. Delivery & Billing Address',
+                        isDark,
+                      ),
+                      const SizedBox(height: 10),
+                      _buildAddressCard(
+                        context,
+                        ref,
+                        selectedAddress,
+                        checkoutState.addresses,
+                        isDark,
+                        primaryColor,
+                      ),
 
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-                    _buildSectionHeader('Invoice & billing details', isDark),
-                    const SizedBox(height: 10),
-                    _invoiceDetails(),
-                    const SizedBox(height: 24),
+                      _buildSectionHeader('Invoice & billing details', isDark),
+                      const SizedBox(height: 10),
+                      _invoiceDetails(),
+                      const SizedBox(height: 24),
 
-                    // 2. ORDER SUMMARY SECTION
-                    _buildSectionHeader(
-                      '2. Order Items (${cartState.totalItemCount} Pcs)',
-                      isDark,
-                    ),
-                    const SizedBox(height: 10),
-                    _buildOrderItemsSummary(
-                      cartState.items,
-                      isDark,
-                      primaryColor,
-                    ),
+                      // 2. ORDER SUMMARY SECTION
+                      _buildSectionHeader(
+                        '2. Order Items (${cartState.totalItemCount} Pcs)',
+                        isDark,
+                      ),
+                      const SizedBox(height: 10),
+                      _buildOrderItemsSummary(
+                        cartState.items,
+                        isDark,
+                        primaryColor,
+                      ),
 
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-                    // 3. PRICE BREAKDOWN SECTION
-                    _buildSectionHeader('3. Payment & Cost Breakdown', isDark),
-                    const SizedBox(height: 10),
-                    _buildPriceBreakdown(cartState, isDark, primaryColor),
+                      // 3. PRICE BREAKDOWN SECTION
+                      _buildSectionHeader(
+                        '3. Payment & Cost Breakdown',
+                        isDark,
+                      ),
+                      const SizedBox(height: 10),
+                      _buildPriceBreakdown(cartState, isDark, primaryColor),
 
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
-                    // 4. PAYMENT METHOD SELECTION SECTION (UI ONLY)
-                    _buildSectionHeader('4. Select Payment Option', isDark),
-                    const SizedBox(height: 10),
-                    _buildPaymentMethodOptions(
-                      context,
-                      ref,
-                      checkoutState.selectedPaymentMethod,
-                      isDark,
-                      primaryColor,
-                    ),
+                      // 4. PAYMENT METHOD SELECTION SECTION (UI ONLY)
+                      _buildSectionHeader('4. Select Payment Option', isDark),
+                      const SizedBox(height: 10),
+                      _buildPaymentMethodOptions(
+                        context,
+                        ref,
+                        checkoutState.selectedPaymentMethod,
+                        isDark,
+                        primaryColor,
+                      ),
 
-                    const SizedBox(height: 24),
-                  ],
+                      const SizedBox(height: 24),
+                    ],
+                  ),
                 ),
               ),
-            ),
 
-            // 5. STICKY BOTTOM BAR (Grand Total & Place Order Button)
-            _buildStickyBottomBar(
-              context,
-              _total(cartState),
-              checkoutState.isPlacingOrder || _submitting,
-              isDark,
-              primaryColor,
-            ),
-          ],
+              // 5. STICKY BOTTOM BAR (Grand Total & Place Order Button)
+              _buildStickyBottomBar(
+                context,
+                _total(cartState),
+                checkoutState.isPlacingOrder || _submitting,
+                isDark,
+                primaryColor,
+              ),
+            ],
+          ),
         ),
       ),
     );

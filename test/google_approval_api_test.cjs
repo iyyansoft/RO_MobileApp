@@ -27,7 +27,7 @@ function setup({ existingUser } = {}) {
       if (lookupCount === 1) return null;
       return {
         id: 'dealer-new', email: 'dealer@example.test', name: 'Dealer',
-        status: 'pending', isApproved: false, addresses: [],
+        status: 'pending', isApproved: false, emailVerified: true, addresses: [],
       };
     },
     createDealerToken: (...args) => {
@@ -35,6 +35,7 @@ function setup({ existingUser } = {}) {
       return createDealerToken(...args);
     },
     pool: {
+      query: async (sql, values) => { queries.push([sql, values]); return [{ affectedRows: 1 }]; },
       getConnection: async () => ({
         beginTransaction: async () => {},
         query: async (sql, values) => {
@@ -63,28 +64,27 @@ function setup({ existingUser } = {}) {
   };
 }
 
-test('new Google dealer is saved pending and does not receive an app token', async () => {
+test('new verified Google dealer receives a dealer session without admin approval', async () => {
   const api = setup();
   const response = await api.call();
   const insert = api.queries.find(([sql]) => sql.includes('INSERT INTO users'));
   assert.ok(insert);
-  assert.match(insert[0], /'pending', FALSE, 0/i);
-  assert.equal(response.code, 403);
-  assert.equal(response.body.status, 'pending');
-  assert.equal(response.body.token, undefined);
-  assert.equal(api.tokenIssued(), false);
+  assert.match(insert[0], /'pending', FALSE, 0, TRUE/i);
+  assert.equal(response.code, 200);
+  assert.equal(response.body.user.status, 'pending');
+  assert.equal(api.tokenIssued(), true);
 });
 
-test('existing pending Google dealer cannot receive an app token', async () => {
+test('existing pending Google dealer can receive a dealer token', async () => {
   const api = setup({ existingUser: {
     id: 'dealer-pending', email: 'dealer@example.test', name: 'Dealer',
     status: 'pending', isApproved: false,
   } });
   const response = await api.call();
-  assert.equal(response.code, 403);
-  assert.equal(response.body.status, 'pending');
-  assert.equal(api.queries.length, 0);
-  assert.equal(api.tokenIssued(), false);
+  assert.equal(response.code, 200);
+  assert.equal(response.body.user.status, 'pending');
+  assert.match(api.queries[0][0], /email_verified = TRUE/);
+  assert.equal(api.tokenIssued(), true);
 });
 
 test('approved Google dealer continues to receive a session', async () => {
@@ -97,4 +97,32 @@ test('approved Google dealer continues to receive a session', async () => {
   assert.equal(response.body.user.status, 'approved');
   assert.equal(response.body.user.isApproved, true);
   assert.equal(api.tokenIssued(), true);
+});
+
+test('Google sign-in cannot reinstate a rejected dealer', async () => {
+  const api = setup({ existingUser: { id: 'rejected', status: 'rejected' } });
+  assert.equal((await api.call()).code, 403);
+  assert.equal(api.tokenIssued(), false);
+  assert.equal(api.queries.length, 0);
+});
+
+test('Google identity verification fails closed on invalid signatures, missing audience or unverified email', async () => {
+  const source = fs.readFileSync(require.resolve('../server'), 'utf8');
+  const functionSource = source.slice(source.indexOf('async function verifyGoogleToken('), source.indexOf("app.post('/api/auth/google-signin'"));
+  for (const scenario of ['valid', 'badSignature', 'unverified', 'unconfigured']) {
+    let checked = false;
+    const context = vm.createContext({
+      process: { env: { GOOGLE_CLIENT_ID: scenario === 'unconfigured' ? '' : 'test-client-id' } },
+      googleClient: { async verifyIdToken(options) {
+        checked = true;
+        assert.equal(options.audience, 'test-client-id');
+        if (scenario === 'badSignature') throw new Error('invalid signature');
+        return { getPayload: () => ({ sub: 'google-identity', email: 'dealer@example.test', email_verified: scenario !== 'unverified' }) };
+      } },
+    });
+    vm.runInContext(functionSource, context);
+    if (scenario === 'valid') assert.equal((await context.verifyGoogleToken('test-id-token')).email, 'dealer@example.test');
+    else await assert.rejects(context.verifyGoogleToken('header.forged-payload.signature'));
+    assert.equal(checked, scenario !== 'unconfigured');
+  }
 });

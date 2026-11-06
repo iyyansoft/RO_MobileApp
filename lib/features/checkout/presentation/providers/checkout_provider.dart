@@ -12,6 +12,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/address_model.dart';
 import '../../data/razorpay_checkout.dart';
 import '../../../../core/utils/gstin.dart';
+import '../../../../core/utils/order_id.dart';
 
 enum PaymentMethodType {
   cashOnDelivery,
@@ -384,8 +385,10 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
       );
     }
     state = state.copyWith(isPlacingOrder: true);
+    final clientOrderId = generate6CharOrderId();
     try {
       final payload = <String, dynamic>{
+        'orderId': clientOrderId,
         'email': user.email,
         'items': cart.items
             .map(
@@ -402,13 +405,11 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
         'subtotal': cart.subtotal,
         'discount': cart.dealerDiscount,
         'withGst': withGst,
-        'gst': withGst ? cart.gstAmount : 0,
+        'gst': withGst ? cart.gstAmount : 0.0,
         'deliveryFee': cart.deliveryFee,
         'grandTotal': withGst
-            ? cart.grandTotal
-            : double.parse(
-                (cart.grandTotal - cart.gstAmount).toStringAsFixed(2),
-              ),
+            ? cart.grandTotalWithGst
+            : cart.grandTotalWithoutGst,
         'paymentMethod': state.selectedPaymentMethod.label,
         'deliveryAddress': {
           'name': address.name,
@@ -427,16 +428,23 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
       };
       final gateway = ref.read(razorpayCheckoutProvider);
       final pending = await gateway.pending(user.email);
-      if (SupabaseConfig.useSupabaseCheckout && !SupabaseConfig.checkoutSessionActive) {
-        throw StateError('Sign in with your verified Supabase account before using Supabase checkout.');
+      if (SupabaseConfig.useSupabaseCheckout &&
+          !SupabaseConfig.checkoutSessionActive) {
+        throw StateError(
+          'Sign in with your verified Supabase account before using Supabase checkout.',
+        );
       }
       final useSupabaseCheckout = SupabaseConfig.checkoutSessionActive;
       if (!useSupabaseCheckout && pending?['supabaseCheckout'] == true) {
-        throw StateError('A Supabase payment is pending confirmation. Sign in with the same Supabase account to finish it.');
+        throw StateError(
+          'A Supabase payment is pending confirmation. Sign in with the same Supabase account to finish it.',
+        );
       }
       if (useSupabaseCheckout) {
         if (pending != null && pending['supabaseCheckout'] != true) {
-          throw StateError('A payment from the previous checkout service is pending. Restore that checkout before starting another.');
+          throw StateError(
+            'A payment from the previous checkout service is pending. Restore that checkout before starting another.',
+          );
         }
         String requestId;
         Map<String, dynamic> checkout;
@@ -460,7 +468,8 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
             );
           }
           requestId = '${pending['checkoutRequestId'] ?? ''}';
-          if (requestId.isEmpty) throw StateError('The pending payment cannot be safely retried.');
+          if (requestId.isEmpty)
+            throw StateError('The pending payment cannot be safely retried.');
           payment = {
             'razorpay_order_id': '${pending['razorpay_order_id'] ?? ''}',
             'razorpay_payment_id': '${pending['razorpay_payment_id'] ?? ''}',
@@ -478,7 +487,9 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
           if (state.selectedPaymentMethod == PaymentMethodType.razorpay) {
             final created = await const SupabaseCheckoutRepository()
                 .createRazorpayOrder(requestId: requestId, checkout: checkout);
-            final paymentOrder = Map<String, dynamic>.from(created['order'] as Map);
+            final paymentOrder = Map<String, dynamic>.from(
+              created['order'] as Map,
+            );
             final completedPayment = await gateway.pay(
               paymentOrder,
               email: user.email,
@@ -493,7 +504,8 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
             });
           }
         }
-        final response = state.selectedPaymentMethod == PaymentMethodType.cashOnDelivery
+        final response =
+            state.selectedPaymentMethod == PaymentMethodType.cashOnDelivery
             ? await const SupabaseCheckoutRepository().placeCodOrder(
                 requestId: requestId,
                 checkout: checkout,
@@ -503,11 +515,13 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
                 checkout: checkout,
                 payment: payment!,
               );
-        final orderId = (response['order'] as Map?)?['orderId'];
-        if (orderId == null) throw StateError('Checkout service returned no order ID.');
+        final rawOrderId = (response['order'] as Map?)?['orderId'];
+        if (rawOrderId == null)
+          throw StateError('Checkout service returned no order ID.');
+        final orderId = formatOrderId('$rawOrderId');
         await gateway.clearPending(user.email);
         await gateway.clearCheckoutRequestId(user.email);
-        return '$orderId';
+        return orderId;
       }
 
       final api = ref.read(apiClientProvider);
@@ -553,15 +567,16 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
       }
       final response = await api.post('user/orders/create', data: payload);
       final body = response.data as Map;
-      final orderId = (body['order'] as Map?)?['orderId'];
-      if (body['success'] != true || orderId == null) {
+      final rawOrderId = (body['order'] as Map?)?['orderId'];
+      if (body['success'] != true || rawOrderId == null) {
         throw StateError('${body['error'] ?? 'Order could not be created'}');
       }
+      final orderId = formatOrderId('$rawOrderId');
       await gateway.clearPending(user.email);
       if (state.selectedPaymentMethod == PaymentMethodType.cashOnDelivery) {
         await gateway.clearCheckoutRequestId(user.email);
       }
-      return '$orderId';
+      return orderId;
     } finally {
       if (mounted) state = state.copyWith(isPlacingOrder: false);
     }

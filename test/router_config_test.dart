@@ -16,6 +16,13 @@ void main() {
         ),
         isFalse,
       );
+      final shellPaths = shell.routes.whereType<GoRoute>().map((r) => r.path).toSet();
+      expect(shellPaths.contains('/home'), isTrue);
+      expect(shellPaths.contains('/products'), isTrue);
+      expect(shellPaths.contains('/categories'), isTrue);
+      expect(shellPaths.contains('/orders'), isTrue);
+      expect(shellPaths.contains('/profile'), isTrue);
+      expect(shellPaths.contains('/cart'), isTrue);
     }
   });
 }

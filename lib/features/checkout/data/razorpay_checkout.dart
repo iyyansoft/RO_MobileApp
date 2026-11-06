@@ -1,11 +1,10 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:razorpay_flutter/razorpay_flutter.dart';
+
+import 'razorpay_gateway.dart';
 
 class RazorpayCheckout {
   static const _storage = FlutterSecureStorage();
@@ -92,52 +91,17 @@ class RazorpayCheckout {
     required String email,
     required String name,
   }) async {
-    if (kIsWeb) {
-      throw StateError(
-        'Razorpay checkout is available in the Android/iOS app.',
-      );
-    }
-    final gateway = Razorpay();
-    final completed = Completer<Map<String, String>>();
-    gateway.on(Razorpay.EVENT_PAYMENT_SUCCESS, (
-      PaymentSuccessResponse response,
-    ) {
-      if (completed.isCompleted) return;
-      if (response.orderId != order['id'] ||
-          response.paymentId == null ||
-          response.signature == null) {
-        completed.completeError(
-          StateError('Payment confirmation was incomplete.'),
-        );
-        return;
-      }
-      completed.complete({
-        'razorpay_order_id': response.orderId!,
-        'razorpay_payment_id': response.paymentId!,
-        'razorpay_signature': response.signature!,
-      });
-    });
-    gateway.on(Razorpay.EVENT_PAYMENT_ERROR, (PaymentFailureResponse response) {
-      if (!completed.isCompleted) {
-        completed.completeError(
-          StateError(response.message ?? 'Payment was cancelled or failed.'),
-        );
-      }
-    });
-    try {
-      gateway.open({
-        'key': order['key'],
-        'order_id': order['id'],
-        'amount': order['amount'],
-        'currency': 'INR',
-        'name': 'RO Wholesale',
-        'description': 'Product order',
-        'prefill': {'email': email, 'name': name},
-      });
-      return await completed.future.timeout(const Duration(minutes: 10));
-    } finally {
-      gateway.clear();
-    }
+    // Same options and confirmation on Web and Android; the platform-specific
+    // checkout UI lives in razorpay_gateway_{native,web}.dart.
+    return openRazorpayCheckout({
+      'key': order['key'],
+      'order_id': order['id'],
+      'amount': order['amount'],
+      'currency': 'INR',
+      'name': 'RO Wholesale',
+      'description': 'Product order',
+      'prefill': {'email': email, 'name': name},
+    }, expectedOrderId: '${order['id']}');
   }
 }
 

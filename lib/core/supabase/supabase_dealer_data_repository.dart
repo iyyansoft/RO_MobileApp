@@ -4,6 +4,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../features/cart/domain/models/cart_item_model.dart';
 import '../../features/products/domain/models/product_model.dart';
+import '../utils/order_id.dart';
 import 'supabase_config.dart';
 
 /// Direct Supabase access for dealer-owned, low-risk data only. RLS remains
@@ -250,7 +251,7 @@ class SupabaseDealerDataRepository {
     _requireUser(userId);
     final client = SupabaseConfig.client;
     const orderColumns =
-        'order_id,user_id,user_email,user_name,user_business,subtotal,discount,gst,delivery_fee,grand_total,payment_status,payment_method,billing_address,company_name,gstin,pan_number,same_as_delivery,delivery_address,delivery_note,status,invoice_number,created_at';
+        'order_id,user_id,user_email,user_name,user_business,subtotal,discount,gst,delivery_fee,grand_total,payment_status,payment_method,billing_address,company_name,gstin,pan_number,same_as_delivery,delivery_address,delivery_note,status,invoice_number,created_at,with_gst';
     const itemColumns =
         'id,order_id,product_id,product_name,brand,unit_price,quantity,moq,img_src,sku';
     final byId = await client
@@ -441,6 +442,7 @@ class SupabaseDealerDataRepository {
     'deliveryNote': '${row['delivery_note'] ?? ''}',
     'status': '${row['status'] ?? 'Pending'}',
     'invoiceNumber': '${row['invoice_number'] ?? ''}',
+    'withGst': row['with_gst'] == true,
     'createdAt': _date(row['created_at']).toIso8601String(),
   };
 
@@ -454,7 +456,7 @@ class SupabaseDealerDataRepository {
         'createdAt': _date(row['created_at']).toIso8601String(),
         'description': row['order_id'] == null
             ? 'Reward activity'
-            : 'Order ${row['order_id']}',
+            : 'Order #${formatOrderId(row['order_id'])}',
       };
     }).toList();
     return {

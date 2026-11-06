@@ -25,7 +25,7 @@ class RegistrationSubmittedScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${data.email} was submitted. Dealer access is pending administrator approval.',
+                  'Account created for ${data.email}. Verify your email and sign in to start shopping.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),

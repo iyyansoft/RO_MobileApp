@@ -1,52 +1,32 @@
-const nodemailer = require('nodemailer');
-require('dotenv').config();
+'use strict';
 
-async function testSmtp() {
-  console.log('--- TESTING SMTP DELIVERY ---');
-  console.log('Host:', process.env.SMTP_HOST);
-  console.log('Port:', process.env.SMTP_PORT);
-  console.log('User:', process.env.SMTP_USER);
+// Safe by default: checks configuration without sending mail or opening SMTP.
+// In Render Shell: node test_smtp.js
+// Explicit delivery smoke test: node test_smtp.js --send-to <test-recipient>
+const { createEmailSender, getEmailConfiguration } = require('./email_provider');
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.SMTP_PORT || '587'),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    },
-    tls: {
-      rejectUnauthorized: false
-    }
-  });
-
-  const startTime = Date.now();
+async function main(args = process.argv.slice(2)) {
+  require('dotenv').config({ quiet: true });
+  const configuration = getEmailConfiguration();
+  console.log('[EMAIL configuration]', JSON.stringify(configuration));
+  if (!configuration.configured) { process.exitCode = 1; return; }
+  if (!args.length) return;
+  if (args.length !== 2 || args[0] !== '--send-to' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(args[1])) {
+    console.error('Usage: node test_smtp.js [--send-to <test-recipient>]');
+    process.exitCode = 1;
+    return;
+  }
+  const send = createEmailSender({ smtpTransportFactory: options => require('nodemailer').createTransport(options) });
   try {
-    const info = await transporter.sendMail({
-      from: `"RO Wholesale Security" <${process.env.SMTP_USER}>`,
-      to: 'priyaangel61003@gmail.com',
-      subject: '🔐 Immediate Security OTP Code: 884920',
-      text: 'Your RO Wholesale Security Code is: 884920. This code is valid for 5 minutes.',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
-          <h2 style="color: #0f62fe; margin: 0 0 12px 0;">RO Wholesale Security</h2>
-          <p style="font-size: 14px; color: #334155;">Your verification code for <strong>priyaangel61003@gmail.com</strong> is:</p>
-          <div style="background: #0f62fe; color: #ffffff; font-size: 36px; font-weight: bold; letter-spacing: 10px; padding: 14px 20px; border-radius: 8px; text-align: center; margin: 16px 0;">
-            884920
-          </div>
-          <p style="font-size: 12px; color: #64748b;">This code will expire in 5 minutes.</p>
-        </div>
-      `
-    });
-    const elapsed = Date.now() - startTime;
-    console.log(`✅ SUCCESS in ${elapsed}ms!`);
-    console.log('Message ID:', info.messageId);
-    console.log('Accepted:', info.accepted);
-    console.log('Rejected:', info.rejected);
-    console.log('Response:', info.response);
-  } catch (err) {
-    console.error('❌ FAILED:', err);
+    const result = await send({ to: args[1], subject: 'RO Wholesale email delivery test',
+      text: 'This is an email delivery test. No login code or session is created.',
+      html: '<p>This is an email delivery test. No login code or session is created.</p>' });
+    console.log('[EMAIL provider accepted]', JSON.stringify({ provider: result.provider, accepted: result.accepted.length > 0 }));
+  } catch (error) {
+    console.error('[EMAIL delivery failed]', JSON.stringify({ provider: error.provider, code: error.code, status: error.status || null }));
+    process.exitCode = 1;
   }
 }
 
-testSmtp();
+if (require.main === module) main().catch(() => { console.error('Email diagnostic failed.'); process.exitCode = 1; });
+module.exports = { main };

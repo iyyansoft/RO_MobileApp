@@ -14,7 +14,7 @@ class SupabaseAuthAdapter {
 
   SupabaseClient get _client => SupabaseConfig.client;
 
-  Future<void> signUpDealer({
+  Future<bool> signUpDealer({
     required String email,
     required String password,
     required String name,
@@ -38,6 +38,9 @@ class SupabaseAuthAdapter {
     // profile now. Otherwise profile sync occurs after the user verifies and
     // signs in; no unverified profile is exposed to the app.
     if (response.session != null) await _syncProfile();
+    // Supabase already sends a confirmation email when confirmation is on.
+    // Sending signInWithOtp immediately afterwards hits its resend limit.
+    return response.session == null;
   }
 
   Future<Map<String, dynamic>> signInWithPassword(

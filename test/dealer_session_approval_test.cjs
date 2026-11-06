@@ -27,22 +27,33 @@ function sessionRouteFor(user) {
   };
 }
 
-test('existing pending dealer token cannot restore an application session', async () => {
+test('verified pending dealer token restores an application session without approval', async () => {
   const response = await sessionRouteFor({
     id: 'dealer-pending', email: 'dealer@example.test', status: 'pending',
-    isApproved: false,
+    isApproved: false, emailVerified: true,
   })();
-  assert.equal(response.code, 403);
-  assert.equal(response.body.status, 'pending');
-  assert.equal(response.body.user, undefined);
+  assert.equal(response.code, 200);
+  assert.equal(response.body.user.status, 'pending');
+  assert.equal(response.body.user.isApproved, false);
 });
 
 test('approved dealer can still restore an application session', async () => {
   const response = await sessionRouteFor({
     id: 'dealer-approved', email: 'dealer@example.test', status: 'approved',
-    isApproved: true, name: 'Dealer', mobile: '', address: '', business: '',
+    isApproved: true, emailVerified: true, name: 'Dealer', mobile: '', address: '', business: '',
     gstNumber: '',
   })();
   assert.equal(response.code, 200);
   assert.equal(response.body.user.status, 'approved');
+});
+
+test('unverified and rejected dealer sessions remain blocked', async () => {
+  for (const user of [
+    { id: 'dealer', status: 'pending', emailVerified: false },
+    { id: 'dealer', status: 'rejected', emailVerified: true },
+  ]) {
+    const response = await sessionRouteFor(user)();
+    assert.equal(response.code, 403);
+    assert.equal(response.body.user, undefined);
+  }
 });

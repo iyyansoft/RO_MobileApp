@@ -1,5 +1,6 @@
 node_modules/
-.env
+.env*
+!.env.example
 *.log
 .DS_Store
 backup_*.sql
@@ -11,6 +12,16 @@ users_db.json
 orders_db.json
 products_db.json
 categories_db.json
+*_db.json
+*credentials*.json
+*service_role*
+*service-role*
+*secrets*.json
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
 scratch/
 .dart_tool/
 .flutter-plugins

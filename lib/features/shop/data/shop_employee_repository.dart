@@ -1,10 +1,13 @@
+import 'dart:developer' as developer;
+
 import 'package:dio/dio.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../../../core/network/api_client.dart';
 
 class ShopEmployeeRepository {
-  ShopEmployeeRepository._();
+  ShopEmployeeRepository._() : _dio = _createDio();
+  ShopEmployeeRepository.forTesting(Dio dio) : _dio = dio;
   static final ShopEmployeeRepository instance = ShopEmployeeRepository._();
   static const _storage = FlutterSecureStorage();
   static const _key = 'ro_shop_employee_token';
@@ -29,11 +32,14 @@ class ShopEmployeeRepository {
     };
   }).toList();
 
-  final Dio _dio = Dio(
+  final Dio _dio;
+
+  static Dio _createDio() => Dio(
     BaseOptions(
       baseUrl: ApiClient.defaultBaseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 25),
+      connectTimeout: const Duration(seconds: 60),
+      sendTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 90),
       headers: const {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
@@ -47,6 +53,17 @@ class ShopEmployeeRepository {
     Object? data,
     Map<String, dynamic>? query,
   }) async {
+    final timer = Stopwatch()..start();
+    // Never log bodies, query values, headers, identities or exception text.
+    void diagnostic(String outcome, {int? status}) {
+      final uri = Uri.parse(_dio.options.baseUrl).resolve(path);
+      developer.log(
+        '$method ${uri.origin}${uri.path} status=${status ?? '-'} '
+        'outcome=$outcome elapsedMs=${timer.elapsedMilliseconds}',
+        name: 'shop.api',
+      );
+    }
+
     try {
       final response = await _dio.request<dynamic>(
         path,
@@ -57,19 +74,35 @@ class ShopEmployeeRepository {
           headers: {if (token != null) 'Authorization': 'Bearer $token'},
         ),
       );
+      diagnostic('response', status: response.statusCode);
+      if (response.data is! Map<String, dynamic>) {
+        diagnostic('invalidResponse', status: response.statusCode);
+        throw Exception('Received an invalid response from the server.');
+      }
       final result = Map<String, dynamic>.from(response.data as Map);
       if (result['success'] != true) {
         throw Exception(result['error'] ?? 'Request failed.');
       }
       return result;
     } on DioException catch (error) {
+      diagnostic(error.type.name, status: error.response?.statusCode);
       final data = error.response?.data;
       if (error.response?.statusCode == 401) await logout();
-      throw Exception(
-        data is Map
-            ? data['error'] ?? 'Unable to connect to the server.'
-            : 'Unable to connect to the server.',
-      );
+      final serverMessage = data is Map ? data['error'] : null;
+      if (serverMessage is String && serverMessage.isNotEmpty) {
+        throw Exception(serverMessage);
+      }
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.sendTimeout ||
+          error.type == DioExceptionType.receiveTimeout) {
+        throw Exception('Connection timed out. Please try again.');
+      }
+      if (error.response != null) {
+        throw Exception(
+          'Server request failed (HTTP ${error.response!.statusCode}).',
+        );
+      }
+      throw Exception('Unable to connect to the server.');
     }
   }
 

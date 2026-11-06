@@ -1,6 +1,5 @@
 param(
-  [Parameter(Mandatory = $true)]
-  [string]$ApiBaseUrl
+  [string]$ApiBaseUrl = 'https://ro-mobileapp.onrender.com'
 )
 $ErrorActionPreference = 'Stop'
 
@@ -19,6 +18,19 @@ if ($hostName -in @('localhost', '127.0.0.1', '10.0.2.2', '0.0.0.0') -or
 }
 if ($hostName -like '*.supabase.co' -and $apiUri.AbsolutePath.TrimEnd('/') -eq '/api') {
   throw 'The Supabase project root does not implement this app’s Express /api routes. Complete and verify API migration before building a Supabase-only release.'
+}
+
+# A new APK cannot fix an older server that still blocks pending dealers.
+$apiPath = $apiUri.AbsolutePath.TrimEnd('/')
+if (-not $apiPath.EndsWith('/api')) { $apiPath += '/api' }
+$policyUrl = $apiUri.GetLeftPart([UriPartial]::Authority) + $apiPath + '/auth/config'
+try {
+  $policy = (Invoke-RestMethod -Uri $policyUrl -TimeoutSec 30).dealerPasswordLogin
+} catch {
+  throw "Cannot verify dealer login policy at $policyUrl. Deploy and verify the backend before building an APK."
+}
+if ($policy.requiresAdminApproval -ne $false -or $policy.requiresEmailVerification -ne $true) {
+  throw 'The target backend does not expose the verified-dealer login policy. Deploy the current backend and test login before building an APK.'
 }
 
 $flutterCommand = Get-Command flutter -ErrorAction SilentlyContinue

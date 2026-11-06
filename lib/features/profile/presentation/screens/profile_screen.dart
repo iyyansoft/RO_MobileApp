@@ -8,6 +8,7 @@ import '../../../../core/supabase/supabase_auth_adapter.dart';
 import '../../../../core/supabase/supabase_dealer_data_repository.dart';
 import '../../../auth/domain/models/user_model.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../products/presentation/providers/wishlist_provider.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -788,6 +789,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
               leading: const Icon(Icons.shopping_bag_outlined),
               title: const Text('My orders'),
               onTap: () => context.go('/orders'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.favorite_outline_rounded),
+              title: const Text('My wishlist'),
+              trailing: Text('${ref.watch(wishlistProvider).length}'),
+              onTap: () => context.push('/wishlist'),
             ),
             ListTile(
               leading: const Icon(Icons.lock_outline),

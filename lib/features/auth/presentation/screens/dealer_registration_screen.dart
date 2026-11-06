@@ -6,6 +6,8 @@ import '../../../../core/widgets/brand_logo.dart';
 import '../providers/registration_provider.dart';
 import '../providers/auth_provider.dart';
 import '../../../../core/utils/gstin.dart';
+import '../../../../core/theme/app_colors.dart';
+import '../../../../core/widgets/responsive_layout.dart';
 
 class DealerRegistrationScreen extends ConsumerStatefulWidget {
   const DealerRegistrationScreen({super.key});
@@ -83,9 +85,8 @@ class _DealerRegistrationScreenState
             confirmPassword: _confirm.text,
           );
       if (!success || !mounted) return;
-      // Signup stores the account and returns to login. Email OTP remains an
-      // explicit, separate login option on the sign-in screen.
-      context.go('/login');
+      ref.read(authProvider.notifier).beginEmailVerification(_email.text);
+      if (mounted) context.go('/login?mode=password');
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -100,10 +101,30 @@ class _DealerRegistrationScreenState
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 500),
+            constraints: const BoxConstraints(maxWidth: 540),
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              child: Form(
+              padding: const EdgeInsets.all(20),
+              child: Container(
+                margin: context.isWideScreen ? const EdgeInsets.symmetric(vertical: 36) : EdgeInsets.zero,
+                padding: context.isWideScreen ? const EdgeInsets.all(36) : EdgeInsets.zero,
+                decoration: context.isWideScreen
+                    ? BoxDecoration(
+                        color: Theme.of(context).brightness == Brightness.dark ? AppColors.surfaceDark : Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E2D3D) : const Color(0xFFE2E8F0),
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.05),
+                            blurRadius: 24,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      )
+                    : null,
+                child: Form(
                 key: _form,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -119,7 +140,7 @@ class _DealerRegistrationScreenState
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'After creating your account, sign in with your email and password. Email OTP is also available on the login page.',
+                      'Create your account and verify your email to start shopping immediately.',
                     ),
                     const SizedBox(height: 20),
                     TextFormField(
@@ -259,6 +280,7 @@ class _DealerRegistrationScreenState
           ),
         ),
       ),
+    ),
     );
   }
 }

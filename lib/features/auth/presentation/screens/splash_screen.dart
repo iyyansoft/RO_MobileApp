@@ -7,7 +7,11 @@ import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
 
 class SplashScreen extends ConsumerStatefulWidget {
-  const SplashScreen({super.key});
+  const SplashScreen({super.key, this.returnTo});
+
+  /// Location to reopen after the session is restored (set when a protected
+  /// page was refreshed or opened directly by URL).
+  final String? returnTo;
 
   @override
   ConsumerState<SplashScreen> createState() => _SplashScreenState();
@@ -43,13 +47,30 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
   }
 
   Future<void> _prepareAndNavigate() async {
+    final returnTo = _safeReturnTo(widget.returnTo);
     await Future.wait([
-      Future<void>.delayed(const Duration(milliseconds: 900)),
+      // Full splash on a normal launch; no artificial wait on a refresh.
+      if (returnTo == null)
+        Future<void>.delayed(const Duration(milliseconds: 900)),
       ref.read(authProvider.notifier).restoreSession(),
     ]);
-    if (mounted) {
-      context.go(ref.read(authProvider).isLoggedIn ? '/home' : '/login');
+    if (!mounted) return;
+    if (ref.read(authProvider).isLoggedIn) {
+      context.go(returnTo ?? '/home');
+    } else {
+      context.go('/login');
     }
+  }
+
+  /// Only allow in-app paths (never an external URL or a loop to splash).
+  static String? _safeReturnTo(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final uri = Uri.tryParse(value);
+    if (uri == null || uri.hasScheme || uri.hasAuthority) return null;
+    if (!uri.path.startsWith('/') || uri.path.startsWith('/splash')) {
+      return null;
+    }
+    return value;
   }
 
   @override

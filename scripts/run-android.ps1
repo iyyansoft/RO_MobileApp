@@ -1,5 +1,20 @@
-param([string]$ApiBaseUrl = 'http://10.0.2.2:8081/api/')
+param(
+  [string]$ApiBaseUrl = 'https://ro-mobileapp.onrender.com',
+  [switch]$LocalBackend
+)
 $ErrorActionPreference = 'Stop'
+if ($LocalBackend) {
+  $ApiBaseUrl = 'http://10.0.2.2:8081';
+  try {
+    $policy = (Invoke-RestMethod -Uri 'http://127.0.0.1:8081/api/auth/config' -TimeoutSec 10).dealerPasswordLogin
+  } catch {
+    throw 'Start the current local backend on port 8081 before using -LocalBackend.'
+  }
+  if ($policy.requiresAdminApproval -ne $false -or $policy.requiresEmailVerification -ne $true) {
+    throw 'Port 8081 is not serving the current verified-dealer login policy. Restart the backend from this project.'
+  }
+}
+Write-Host "Running the emulator against $ApiBaseUrl"
 $flutterCommand = Get-Command flutter -ErrorAction SilentlyContinue
 $flutterPath = if ($flutterCommand) { $flutterCommand.Source } else { Join-Path $env:LOCALAPPDATA 'FlutterSDK\source\bin\flutter.bat' }
 $sdkRoot = Join-Path $env:LOCALAPPDATA 'Android\Sdk'

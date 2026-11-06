@@ -30,7 +30,17 @@ const checkout = { items: [{ id: 'ro', quantity: 1, numericPrice: 1 }], grandTot
 test('COD order uses canonical Dealer Price and returns success after PostgreSQL commit', async () => {
   const api = setup(); const res = await api.call(checkout);
   assert.equal(res.code, 200); assert.equal(res.body.order.grandTotal, 1060); assert.equal(res.body.order.gst, 0); assert.equal(res.body.order.paymentStatus, 'due_on_delivery');
+  assert.equal(res.body.order.orderId.length, 6);
+  assert.match(res.body.order.orderId, /^[A-Z0-9]{6}$/);
+  assert.match(res.body.order.orderId, /[A-Z]/);
+  assert.match(res.body.order.orderId, /[0-9]/);
   assert.deepEqual(api.state(), { committed: true, rollback: false });
+});
+test('COD order adopts valid client-provided 6-character order ID', async () => {
+  const api = setup();
+  const res = await api.call({ ...checkout, orderId: 'K9P2X4' });
+  assert.equal(res.code, 200);
+  assert.equal(res.body.order.orderId, 'K9P2X4');
 });
 test('COD checkout retry with the same request key returns the saved order without duplicate writes', async () => {
   const api = setup();

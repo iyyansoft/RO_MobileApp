@@ -1,0 +1,6 @@
+@echo off
+title Launching Android Emulator...
+echo Starting RO Pixel 8 Play Emulator...
+start "" "%LOCALAPPDATA%\Android\Sdk\emulator\emulator.exe" -avd RO_Pixel_8_Play_API_36
+exit
+

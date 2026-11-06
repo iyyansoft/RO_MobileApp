@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { BREVO_TRANSACTIONAL_EMAIL_URL, createEmailSender } = require('../email_provider');
+const { BREVO_TRANSACTIONAL_EMAIL_URL, createEmailSender, getEmailConfiguration } = require('../email_provider');
 
 const email = {
   to: 'recipient@example.test',
@@ -8,6 +8,19 @@ const email = {
   text: 'Your code is 123456.',
   html: '<p>Your code is <strong>123456</strong>.</p>'
 };
+
+test('configuration diagnostics identify Render SMTP restriction and missing HTTPS sender without secrets', () => {
+  const smtp = getEmailConfiguration({ RENDER: 'true', SMTP_HOST: 'private-host', SMTP_PORT: '465', SMTP_SECURE: 'true',
+    SMTP_USER: 'private-user', SMTP_PASS: 'private-password', SMTP_FROM: 'private@example.test' });
+  assert.equal(smtp.configured, true);
+  assert.equal(smtp.warnings.length, 1);
+  assert.doesNotMatch(JSON.stringify(smtp), /private-host|private-user|private-password|private@example/);
+  const missingSender = getEmailConfiguration({ BREVO_API_KEY: 'private-api-key' });
+  assert.equal(missingSender.configured, false);
+  assert.deepEqual(missingSender.issues, ['BREVO_SENDER_EMAIL_REQUIRED']);
+  assert.doesNotMatch(JSON.stringify(missingSender), /private-api-key/);
+  assert.equal(getEmailConfiguration({ BREVO_API_KEY: 'test', BREVO_SENDER_EMAIL: 'sender@example.test', RENDER: 'true' }).configured, true);
+});
 
 test('Brevo sends a transactional message over HTTPS and reports provider acceptance only', async () => {
   let request;

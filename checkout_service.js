@@ -16,7 +16,7 @@ function fail(message, status = 400) { const error = new Error(message); error.s
 const money = value => Math.round(value * 100) / 100;
 function quoteCheckout(input, products) {
   if (!Array.isArray(input.items) || !input.items.length) fail('Add products before checkout.');
-  const withGst = input.withGst !== false;
+  const withGst = input.withGst === true || input.withGst === 'true';
   const gstin = withGst ? String(input.gstin || '').trim().toUpperCase() : '';
   if (withGst && !validGstin(gstin)) fail('With GST requires a valid GST number.');
   const quantities = new Map();
