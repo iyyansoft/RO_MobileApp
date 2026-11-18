@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -39,6 +40,8 @@ class AppRouter {
     initialLocation: '/splash',
     debugLogDiagnostics: true,
     redirect: (context, state) {
+      // The Admin Dashboard is web-only: never shown in the Android app.
+      if (!kIsWeb && state.uri.path.startsWith('/admin')) return '/login';
       const protected = [
         '/home',
         '/products',
@@ -111,7 +114,7 @@ class AppRouter {
         builder: (context, state) => const ApprovalStatusScreen(),
       ),
 
-      // Admin Route (Unified Web & Mobile)
+      // Admin Route (web only; the redirect above keeps Android out)
       GoRoute(path: '/admin', builder: (context, state) => const AdminScreen()),
 
       // 3. Shopping Cart & Checkout Routes

@@ -1,3 +1,5 @@
+const { pricingRules, priceOrder } = require('./pricing_rules');
+const { orderQuantityProblem } = require('./order_rules');
 const crypto = require('crypto');
 
 function validGstin(input) {
@@ -13,8 +15,7 @@ function validGstin(input) {
   return gst[14] === alphabet[(36 - sum % 36) % 36];
 }
 function fail(message, status = 400) { const error = new Error(message); error.status = status; throw error; }
-const money = value => Math.round(value * 100) / 100;
-function quoteCheckout(input, products) {
+function quoteCheckout(input, products, rules = pricingRules()) {
   if (!Array.isArray(input.items) || !input.items.length) fail('Add products before checkout.');
   const withGst = input.withGst === true || input.withGst === 'true';
   const gstin = withGst ? String(input.gstin || '').trim().toUpperCase() : '';
@@ -27,14 +28,16 @@ function quoteCheckout(input, products) {
   const items = Array.from(quantities, ([id, quantity]) => {
     const product = products.find(p => String(p.id) === id && p.status !== 'inactive');
     if (!product || !Number.isFinite(Number(product.price)) || Number(product.price) <= 0) fail('A product is no longer available. Refresh your cart.');
-    if (product.stock_quantity != null && quantity > Number(product.stock_quantity)) fail(`Not enough stock for ${product.name}.`);
+    // Same rule as the cart (order_rules.js): MOQ <= quantity <= stock.
+    const problem = orderQuantityProblem(product, quantity);
+    // "Not enough stock" keeps its existing wording and status (400).
+    if (problem) fail(problem.code === 'INSUFFICIENT_STOCK' ? `Not enough stock for ${product.name}.` : problem.error, problem.code === 'INSUFFICIENT_STOCK' ? 400 : problem.status);
     return { id, quantity, name: product.name, brand: product.brand, numericPrice: Number(product.price), imgSrc: product.img || '' };
   });
-  const subtotal = money(items.reduce((sum, item) => sum + item.numericPrice * item.quantity, 0));
-  const discount = money(subtotal * 0.10);
-  const gst = withGst ? money((subtotal - discount) * 0.18) : 0;
-  const deliveryFee = subtotal > 5000 ? 0 : 250;
-  return { ...input, items, withGst, gstin, subtotal, discount, gst, deliveryFee, grandTotal: money(subtotal - discount + gst + deliveryFee) };
+  // Amounts sent by the client are ignored: everything is recomputed here
+  // from database prices and the configured pricing rules.
+  const totals = priceOrder(items.map(item => ({ unitPrice: item.numericPrice, quantity: item.quantity })), withGst, rules);
+  return { ...input, items, withGst, gstin, ...totals };
 }
 
 function createDealerToken(user, secret) {

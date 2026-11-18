@@ -9,6 +9,11 @@ const start = source.indexOf("app.post('/api/admin/products/bulk'");
 const end = source.indexOf("app.put('/api/admin/products/", start);
 const block = source.slice(start, end);
 const handlerCode = block.slice(block.indexOf('async (req, res) => {'), block.lastIndexOf('});') + 1);
+const priceRuleStart = source.indexOf('function productPriceError(');
+const priceRuleEnd = /\r?\n}\r?\n/.exec(source.slice(priceRuleStart));
+const productPriceError = vm.runInNewContext(
+  `(${source.slice(priceRuleStart, priceRuleStart + priceRuleEnd.index + priceRuleEnd[0].trimEnd().length)})`,
+);
 
 async function save({ offline = false, rejectSecond = false, products } = {}) {
   let mirrored = null;
@@ -25,6 +30,8 @@ async function save({ offline = false, rejectSecond = false, products } = {}) {
       return [[]];
     } },
     saveUploadedFile: (image) => image,
+    storeProductImage: async (image) => image,
+    productPriceError,
     console: { error() {}, warn() {} },
   });
   const response = { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
@@ -69,4 +76,16 @@ test('partial PostgreSQL failures report only confirmed products as imported', a
   assert.equal(mirrored, null);
   assert.deepEqual(Array.from(response.body.imported, (row) => row.sku), ['FIRST']);
   assert.equal(response.body.skipped[0].sku, 'SECOND');
+});
+
+test('rows whose MRP is below the dealer price are skipped with a reason', async () => {
+  const { response, inserts } = await save({ products: [
+    { sku: 'OK-1', name: 'Valid', category: 'membranes', purchase_price: 7500, price: 8500, mrp: 12000 },
+    { sku: 'LOW-MRP', name: 'Bad MRP', category: 'membranes', purchase_price: 7500, price: 8500, mrp: 8000 },
+    { sku: 'NEG-COST', name: 'Bad cost', category: 'membranes', purchase_price: -1, price: 8500, mrp: 12000 },
+  ] });
+  assert.equal(response.body.importedCount, 1);
+  assert.deepEqual(inserts.map((v) => v[3]), ['OK-1']);
+  assert.deepEqual([...response.body.skipped.map((s) => s.sku)].sort(), ['LOW-MRP', 'NEG-COST']);
+  assert.match(response.body.skipped.find((s) => s.sku === 'LOW-MRP').reason, /MRP cannot be lower/);
 });

@@ -1,6 +1,5 @@
-import 'package:share_plus/share_plus.dart';
-
 import '../../../cart/presentation/providers/cart_provider.dart';
+import '../../../../core/utils/rupee_format.dart';
 import '../../../../core/widgets/app_image.dart';
 
 import 'package:flutter/material.dart';
@@ -13,10 +12,12 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/product_model.dart';
 import '../../../../core/widgets/responsive_layout.dart';
-import '../../domain/models/product_share.dart';
 import '../providers/product_provider.dart';
 import '../widgets/product_card.dart';
-import '../widgets/product_share_card.dart';
+import '../widgets/product_share_sheet.dart';
+import '../widgets/cart_actions.dart' show cartErrorText;
+import '../widgets/max_quantity_dialog.dart';
+import '../widgets/cabinet_price_text.dart';
 
 class ProductDetailsScreen extends ConsumerStatefulWidget {
   final ProductModel product;
@@ -40,7 +41,8 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
   @override
   void initState() {
     super.initState();
-    _quantity = 1;
+    // Orders start at the MOQ (1 when none is set).
+    _quantity = widget.product.minOrderQty;
     _pageController = PageController();
     _tabController = TabController(length: 3, vsync: this);
   }
@@ -53,21 +55,31 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
   }
 
   void _incrementQuantity() {
+    // Product maximum (PDF quantity): the popup, and the quantity stays.
+    if (widget.product.exceedsMaximum(_quantity + 1)) {
+      showMaxQuantityDialog(context, widget.product.maxOrderQuantity!);
+      return;
+    }
+    final max = widget.product.stockQuantity;
+    if (max != null && _quantity >= max) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Only $max of ${widget.product.name} in stock.'),
+        ),
+      );
+      return;
+    }
     setState(() {
       _quantity++;
     });
   }
 
   void _decrementQuantity() {
+    // The smallest selectable quantity is 1.
     if (_quantity > 1) {
       setState(() {
         _quantity--;
       });
-    } else if (ref
-        .read(cartProvider)
-        .items
-        .any((item) => item.product.id == widget.product.id)) {
-      ref.read(cartProvider.notifier).removeItem(widget.product.id);
     }
   }
 
@@ -181,30 +193,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                 : () async {
                     setState(() => _isSharing = true);
                     try {
-                      final box = context.findRenderObject() as RenderBox?;
-                      final shareOrigin = box == null
-                          ? null
-                          : box.localToGlobal(Offset.zero) & box.size;
-                      final image = await renderProductShareImage(
-                        widget.product,
-                        imageSource: images[_activeImageIndex],
-                      );
-                      await SharePlus.instance.share(
-                        ShareParams(
-                          files: [XFile.fromData(image, mimeType: 'image/png')],
-                          fileNameOverrides: ['product.png'],
-                          text: productShareText(widget.product),
-                          sharePositionOrigin: shareOrigin,
-                        ),
-                      );
-                    } catch (error) {
-                      if (!context.mounted) {
-                        return;
-                      }
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Could not share product: $error'),
-                        ),
+                      await showProductShareSheet(
+                        context,
+                        product: widget.product,
                       );
                     } finally {
                       if (mounted) setState(() => _isSharing = false);
@@ -352,7 +343,10 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                                               WrapCrossAlignment.center,
                                           children: [
                                             Text(
-                                              '₹${widget.product.dealerPrice.toStringAsFixed(0)}',
+                                              rupee(widget.product.dealerPrice),
+                                              key: const ValueKey(
+                                                'details-dealer-price',
+                                              ),
                                               style: TextStyle(
                                                 fontSize: 24,
                                                 fontWeight: FontWeight.w900,
@@ -361,7 +355,29 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                                                     : const Color(0xFF0F172A),
                                               ),
                                             ),
+                                            if (widget.product.mrp >
+                                                widget.product.dealerPrice)
+                                              Text(
+                                                'MRP ${rupee(widget.product.mrp)}',
+                                                key: const ValueKey(
+                                                  'details-mrp',
+                                                ),
+                                                style: const TextStyle(
+                                                  fontSize: 14,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: Colors.grey,
+                                                  decoration: TextDecoration
+                                                      .lineThrough,
+                                                ),
+                                              ),
                                           ],
+                                        ),
+                                        CabinetPriceText(
+                                          widget.product,
+                                          fontSize: 15,
+                                          padding: const EdgeInsets.only(
+                                            top: 4,
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -379,7 +395,7 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                                       borderRadius: BorderRadius.circular(10),
                                     ),
                                     child: Text(
-                                      'MOQ: ${widget.product.moq} Pcs',
+                                      widget.product.moqLabel(),
                                       style: TextStyle(
                                         color: primaryColor,
                                         fontSize: 11,
@@ -425,9 +441,40 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                                         color: Colors.grey,
                                       ),
                                     ),
+                                    if (widget.product.isBelowMoq)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          widget.product.orderBlockedReason!,
+                                          key: const ValueKey('below-moq-note'),
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFFB45309),
+                                          ),
+                                        ),
+                                      )
+                                    else if (widget.product.canOrder &&
+                                        widget.product.maxOrderQty != null)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          widget.product.maxOrderQuantity !=
+                                                  null
+                                              ? 'You can order 1 to ${widget.product.maxOrderQty}'
+                                              : '${widget.product.maxOrderQty} in stock',
+                                          key: const ValueKey(
+                                            'quantity-limit-note',
+                                          ),
+                                          style: const TextStyle(
+                                            fontSize: 11.5,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Total: ₹${totalPrice.toStringAsFixed(0)}',
+                                      'Total: ${rupee(totalPrice)}',
                                       style: TextStyle(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w900,
@@ -715,11 +762,20 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                       child: SizedBox(
                         height: 48,
                         child: OutlinedButton.icon(
-                          onPressed: () {
-                            _handleAddToCartAnimation(context);
-                          },
+                          // Stock 0: neither Add to Cart nor Buy Now.
+                          onPressed: !widget.product.canOrder
+                              ? null
+                              : () {
+                                  _handleAddToCartAnimation(context);
+                                },
                           style: OutlinedButton.styleFrom(
-                            side: BorderSide(color: primaryColor, width: 1.5),
+                            // Grey when disabled (stock 0), like Buy Now.
+                            side: BorderSide(
+                              color: !widget.product.canOrder
+                                  ? Colors.grey.shade400
+                                  : primaryColor,
+                              width: 1.5,
+                            ),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
                             ),
@@ -727,14 +783,22 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                           icon: Icon(
                             Icons.add_shopping_cart_rounded,
                             size: 18,
-                            color: primaryColor,
+                            color: !widget.product.canOrder
+                                ? Colors.grey.shade500
+                                : primaryColor,
                           ),
                           label: Text(
-                            'Add to Cart',
+                            widget.product.isOutOfStock
+                                ? 'Out of Stock'
+                                : widget.product.isBelowMoq
+                                ? 'Below MOQ'
+                                : 'Add to Cart',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.bold,
-                              color: primaryColor,
+                              color: !widget.product.canOrder
+                                  ? Colors.grey.shade600
+                                  : primaryColor,
                             ),
                           ),
                         ),
@@ -747,12 +811,16 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                       child: SizedBox(
                         height: 48,
                         child: ElevatedButton.icon(
-                          onPressed: () async {
-                            final added = await _handleAddToCartAnimation(
-                              context,
-                            );
-                            if (added && context.mounted) context.push('/cart');
-                          },
+                          onPressed: !widget.product.canOrder
+                              ? null
+                              : () async {
+                                  final added = await _handleAddToCartAnimation(
+                                    context,
+                                  );
+                                  if (added && context.mounted) {
+                                    context.push('/cart');
+                                  }
+                                },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryColor,
                             foregroundColor: Colors.white,
@@ -949,9 +1017,9 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
           .read(cartProvider.notifier)
           .addToCart(widget.product, quantity: _quantity);
     } catch (e) {
-      if (context.mounted) {
+      if (context.mounted && !showMaxQuantityDialogFor(context, e)) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+            .showSnackBar(SnackBar(content: Text(cartErrorText(e))));
       }
       return false;
     }

@@ -3,10 +3,17 @@ const cors = require('cors');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const path = require('path');
+const { pricingRules } = require('./pricing_rules');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const { validGstin, createDealerToken, verifyDealerToken } = require('./checkout_service');
 const { allocateDeliveryValues } = require('./shop_service');
+const { createAdminAuth, adminTokenFrom } = require('./admin_auth');
+const { releaseOrderStock, reReserveOrderStock } = require('./stock_service');
+const { rateLimit } = require('./rate_limit');
+const { requireDealerSession, DEALER_DATA_ROUTES } = require('./dealer_auth');
+const { orderQuantityProblem, availability, minOrderQuantity, maxOrderQuantity, stockEnforced } = require('./order_rules');
+const { ORDER_STATUSES, normalizeOrderStatus, normalizePaymentStatus, effectiveOrderStatus, orderStatusChangeError, paymentStatusChangeError } = require('./order_status');
 require('dotenv').config();
 const { createEmailSender, getEmailConfiguration } = require('./email_provider');
 
@@ -72,8 +79,21 @@ app.use(cors({
   },
   credentials: true
 }));
+// Behind Render's proxy the client address comes from X-Forwarded-For.
+if (process.env.RENDER || process.env.TRUST_PROXY) app.set('trust proxy', 1);
+// Request limits per client address: a general API cap, and a tight one for
+// sign-in, one-time-code and password endpoints.
+app.use('/api', rateLimit({ windowMs: 60 * 1000, max: Number(process.env.API_RATE_LIMIT_PER_MINUTE || 600), keyPrefix: 'api' }));
+app.use([
+  '/api/admin/login', '/api/auth/login', '/api/auth/send-otp', '/api/auth/verify-otp',
+  '/api/auth/forgot-password', '/api/auth/reset-password', '/api/auth/signup',
+  '/api/auth/google-signin', '/api/shop/auth/login',
+], rateLimit({ windowMs: 15 * 60 * 1000, max: Number(process.env.AUTH_RATE_LIMIT_PER_15_MIN || 30), keyPrefix: 'auth', message: 'Too many sign-in attempts from this network. Please wait 15 minutes and try again.' }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
+// Customer data routes: only the signed-in dealer can read or change their
+// own cart, orders, invoices, addresses, rewards and profile.
+app.use(DEALER_DATA_ROUTES, requireDealerSession(SESSION_SECRET));
 
 // Readiness endpoint used by Railway and deployment smoke tests. It exposes no
 // database details and performs only a read-only query.
@@ -123,6 +143,124 @@ function saveUploadedFile(imageInput, prefix = 'prod') {
   const filePath = path.join(uploadsDir, fileName);
   fs.writeFileSync(filePath, buffer);
   return `/uploads/${fileName}`;
+}
+
+// -----------------------------------------------------------------------------
+// PRODUCT IMAGE STORAGE
+// -----------------------------------------------------------------------------
+// Images are kept permanently in the shared database (public.product_images,
+// created by supabase/staging/006_product_images.sql) and served by every
+// server from /api/product-images/<id>. Until that table exists they go to this
+// server's uploads folder as before — which is local to one machine and wiped
+// on each Render deploy. PRODUCT_IMAGE_STORE=disk|database overrides.
+let productImageTableCheck = { available: false, checkedAt: 0 };
+async function productImageStore() {
+  const configured = String(process.env.PRODUCT_IMAGE_STORE || '').trim().toLowerCase();
+  if (configured === 'disk' || configured === 'database') return configured;
+  if (productImageTableCheck.available) return 'database';
+  if (Date.now() - productImageTableCheck.checkedAt > 60 * 1000) {
+    try {
+      const [rows] = await pool.query("SELECT to_regclass('public.product_images') IS NOT NULL AS available");
+      productImageTableCheck = { available: rows[0]?.available === true, checkedAt: Date.now() };
+    } catch (_) {
+      productImageTableCheck = { available: false, checkedAt: Date.now() };
+    }
+  }
+  return productImageTableCheck.available ? 'database' : 'disk';
+}
+const PRODUCT_IMAGE_TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
+
+function decodeImageDataUrl(input) {
+  const match = String(input).trim().match(/^data:image\/([a-zA-Z0-9+.-]+);base64,(.+)$/s);
+  if (!match) throw new Error('Product image could not be read.');
+  let ext = match[1].toLowerCase();
+  if (ext === 'jpeg') ext = 'jpg';
+  if (!PRODUCT_IMAGE_TYPES[ext]) throw new Error('Unsupported image format. Allowed formats: JPG, JPEG, PNG, WEBP.');
+  const bytes = Buffer.from(match[2], 'base64');
+  if (!bytes.length) throw new Error('Product image is empty.');
+  if (bytes.length > 5 * 1024 * 1024) throw new Error('Image file size exceeds the 5 MB limit.');
+  return { ext, bytes, contentType: PRODUCT_IMAGE_TYPES[ext] };
+}
+
+/** Saves a product/category image and returns the path to store. */
+async function storeProductImage(imageInput, prefix = 'prod') {
+  const raw = String(imageInput || '').trim();
+  if (!raw.startsWith('data:image/')) return raw; // existing path or URL
+  if ((await productImageStore()) !== 'database') return saveUploadedFile(raw, prefix);
+  const { ext, bytes, contentType } = decodeImageDataUrl(raw);
+  const id = `img_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+  await pool.query(
+    'INSERT INTO product_images (id, content_type, bytes) VALUES (?, ?, ?)',
+    [id, contentType, bytes]
+  );
+  return `/api/product-images/${id}.${ext}`;
+}
+
+/**
+ * Price rules shared by single, bulk and edit: purchase price may not be
+ * negative, and MRP (when given) must be a number no lower than the dealer
+ * price, because customers see MRP as the struck-through original price.
+ */
+function productPriceError({ purchasePrice, price, mrp }) {
+  if (purchasePrice !== undefined && (isNaN(purchasePrice) || purchasePrice < 0)) {
+    return 'Purchase price must be zero or more.';
+  }
+  if (mrp === undefined || mrp === null || String(mrp).trim() === '') return null;
+  const cleanMrp = parseFloat(mrp);
+  if (isNaN(cleanMrp) || cleanMrp <= 0) return 'MRP must be a valid amount.';
+  // Compared only when a dealer price is set (0 = not set).
+  if (price > 0 && cleanMrp < price) return 'MRP cannot be lower than the dealer price.';
+  return null;
+}
+
+/** An optional form field left empty (missing, null or only spaces). */
+function isBlankField(value) {
+  return value === undefined || value === null || String(value).trim() === '';
+}
+
+/**
+ * Optional product money fields (Purchase Price, Dealer Price, MRP).
+ * Blank -> `blankValue`; otherwise the number, or NaN when it is not a number
+ * (callers reject NaN). The products table keeps these columns NOT NULL, so
+ * "not set" is stored as 0, which the apps show as "Not set"/"Not available".
+ */
+function optionalAmount(value, blankValue = 0) {
+  if (isBlankField(value)) return blankValue;
+  if (typeof value !== 'number' && typeof value !== 'string') return NaN;
+  const n = Number(String(value).trim());
+  return Number.isFinite(n) ? n : NaN;
+}
+
+// --- Cabinet Price (products.cabinet_price, migration 009) -------------------
+// Asked for, and required, only for products in the Cabinet category. Stored in
+// its own column; Dealer Price, Purchase Price and MRP are never touched by it.
+const CABINET_PRICE_REQUIRED = 'Cabinet Price is required for Cabinet products and must be greater than zero.';
+const CABINET_PRICE_NO_COLUMN = 'Cabinet Price cannot be saved until the database update supabase/staging/009_product_cabinet_price.sql is applied. Nothing was saved.';
+
+function isCabinetCategory(categoryId, categoryKey) {
+  return String(categoryId || '').toUpperCase() === 'CAT_CAB' || String(categoryKey || '').toLowerCase() === 'cabinets';
+}
+
+let cabinetPriceColumnKnown = null;
+/** True when products.cabinet_price exists (checked once, then remembered). */
+async function hasCabinetPriceColumn() {
+  if (cabinetPriceColumnKnown !== null) return cabinetPriceColumnKnown;
+  try {
+    const [rows] = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'products' AND column_name = 'cabinet_price' LIMIT 1`);
+    cabinetPriceColumnKnown = Array.isArray(rows) && rows.length > 0;
+    return cabinetPriceColumnKnown;
+  } catch (_) {
+    return false; // unknown: try again next time
+  }
+}
+
+/** The Cabinet Price to save: null for other categories; a number > 0, or an error. */
+function cabinetPriceFor(cabinet, raw, saved = null) {
+  if (!cabinet) return { value: null };
+  const value = optionalAmount(raw, saved);
+  if (value === null || isNaN(value) || value <= 0) return { error: CABINET_PRICE_REQUIRED };
+  return { value };
 }
 
 // Helper: Secure OTP Hash using SHA-256 HMAC
@@ -178,25 +316,27 @@ function isValidEmailAddress(emailStr) {
   return true;
 }
 
+// Reads city / state / pincode out of a typed address. Anything that is not
+// in the text is left blank for the dealer to fill in — never guessed (it
+// used to default to Salem/Chennai, Tamil Nadu, 600098).
 function parseAddressString(rawAddress) {
   const clean = (rawAddress || '').trim();
   const pincodeMatch = clean.match(/\b\d{6}\b/);
-  const pincode = pincodeMatch ? pincodeMatch[0] : (clean.toLowerCase().includes('salem') ? '636001' : '600098');
-
-  let city = 'Salem';
   const lower = clean.toLowerCase();
-  if (lower.includes('chennai')) city = 'Chennai';
-  else if (lower.includes('salem')) city = 'Salem';
-  else if (lower.includes('coimbatore')) city = 'Coimbatore';
-  else if (lower.includes('bangalore') || lower.includes('bengaluru')) city = 'Bangalore';
-  else if (lower.includes('madurai')) city = 'Madurai';
-  else if (lower.includes('trichy')) city = 'Trichy';
-
+  const knownCities = [
+    ['chennai', 'Chennai', 'Tamil Nadu'], ['salem', 'Salem', 'Tamil Nadu'],
+    ['coimbatore', 'Coimbatore', 'Tamil Nadu'], ['madurai', 'Madurai', 'Tamil Nadu'],
+    ['trichy', 'Trichy', 'Tamil Nadu'], ['bengaluru', 'Bangalore', 'Karnataka'],
+    ['bangalore', 'Bangalore', 'Karnataka'],
+  ];
+  const city = knownCities.find(([needle]) => lower.includes(needle));
+  const typedState = ['tamil nadu', 'karnataka', 'kerala', 'andhra pradesh', 'telangana', 'puducherry']
+    .find(state => lower.includes(state));
   return {
     street: clean,
-    city: city,
-    state: 'Tamil Nadu',
-    pincode: pincode
+    city: city ? city[1] : '',
+    state: typedState ? typedState.replace(/\b\w/g, c => c.toUpperCase()) : (city ? city[2] : ''),
+    pincode: pincodeMatch ? pincodeMatch[0] : ''
   };
 }
 
@@ -253,9 +393,9 @@ async function findUserByEmailOrMobile(identifier) {
           businessName: a.business_name || userRow.business_name || '',
           street: a.street || '',
           area: '',
-          city: a.city || 'Chennai',
-          state: a.state || 'Tamil Nadu',
-          pincode: a.pincode || '600098',
+          city: a.city || '',
+          state: a.state || '',
+          pincode: a.pincode || '',
           addressType: 'Office',
           label: a.label || 'Main Warehouse',
           isDefault: isDatabaseTrue(a.is_default)
@@ -324,9 +464,9 @@ async function findAuthUserByEmailOrMobile(identifier) {
       businessName: a.business_name || userRow.business_name || '',
       street: a.street || '',
       area: '',
-      city: a.city || 'Chennai',
-      state: a.state || 'Tamil Nadu',
-      pincode: a.pincode || '600098',
+      city: a.city || '',
+      state: a.state || '',
+      pincode: a.pincode || '',
       addressType: 'Office',
       label: a.label || 'Main Warehouse',
       isDefault: isDatabaseTrue(a.is_default)
@@ -761,21 +901,19 @@ app.post('/api/auth/google-signin', async (req, res) => {
       }
     } else {
       const userId = `DEALER_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-      const businessName = `${name} Aqua Wholesale`;
-      const googleMobile = `98${Math.floor(10000000 + Math.random() * 90000000)}`;
+      // Only what Google provides; the dealer adds mobile, business and
+      // address themselves. (A random "98xxxxxxxx" mobile used to be stored,
+      // which could block the real owner of that number from registering.)
+      const businessName = '';
+      const googleMobile = null;
 
       const conn = await pool.getConnection();
       try {
         await conn.beginTransaction();
         await conn.query(
           `INSERT INTO users (id, email, mobile, name, password_hash, business_name, owner_name, address, status, is_approved, reward_points, email_verified)
-           VALUES (?, ?, ?, ?, '', ?, ?, 'Wholesale Dealer Hub', 'pending', FALSE, 0, TRUE)`,
+           VALUES (?, ?, ?, ?, '', ?, ?, '', 'pending', FALSE, 0, TRUE)`,
           [userId, cleanEmail, googleMobile, name, businessName, name]
-        );
-        await conn.query(
-          `INSERT INTO user_addresses (id, user_id, label, business_name, street, city, state, pincode, phone, is_default)
-           VALUES (?, ?, 'Main Warehouse', ?, 'Wholesale Dealer Hub', 'Chennai', 'Tamil Nadu', '600098', ?, TRUE)`,
-          [`ADDR_${Date.now()}`, userId, businessName, googleMobile]
         );
         await conn.commit();
       } catch (error) {
@@ -819,26 +957,24 @@ app.post('/api/auth/google-signin', async (req, res) => {
 // -----------------------------------------------------------------------------
 // ADMIN AUTHENTICATION & SECURITY SYSTEM
 // -----------------------------------------------------------------------------
-const activeAdminTokens = new Set();
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || '').trim();
 if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
   throw new Error('ADMIN_EMAIL and ADMIN_PASSWORD must be configured before starting the backend.');
 }
+// Signed admin sessions (see admin_auth.js): valid across restarts and
+// instances; changing ADMIN_PASSWORD signs every admin out.
+const adminAuth = createAdminAuth({
+  email: ADMIN_EMAIL,
+  password: ADMIN_PASSWORD,
+  secret: process.env.ADMIN_SESSION_SECRET || SESSION_SECRET,
+});
+const verifyAdminToken = token => adminAuth.verify(token);
 
 // Admin Authentication Middleware
 function requireAdminAuth(req, res, next) {
-  const authHeader = req.headers['authorization'] || '';
-  const tokenHeader = req.headers['x-admin-token'] || '';
-  let token = '';
-
-  if (authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7).trim();
-  } else if (tokenHeader) {
-    token = tokenHeader.trim();
-  }
-
-  if (token && activeAdminTokens.has(token)) {
+  const token = adminTokenFrom(req);
+  if (token && verifyAdminToken(token)) {
     return next();
   }
   return res.status(401).json({ success: false, error: 'Unauthorized. Admin login required.' });
@@ -851,6 +987,8 @@ const SHOP_EMPLOYEE_SECRET = process.env.SHOP_EMPLOYEE_SESSION_SECRET
 require('./shop_routes')(app, pool, SHOP_EMPLOYEE_SECRET, requireAdminAuth);
 
 // Admin Login Endpoint
+// 5 wrong attempts lock that email from that address (and that address
+// overall) for 15 minutes. The response never says which part was wrong.
 app.post('/api/admin/login', (req, res) => {
   try {
     const { email, password } = req.body || {};
@@ -861,14 +999,24 @@ app.post('/api/admin/login', (req, res) => {
       return res.status(400).json({ success: false, error: 'Please enter both admin email and password.' });
     }
 
-    if (cleanEmail === ADMIN_EMAIL && cleanPass === ADMIN_PASSWORD) {
-      const adminToken = `RO_ADMIN_SECURE_${Date.now()}_${crypto.randomBytes(16).toString('hex')}`;
-      activeAdminTokens.add(adminToken);
-      console.log(`🔐 [ADMIN LOGIN SUCCESS] Admin logged in: ${cleanEmail}`);
+    const clientKey = `ip:${req.ip || req.socket?.remoteAddress || 'unknown'}`;
+    const accountKey = `${clientKey}:${cleanEmail}`;
+    const lockedMs = Math.max(adminAuth.lockedFor(accountKey), adminAuth.lockedFor(clientKey));
+    if (lockedMs > 0) {
+      res.setHeader('Retry-After', String(Math.ceil(lockedMs / 1000)));
+      return res.status(429).json({ success: false, error: `Too many failed sign-in attempts. Try again in ${Math.ceil(lockedMs / 60000)} minute(s).` });
+    }
+
+    if (adminAuth.checkPassword(cleanEmail, cleanPass)) {
+      adminAuth.clearFailures(accountKey);
+      adminAuth.clearFailures(clientKey);
+      const adminToken = adminAuth.issue();
+      console.log('🔐 [ADMIN LOGIN SUCCESS]');
       return res.status(200).json({
         success: true,
         message: 'Admin authentication successful.',
         token: adminToken,
+        expiresInSeconds: Math.floor(adminAuth.ttlMs / 1000),
         admin: {
           email: ADMIN_EMAIL,
           name: 'System Administrator',
@@ -877,7 +1025,9 @@ app.post('/api/admin/login', (req, res) => {
       });
     }
 
-    console.warn(`⚠️ [ADMIN LOGIN FAILED] Invalid credentials attempt for: ${cleanEmail}`);
+    const attempt = adminAuth.recordFailure(accountKey);
+    adminAuth.recordFailure(clientKey);
+    console.warn(`⚠️ [ADMIN LOGIN FAILED] attempt ${attempt.count}`);
     return res.status(401).json({
       success: false,
       error: 'Invalid admin email address or password.'
@@ -890,17 +1040,8 @@ app.post('/api/admin/login', (req, res) => {
 
 // Admin Verify Session Endpoint
 app.get('/api/admin/session', (req, res) => {
-  const authHeader = req.headers['authorization'] || '';
-  const tokenHeader = req.headers['x-admin-token'] || '';
-  let token = '';
-
-  if (authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7).trim();
-  } else if (tokenHeader) {
-    token = tokenHeader.trim();
-  }
-
-  if (token && activeAdminTokens.has(token)) {
+  const token = adminTokenFrom(req);
+  if (token && verifyAdminToken(token)) {
     return res.json({
       success: true,
       authenticated: true,
@@ -916,18 +1057,9 @@ app.get('/api/admin/session', (req, res) => {
 
 // Admin Logout Endpoint
 app.post('/api/admin/logout', (req, res) => {
-  const authHeader = req.headers['authorization'] || '';
-  const tokenHeader = req.headers['x-admin-token'] || '';
-  let token = '';
-
-  if (authHeader.startsWith('Bearer ')) {
-    token = authHeader.substring(7).trim();
-  } else if (tokenHeader) {
-    token = tokenHeader.trim();
-  }
-
+  const token = adminTokenFrom(req);
   if (token) {
-    activeAdminTokens.delete(token);
+    adminAuth.revoke(token);
   }
   return res.json({ success: true, message: 'Admin session logged out successfully.' });
 });
@@ -963,7 +1095,11 @@ app.post('/api/admin/set-status', requireAdminAuth, async (req, res) => {
     const { identifier, userId, email, status } = req.body || {};
     // The portal historically sent userId; keep it as an alias for older tabs.
     const target = identifier || userId || email;
-    const cleanId = typeof target === 'string' ? target.trim().toLowerCase() : '';
+    // Dealer ids are case-sensitive (DEALER_<uuid>); only the email is
+    // compared case-insensitively. Lower-casing the id made the Admin Panel's
+    // Approve / Reject / Reset buttons (which send the id) match no dealer.
+    const rawId = typeof target === 'string' ? target.trim() : '';
+    const cleanId = rawId.toLowerCase();
     const validStatuses = ['approved', 'pending', 'rejected'];
     const cleanStatus = typeof status === 'string' ? status.trim().toLowerCase() : '';
 
@@ -973,13 +1109,13 @@ app.post('/api/admin/set-status', requireAdminAuth, async (req, res) => {
 
     const isApproved = cleanStatus === 'approved';
     const [updateResult] = await pool.query(
-      `UPDATE users SET status = ?, is_approved = ? WHERE email = ? OR id = ? OR mobile = ?`,
-      [cleanStatus, isApproved, cleanId, cleanId, cleanId]
+      `UPDATE users SET status = ?, is_approved = ? WHERE lower(email) = ? OR id = ? OR mobile = ?`,
+      [cleanStatus, isApproved, cleanId, rawId, rawId]
     );
     if (!updateResult.affectedRows) {
       const [[existingDealer]] = await pool.query(
-        'SELECT id FROM users WHERE email = ? OR id = ? OR mobile = ? LIMIT 1',
-        [cleanId, cleanId, cleanId]
+        'SELECT id FROM users WHERE lower(email) = ? OR id = ? OR mobile = ? LIMIT 1',
+        [cleanId, rawId, rawId]
       );
       if (!existingDealer) return res.status(404).json({ success: false, error: 'Dealer not found.' });
     }
@@ -1039,7 +1175,8 @@ app.post('/api/user/update-profile', async (req, res) => {
 
     await pool.query(
       `UPDATE users SET name = ?, owner_name = ?, mobile = ?, business_name = ?, address = ? WHERE email = ?`,
-      [cleanName, cleanName, cleanMobile, cleanBusiness || `${cleanName} Aqua Wholesale`, cleanAddress, cleanEmail]
+      // A blank business name stays blank (it used to become "<name> Aqua Wholesale").
+      [cleanName, cleanName, cleanMobile, cleanBusiness, cleanAddress, cleanEmail]
     );
 
     const updatedUser = await findUserByEmailOrMobile(cleanEmail);
@@ -1095,10 +1232,10 @@ function normalizeAddressObj(a, userObj = {}) {
     doorNo: a.door_no || a.doorNo || '',
     street: a.street || '',
     area: a.area || '',
-    city: a.city || 'Chennai',
-    district: a.district || a.city || 'Chennai',
-    state: a.state || 'Tamil Nadu',
-    pincode: a.pincode || '600098',
+    city: a.city || '',
+    district: a.district || a.city || '',
+    state: a.state || '',
+    pincode: a.pincode || '',
     landmark: a.landmark || '',
     addressType: a.address_type || a.addressType || a.label || 'Office',
     label: a.label || a.address_type || a.addressType || 'Office',
@@ -1128,20 +1265,23 @@ app.get('/api/user/addresses', async (req, res) => {
 
     let addresses = (targetUser.addresses || []).map(a => normalizeAddressObj(a, targetUser));
 
-    // If targetUser has 0 saved addresses but has a signup address/email, auto-seed a default address card for the user!
-    if (addresses.length === 0 && (targetUser.address || targetUser.email)) {
+    // A dealer with no saved address but an address typed at signup gets that
+    // address (only what they typed; blanks stay blank for them to complete).
+    // Nothing is invented: before, a fake "No. 12, Wholesale Hub, Industrial
+    // Estate, Chennai 600098" was created and saved as their default address.
+    const signupAddress = String(targetUser.address || '').trim();
+    if (addresses.length === 0 && signupAddress && signupAddress !== 'Wholesale Dealer Hub') {
+      const parsed = parseAddressString(signupAddress);
       const defaultAddr = normalizeAddressObj({
-        id: `ADDR_DEFAULT_${targetUser.id || Date.now()}`,
-        full_name: targetUser.name || targetUser.owner || 'Recipient',
+        id: `ADDR_DEFAULT_${targetUser.id}`,
+        full_name: targetUser.name || targetUser.owner || '',
         phone: targetUser.mobile || '',
-        business_name: targetUser.business || `${targetUser.name} Aqua Wholesale`,
-        door_no: 'No. 12',
-        street: targetUser.address || 'Wholesale Hub',
-        area: 'Industrial Estate',
-        city: 'Chennai',
-        district: 'Chennai',
-        state: 'Tamil Nadu',
-        pincode: '600098',
+        business_name: targetUser.business || '',
+        street: parsed.street,
+        city: parsed.city,
+        district: parsed.city,
+        state: parsed.state,
+        pincode: parsed.pincode,
         address_type: 'Office',
         is_default: true
       }, targetUser);
@@ -1149,8 +1289,8 @@ app.get('/api/user/addresses', async (req, res) => {
       await pool.query(
         `INSERT INTO user_addresses (id, user_id, full_name, phone, business_name, door_no, street, area, city, district, state, pincode, address_type, label, is_default)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
-         ON CONFLICT (id) DO UPDATE SET is_default = TRUE`,
-        [defaultAddr.id, targetUser.id, defaultAddr.fullName, defaultAddr.phone, defaultAddr.businessName, defaultAddr.doorNo, defaultAddr.street, defaultAddr.area, defaultAddr.city, defaultAddr.district, defaultAddr.state, defaultAddr.pincode, defaultAddr.addressType, defaultAddr.addressType]
+         ON CONFLICT (id) DO NOTHING`,
+        [defaultAddr.id, targetUser.id, defaultAddr.fullName, defaultAddr.phone, defaultAddr.businessName, '', defaultAddr.street, '', defaultAddr.city, defaultAddr.district, defaultAddr.state, defaultAddr.pincode, defaultAddr.addressType, defaultAddr.addressType]
       );
 
       addresses = [defaultAddr];
@@ -1378,7 +1518,11 @@ function formatCartItemRow(row) {
     mrp: Number(row.mrp) || 0,
     category: row.category_key || row.category || '',
     badge: row.badge || '',
-    moq: row.moq || 'MOQ: 1 Units',
+    moq: row.moq || '',
+    max_order_quantity: maxOrderQuantity({ id: row.product_id || row.id, moq: row.moq }),
+    stock_enforced: stockEnforced(),
+    stock_quantity: row.stock_quantity == null ? null : Number(row.stock_quantity),
+    status: row.status || 'active',
     imgSrc: row.img || row.imgSrc || 'purifier.jpg',
     sku: row.sku || `SKU-${(row.product_id || row.id).toString().toUpperCase()}`,
     quantity: parseInt(row.quantity, 10) || 1
@@ -1397,7 +1541,7 @@ app.get('/api/cart', async (req, res) => {
 
     const [rows] = await pool.query(
       `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,
-              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku
+              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
        FROM cart_items ci
        LEFT JOIN products p ON ci.product_id = p.id
        WHERE ci.user_id = ?
@@ -1411,6 +1555,18 @@ app.get('/api/cart', async (req, res) => {
   }
 });
 
+// Cart rule (checkout applies the same rule again, see order_rules.js): a line
+// holds at least 1 and at most the product's maximum (the PDF quantity for the
+// PDF catalogue) and the stock. Lowering or removing a line is always allowed.
+async function cartQuantityProblem(productId, wantedTotal, options) {
+  const [rows] = await pool.query('SELECT id, name, stock_quantity, status, moq FROM products WHERE id = ? LIMIT 1', [productId]);
+  const product = rows[0];
+  if (!product || String(product.status || 'active').toLowerCase() === 'inactive') {
+    return { status: 404, code: 'PRODUCT_UNAVAILABLE', error: 'This product is no longer available.' };
+  }
+  return orderQuantityProblem(product, wantedTotal, options);
+}
+
 // 2. ADD Item to User Cart
 app.post('/api/cart/add', async (req, res) => {
   try {
@@ -1423,6 +1579,10 @@ app.post('/api/cart/add', async (req, res) => {
     }
 
     const qty = parseInt(quantity, 10) || 1;
+    if (qty < 1) return res.status(400).json({ success: false, error: 'Quantity must be at least 1.' });
+    const [inCart] = await pool.query('SELECT quantity FROM cart_items WHERE user_id = ? AND product_id = ?', [userId, productId]);
+    const stockProblem = await cartQuantityProblem(productId, Number(inCart[0]?.quantity || 0) + qty);
+    if (stockProblem) return res.status(stockProblem.status).json({ success: false, error: stockProblem.error, code: stockProblem.code, max: stockProblem.max });
 
     await pool.query(
       `INSERT INTO cart_items (user_id, product_id, quantity)
@@ -1432,7 +1592,7 @@ app.post('/api/cart/add', async (req, res) => {
     );
     const [rows] = await pool.query(
       `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,
-              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku
+              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
        FROM cart_items ci
        LEFT JOIN products p ON ci.product_id = p.id
        WHERE ci.user_id = ?
@@ -1460,11 +1620,21 @@ app.put('/api/cart/update', async (req, res) => {
     const qty = parseInt(quantity, 10);
 
     if (!Number.isFinite(qty)) return res.status(400).json({ success: false, error: 'Valid quantity is required.' });
+    if (qty > 0) {
+      const [inCart] = await pool.query('SELECT quantity FROM cart_items WHERE user_id = ? AND product_id = ?', [userId, productId]);
+      const current = Number(inCart[0]?.quantity || 0);
+      // Growing a line is fully checked; lowering only has to stay at or above
+      // the MOQ (to go below it, remove the line), so a dealer can always lower.
+      const stockProblem = qty > current
+        ? await cartQuantityProblem(productId, qty)
+        : await cartQuantityProblem(productId, qty, { checkMax: false });
+      if (stockProblem) return res.status(stockProblem.status).json({ success: false, error: stockProblem.error, code: stockProblem.code, max: stockProblem.max });
+    }
     if (qty <= 0) await pool.query(`DELETE FROM cart_items WHERE user_id = ? AND product_id = ?`, [userId, productId]);
     else await pool.query(`UPDATE cart_items SET quantity = ? WHERE user_id = ? AND product_id = ?`, [qty, userId, productId]);
     const [rows] = await pool.query(
       `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,
-              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku
+              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
        FROM cart_items ci
        LEFT JOIN products p ON ci.product_id = p.id
        WHERE ci.user_id = ?
@@ -1492,7 +1662,7 @@ app.delete('/api/cart/remove', async (req, res) => {
     await pool.query(`DELETE FROM cart_items WHERE user_id = ? AND product_id = ?`, [userId, productId]);
     const [rows] = await pool.query(
       `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,
-              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku
+              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
        FROM cart_items ci
        LEFT JOIN products p ON ci.product_id = p.id
        WHERE ci.user_id = ?
@@ -1561,8 +1731,18 @@ app.get('/api/user/orders', async (req, res) => {
       [email]
     );
     const formattedOrders = [];
+    // Supplied units per order, so the customer sees the same order status as
+    // the Admin Panel and the Shop App (Cancelled > supplied quantities > stored).
+    const [supplyMeta] = await pool.query(`SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'shop_delivery_items' AND column_name = 'delivery_confirmed'
+    ) AS available`);
+    const confirmedColumn = supplyMeta[0]?.available === true ? 'COALESCE(d.delivery_confirmed, FALSE)' : 'COALESCE(d.delivered, FALSE)';
     for (const o of orderRows) {
-      const [itemRows] = await pool.query(`SELECT * FROM order_items WHERE order_id = ?`, [o.order_id]);
+      const [itemRows] = await pool.query(`SELECT oi.*, CASE WHEN ${confirmedColumn} THEN COALESCE(d.delivered_quantity, 0) ELSE 0 END AS supplied_quantity
+        FROM order_items oi LEFT JOIN shop_delivery_items d ON d.order_item_id = oi.id WHERE oi.order_id = ? ORDER BY oi.id`, [o.order_id]);
+      const suppliedQuantity = itemRows.reduce((sum, i) => sum + Number(i.supplied_quantity || 0), 0);
+      const orderedQuantity = itemRows.reduce((sum, i) => sum + Number(i.quantity || 0), 0);
       formattedOrders.push({
             orderId: o.order_id,
             userEmail: o.user_email,
@@ -1593,7 +1773,10 @@ app.get('/api/user/orders', async (req, res) => {
             gstin: o.gstin || '',
             panNumber: o.pan_number || '',
             deliveryNote: o.delivery_note || '',
-            status: o.status,
+            status: effectiveOrderStatus(o.status, suppliedQuantity, orderedQuantity),
+            paymentStatus: o.payment_status || 'pending',
+            suppliedQuantity,
+            orderedQuantity,
             invoiceNumber: o.invoice_number,
             createdAt: o.created_at ? new Date(o.created_at).toISOString() : new Date().toISOString()
       });
@@ -1639,35 +1822,43 @@ app.get('/api/user/gst-invoices', async (req, res) => {
     const email = (req.query.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ success: false, error: 'Email required.' });
 
+    // Item names come from the order itself (was a fixed "RO Water Equipment").
     const [invoiceRows] = await pool.query(
-      `SELECT order_id, grand_total, gst, invoice_number, created_at FROM orders WHERE user_email = ? AND with_gst = TRUE ORDER BY created_at DESC`,
+      `SELECT o.order_id, o.grand_total, o.gst, o.invoice_number, o.created_at,
+              (SELECT string_agg(oi.product_name || ' × ' || oi.quantity, ', ' ORDER BY oi.id)
+                 FROM order_items oi WHERE oi.order_id = o.order_id) AS items_summary
+         FROM orders o WHERE o.user_email = ? AND o.with_gst = TRUE ORDER BY o.created_at DESC`,
       [email]
     );
-    const orders = invoiceRows.map(o => ({
-      orderId: o.order_id,
-      grandTotal: parseFloat(o.grand_total),
-      gst: parseFloat(o.gst),
+    const invoices = invoiceRows.map(o => ({
       invoiceNumber: o.invoice_number,
-      createdAt: o.created_at
-    }));
-
-    const creditLimit = 250000;
-    const totalSpent = orders.reduce((sum, o) => sum + parseFloat(o.grandTotal || 0), 0);
-    const availableCredit = Math.max(0, creditLimit - (totalSpent % creditLimit));
-
-    const invoices = orders.map(o => ({
-      invoiceNumber: o.invoiceNumber,
-      orderId: o.orderId,
-      date: o.createdAt ? new Date(o.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Sep 18, 2026',
-      amount: parseFloat(o.grandTotal),
+      orderId: o.order_id,
+      // No invented fallback date: an order without one shows no date.
+      date: o.created_at ? new Date(o.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null,
+      createdAt: o.created_at ? new Date(o.created_at).toISOString() : null,
+      amount: parseFloat(o.grand_total),
       gstAmount: parseFloat(o.gst),
-      itemsSummary: 'RO Water Equipment'
+      itemsSummary: o.items_summary || ''
     }));
+
+    // Credit: the limit is a business setting (DEALER_CREDIT_LIMIT); without
+    // it no limit is shown. Outstanding = this dealer's orders that are not
+    // cancelled and not fully paid (all orders, with or without GST).
+    const configuredLimit = Number(process.env.DEALER_CREDIT_LIMIT);
+    const creditLimit = Number.isFinite(configuredLimit) && configuredLimit > 0 ? configuredLimit : null;
+    const [[outstandingRow]] = await pool.query(
+      `SELECT COALESCE(SUM(grand_total), 0) AS outstanding FROM orders
+        WHERE user_email = ? AND lower(COALESCE(status, '')) <> 'cancelled'
+          AND lower(COALESCE(payment_status, '')) <> 'paid'`,
+      [email]
+    );
+    const outstanding = Number(outstandingRow?.outstanding || 0);
 
     return res.status(200).json({
       success: true,
-      creditLimit: creditLimit,
-      availableCredit: availableCredit,
+      creditLimit,
+      outstandingAmount: outstanding,
+      availableCredit: creditLimit == null ? null : Math.max(0, creditLimit - outstanding),
       invoices: invoices
     });
   } catch (err) {
@@ -1691,7 +1882,9 @@ app.post('/api/user/support-ticket', async (req, res) => {
       [userId, cleanEmail, subject || category || 'Dealer Query', cleanMessage]
     );
     if (!result || !result.insertId) throw new Error('Support ticket insert returned no ID.');
-    const ticketId = `TKT-2026-${result.insertId}`;
+    // Year the ticket was raised (India time), not a fixed year.
+    const ticketYear = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', year: 'numeric' }).format(new Date());
+    const ticketId = `TKT-${ticketYear}-${result.insertId}`;
 
     return res.status(200).json({
       success: true,
@@ -1714,20 +1907,48 @@ app.post('/api/user/support-ticket', async (req, res) => {
 // -----------------------------------------------------------------------------
 
 // Customer Endpoint: Get active products
+// Public, read-only pricing rules (discount %, GST %, delivery charge and the
+// free-delivery threshold). The app shows cart and checkout totals with these;
+// orders are always re-priced on the server (see checkout_service.js).
+app.get('/api/pricing-rules', (req, res) => {
+  try {
+    return res.json({ success: true, rules: pricingRules() });
+  } catch (err) {
+    console.error('[API ERROR] Pricing rules:', err.message);
+    return res.status(500).json({ success: false, error: 'Pricing rules are not configured correctly.' });
+  }
+});
+
 app.get('/api/products', async (req, res) => {
   try {
     // Dealer-facing catalog reads deliberately exclude purchase_price at the
     // query layer. Admin product routes use their separately protected query.
-    const [rows] = await pool.query(`SELECT id, category_key, brand, name, price, mrp, moq, badge, rating, img, sku, description, specs_json, features_json, applications, stock_quantity, min_stock, status FROM products WHERE status != 'inactive' ORDER BY category_key, name`);
+    // A NULL status is shown as "active" in the admin panel, so it must be
+    // visible here too (`status != 'inactive'` alone silently drops NULLs).
+    // Cabinet Price comes from its own column (migration 009); it is selected
+    // only once that column exists, so the catalog keeps working before it.
+    const withCabinetPrice = await hasCabinetPriceColumn();
+    const [rows] = await pool.query(`SELECT id, category_key, category_id, brand, name, price, mrp,${withCabinetPrice ? ' cabinet_price,' : ''} moq, badge, rating, img, sku, description, specs_json, features_json, applications, stock_quantity, min_stock, status, created_at, (SELECT c.title FROM categories c WHERE c.id = products.category_id OR c.key_name = products.category_key ORDER BY (c.id = products.category_id) DESC LIMIT 1) AS category_name FROM products WHERE COALESCE(status, 'active') <> 'inactive' ORDER BY category_key, name`);
     const products = rows.map(p => ({
           id: p.id,
           category: p.category_key,
+          category_id: p.category_id || null,
+          category_name: p.category_name || null,
+          created_at: p.created_at ? new Date(p.created_at).toISOString() : null,
           brand: p.brand,
           name: p.name,
           price: parseFloat(p.price),
           dealer_price: parseFloat(p.price),
           mrp: parseFloat(p.mrp),
+          // Cabinet products only; null when not set (never Dealer Price or MRP).
+          cabinet_price: isCabinetCategory(p.category_id, p.category_key) && p.cabinet_price != null && Number(p.cabinet_price) > 0
+            ? Number(p.cabinet_price) : null,
           moq: p.moq,
+          // Same rule as cart and checkout (order_rules.js).
+          min_order_quantity: minOrderQuantity(p),
+          max_order_quantity: maxOrderQuantity(p),
+          stock_enforced: stockEnforced(),
+          availability: availability(p),
           badge: p.badge,
           rating: p.rating,
           img: p.img,
@@ -1740,11 +1961,324 @@ app.get('/api/products', async (req, res) => {
           min_stock: p.min_stock == null ? null : Number(p.min_stock),
           status: p.status || 'active'
     }));
+    // Admin edits must show up on the next read; never serve a cached catalog.
+    res.set('Cache-Control', 'no-store');
     return res.json({ success: true, count: products.length, products });
   } catch (err) {
     console.error('[API ERROR] Get products:', err);
     return res.status(503).json({ success: false, error: 'database is unavailable. Product data could not be loaded.' });
   }
+});
+
+// Product images kept in the shared database (PRODUCT_IMAGE_STORE=database).
+app.get('/api/product-images/:file', async (req, res) => {
+  const id = String(req.params.file || '').replace(/\.[a-z0-9]+$/i, '');
+  if (!/^img_[0-9]+_[0-9a-f]+$/.test(id)) return res.status(404).end();
+  try {
+    const [rows] = await pool.query('SELECT content_type, bytes FROM product_images WHERE id = ? LIMIT 1', [id]);
+    if (!rows.length) return res.status(404).end();
+    res.set('Content-Type', rows[0].content_type || 'application/octet-stream');
+    // Each upload gets a new id, so the bytes behind a URL never change.
+    res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    // Always send binary (some drivers return a Uint8Array, not a Buffer).
+    return res.send(Buffer.from(rows[0].bytes));
+  } catch (err) {
+    console.error('[API ERROR] Product image:', err.message);
+    return res.status(404).end();
+  }
+});
+
+// -----------------------------------------------------------------------------
+// PUBLIC PRODUCT SHARE PAGE (WhatsApp / social link previews)
+// -----------------------------------------------------------------------------
+// Shared links must show MRP only. This route never selects price,
+// dealer_price or purchase_price, so they cannot reach the page, its Open
+// Graph tags or any preview built from it.
+const escapeShareHtml = value => String(value ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+function shareRupees(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return '₹' + n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+
+function requestOrigin(req) {
+  // A fixed public address (e.g. https://ro-mobileapp.onrender.com) keeps
+  // shared pages and preview images off localhost/internal host names.
+  const configured = String(process.env.PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (configured) return configured;
+  const proto = String(req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
+  const host = String(req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+  return `${proto}://${host}`;
+}
+
+function storefrontUrl(req) {
+  const configured = String(process.env.STOREFRONT_URL || '').trim().replace(/\/+$/, '');
+  if (configured) return configured;
+  // A public share address is configured: never link to a local storefront.
+  if (String(process.env.PUBLIC_BASE_URL || '').trim()) return '';
+  const host = String(req.get('x-forwarded-host') || req.get('host') || '');
+  // Local development: the Flutter web app is served on port 8080.
+  if (/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host)) return `http://${host.split(':')[0]}:8080`;
+  return '';
+}
+
+function absoluteImageUrl(img, origin) {
+  const clean = String(img || '').trim() || 'purifier.jpg';
+  if (/^https?:\/\//i.test(clean)) return clean;
+  return origin + (clean.startsWith('/') ? clean : '/' + clean);
+}
+
+/** Width/height of a JPEG or PNG from its header, or null. */
+function imageDimensions(buffer) {
+  if (!buffer || buffer.length < 24) return null;
+  if (buffer.readUInt32BE(0) === 0x89504E47) {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20), type: 'image/png' };
+  }
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8) {
+    let i = 2;
+    while (i + 9 < buffer.length) {
+      if (buffer[i] !== 0xFF) { i++; continue; }
+      const marker = buffer[i + 1];
+      if (marker >= 0xC0 && marker <= 0xCF && ![0xC4, 0xC8, 0xCC].includes(marker)) {
+        return { width: buffer.readUInt16BE(i + 7), height: buffer.readUInt16BE(i + 5), type: 'image/jpeg' };
+      }
+      i += 2 + buffer.readUInt16BE(i + 2);
+    }
+  }
+  return null;
+}
+
+/**
+ * Image for link previews. Bundled photos use the 800px JPEG copies in
+ * web_preview/share-images (WhatsApp skips large preview images); uploaded
+ * files on this server report their real size and type.
+ */
+let catalogImageMap = null;
+function loadCatalogImageMap() {
+  if (!catalogImageMap) {
+    try {
+      catalogImageMap = JSON.parse(fs.readFileSync(path.join(__dirname, 'web_preview', 'share-images', 'catalog-image-map.json'), 'utf8'));
+    } catch (err) {
+      console.error('[SHARE PAGE] catalog-image-map.json unavailable:', err.message);
+      catalogImageMap = { placeholders: [], bySku: {}, byCategoryText: [], defaultTile: null };
+    }
+  }
+  return catalogImageMap;
+}
+
+/**
+ * The picture the customer app shows for this product. Uploaded images are
+ * used as they are. Products whose stored image is a shared placeholder
+ * (purifier.jpg, cat_filter.jpg, ...) are shown in the app as their own tile
+ * of the catalog sprite (ProductModel.displayImageUrl); the share page uses
+ * the same tile so WhatsApp shows the same product picture.
+ */
+function productShareImagePath(product) {
+  const img = String(product.img || '').trim();
+  const name = img.split(/[?#]/)[0].split('/').pop().toLowerCase();
+  const map = loadCatalogImageMap();
+  if (img && !map.placeholders.includes(name)) return img;
+  let tile = map.bySku[String(product.sku || '').toUpperCase()];
+  if (tile === undefined) {
+    const categoryText = `${product.category_key || ''} ${product.category_title || ''}`.toLowerCase();
+    const rule = map.byCategoryText.find(r => r.contains.some(word => categoryText.includes(word)));
+    tile = rule ? rule.tile : map.defaultTile;
+  }
+  if (Number.isInteger(tile) && fs.existsSync(path.join(__dirname, 'web_preview', 'share-images', `catalog-${tile}.jpg`))) {
+    return `/share-images/catalog-${tile}.jpg`;
+  }
+  return img || 'purifier.jpg';
+}
+
+function sharePreviewImage(img, origin) {
+  const clean = String(img || '').trim() || 'purifier.jpg';
+  let file = null;
+  let urlPath = null;
+  if (/^\/share-images\/[A-Za-z0-9_.-]+$/.test(clean)) {
+    file = path.join(__dirname, 'web_preview', clean.slice(1));
+  } else if (/^[A-Za-z0-9_.-]+$/.test(clean)) {
+    const preview = path.join(__dirname, 'web_preview', 'share-images', clean);
+    if (fs.existsSync(preview)) { file = preview; urlPath = `/share-images/${clean}`; }
+    else { file = path.join(__dirname, 'web_preview', clean); }
+  } else if (/^\/?uploads\/[A-Za-z0-9_.-]+$/.test(clean)) {
+    file = path.join(uploadsDir, path.basename(clean));
+  }
+  let meta = null;
+  try { if (file && fs.existsSync(file)) meta = imageDimensions(fs.readFileSync(file)); } catch (_) { meta = null; }
+  const url = absoluteImageUrl(urlPath || clean, origin);
+  const type = meta?.type
+    || (/\.png(\?|$)/i.test(url) ? 'image/png' : /\.webp(\?|$)/i.test(url) ? 'image/webp' : 'image/jpeg');
+  return { url, type, width: meta?.width || null, height: meta?.height || null };
+}
+
+// The product's own picture as an image file, for attaching to WhatsApp
+// through the Web Share API / share sheet. Same picture as og:image and the
+// app (see productShareImagePath). Public: it contains no price information.
+app.get('/share/products/:id/image', async (req, res) => {
+  let product;
+  try {
+    const [rows] = await pool.query(
+      `SELECT p.id, p.sku, p.img, p.status, p.category_key,
+              COALESCE(c.title, p.category_key) AS category_title
+         FROM products p
+         LEFT JOIN categories c ON c.id = p.category_id OR c.key_name = p.category_key
+        WHERE p.id = ? LIMIT 1`,
+      [req.params.id]
+    );
+    product = rows[0];
+  } catch (err) {
+    console.error('[SHARE IMAGE] Lookup failed:', err.message);
+    return res.status(503).json({ success: false, error: 'Product image is temporarily unavailable.' });
+  }
+  if (!product || String(product.status || 'active').toLowerCase() === 'inactive') {
+    return res.status(404).json({ success: false, error: 'Product not found.' });
+  }
+
+  const imagePath = productShareImagePath(product);
+  const safeName = String(product.sku || product.id).replace(/[^A-Za-z0-9_-]+/g, '-') || 'product';
+  res.set('Cache-Control', 'public, max-age=300');
+  // Lets the web app read the bytes when it is hosted on another origin.
+  res.set('Access-Control-Allow-Origin', '*');
+
+  const sendBytes = (bytes, type) => {
+    const ext = type === 'image/png' ? 'png' : type === 'image/webp' ? 'webp' : 'jpg';
+    res.set('Content-Type', type);
+    res.set('Content-Disposition', `inline; filename="${safeName}.${ext}"`);
+    return res.send(Buffer.from(bytes));
+  };
+
+  try {
+    const dbImage = imagePath.match(/^\/api\/product-images\/(img_[0-9]+_[0-9a-f]+)/);
+    if (dbImage) {
+      const [rows] = await pool.query('SELECT content_type, bytes FROM product_images WHERE id = ? LIMIT 1', [dbImage[1]]);
+      if (!rows.length) return res.status(404).json({ success: false, error: 'Product image not found.' });
+      return sendBytes(rows[0].bytes, rows[0].content_type);
+    }
+    let file = null;
+    if (/^\/share-images\/[A-Za-z0-9_.-]+$/.test(imagePath)) file = path.join(__dirname, 'web_preview', imagePath.slice(1));
+    else if (/^\/?uploads\/[A-Za-z0-9_.-]+$/.test(imagePath)) file = path.join(uploadsDir, path.basename(imagePath));
+    else if (/^\/?[A-Za-z0-9_.-]+$/.test(imagePath)) file = path.join(__dirname, 'web_preview', path.basename(imagePath));
+    if (file && fs.existsSync(file)) {
+      const bytes = fs.readFileSync(file);
+      const meta = imageDimensions(bytes);
+      const type = meta?.type || (/\.webp$/i.test(file) ? 'image/webp' : /\.png$/i.test(file) ? 'image/png' : 'image/jpeg');
+      return sendBytes(bytes, type);
+    }
+    if (/^https?:\/\//i.test(imagePath)) return res.redirect(302, imagePath);
+    // A site-relative picture on this server (e.g. a local sandbox picture).
+    if (/^\/[A-Za-z0-9_./-]+$/.test(imagePath) && !imagePath.includes('..')) return res.redirect(302, imagePath);
+    return res.status(404).json({ success: false, error: 'Product image not found.' });
+  } catch (err) {
+    console.error('[SHARE IMAGE] Read failed:', err.message);
+    return res.status(500).json({ success: false, error: 'Product image could not be read.' });
+  }
+});
+
+app.get(['/share/products/:id', '/share/products/:id/'], async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  let product;
+  try {
+    const [rows] = await pool.query(
+      `SELECT p.id, p.name, p.sku, p.brand, p.mrp, p.img, p.description, p.status, p.category_key,
+              COALESCE(c.title, p.category_key) AS category_title
+         FROM products p
+         LEFT JOIN categories c ON c.id = p.category_id OR c.key_name = p.category_key
+        WHERE p.id = ? LIMIT 1`,
+      [req.params.id]
+    );
+    product = rows[0];
+  } catch (err) {
+    console.error('[SHARE PAGE] Lookup failed:', err.message);
+    return res.status(503).type('html').send('<!doctype html><title>Unavailable</title><p>Product details are temporarily unavailable.</p>');
+  }
+  if (!product || String(product.status || 'active').toLowerCase() === 'inactive') {
+    return res.status(404).type('html').send('<!doctype html><meta name="robots" content="noindex"><title>Product not found</title><p>This product is no longer available.</p>');
+  }
+
+  const origin = requestOrigin(req);
+  const pageUrl = `${origin}/share/products/${encodeURIComponent(product.id)}`;
+  const preview = sharePreviewImage(productShareImagePath(product), origin);
+  const imageUrl = preview.url;
+  const mrp = shareRupees(product.mrp);
+  const store = storefrontUrl(req);
+  const storeLink = store ? `${store}/#/products/${encodeURIComponent(product.id)}` : '';
+  const description = String(product.description || '').trim();
+  const summary = [
+    mrp && `MRP ${mrp}`,
+    product.brand && `Brand: ${product.brand}`,
+    product.category_title && `Category: ${product.category_title}`,
+    product.sku && `SKU: ${product.sku}`,
+  ].filter(Boolean).join(' · ');
+  const ogDescription = [summary, description].filter(Boolean).join(' — ').slice(0, 280);
+  const e = escapeShareHtml;
+
+  res.type('html').send(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${e(product.name)} | RO Wholesale</title>
+<meta name="description" content="${e(ogDescription)}">
+<link rel="canonical" href="${e(pageUrl)}">
+<meta property="og:type" content="product">
+<meta property="og:site_name" content="RO Wholesale">
+<meta property="og:title" content="${e(product.name)}${mrp ? ` — MRP ${e(mrp)}` : ''}">
+<meta property="og:description" content="${e(ogDescription)}">
+<meta property="og:url" content="${e(pageUrl)}">
+<meta property="og:image" content="${e(imageUrl)}">
+<meta property="og:image:secure_url" content="${e(imageUrl)}">
+<meta property="og:image:type" content="${preview.type}">
+${preview.width && preview.height ? `<meta property="og:image:width" content="${preview.width}">
+<meta property="og:image:height" content="${preview.height}">` : ''}
+<meta property="og:image:alt" content="${e(product.name)}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${e(product.name)}">
+<meta name="twitter:description" content="${e(ogDescription)}">
+<meta name="twitter:image" content="${e(imageUrl)}">
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #EEF5FB; color: #0F172A; }
+  main { max-width: 560px; margin: 0 auto; padding: 24px 16px 40px; }
+  .card { background: #fff; border-radius: 20px; box-shadow: 0 12px 32px rgba(15, 76, 129, .12); overflow: hidden; }
+  .photo { background: linear-gradient(180deg, #F3F8FD, #fff); display: flex; justify-content: center; padding: 24px; }
+  .photo img { width: 100%; max-height: 340px; object-fit: contain; }
+  .body { padding: 20px 22px 24px; }
+  .brand { color: #0F62FE; font-weight: 800; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+  h1 { font-size: 22px; line-height: 1.25; margin: 6px 0 12px; }
+  .mrp { font-size: 26px; font-weight: 800; margin: 0 0 4px; }
+  .mrp small { font-size: 13px; color: #64748B; font-weight: 700; margin-right: 6px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 16px 0; font-size: 14px; }
+  dt { color: #64748B; } dd { margin: 0; font-weight: 600; word-break: break-word; }
+  p.desc { color: #334155; line-height: 1.55; white-space: pre-line; }
+  a.cta { display: block; text-align: center; background: #0F62FE; color: #fff; font-weight: 700; text-decoration: none; padding: 14px; border-radius: 12px; margin-top: 18px; }
+  footer { text-align: center; color: #64748B; font-size: 12px; margin-top: 18px; }
+</style>
+</head>
+<body>
+<main>
+  <article class="card">
+    <div class="photo"><img src="${e(imageUrl)}" alt="${e(product.name)}" onerror="this.onerror=null;this.src='${e(origin)}/purifier.jpg'"></div>
+    <div class="body">
+      ${product.brand ? `<div class="brand">${e(product.brand)}</div>` : ''}
+      <h1>${e(product.name)}</h1>
+      ${mrp ? `<p class="mrp"><small>MRP</small>${e(mrp)}</p>` : ''}
+      <dl>
+        ${product.sku ? `<dt>SKU</dt><dd>${e(product.sku)}</dd>` : ''}
+        ${product.category_title ? `<dt>Category</dt><dd>${e(product.category_title)}</dd>` : ''}
+        ${product.brand ? `<dt>Brand</dt><dd>${e(product.brand)}</dd>` : ''}
+      </dl>
+      ${description ? `<p class="desc">${e(description)}</p>` : ''}
+      ${storeLink ? `<a class="cta" href="${e(storeLink)}">View product in store</a>` : ''}
+    </div>
+  </article>
+  <footer>RO Wholesale · Dealer prices are available after signing in.</footer>
+</main>
+</body>
+</html>`);
 });
 
 // Admin Endpoint: Get all products (active + inactive)
@@ -1760,7 +2294,14 @@ app.get('/api/admin/products', requireAdminAuth, async (req, res) => {
           purchasePrice: parseFloat(p.purchase_price || 0),
           price: parseFloat(p.price),
           mrp: parseFloat(p.mrp),
+          // Cabinet products only; null when not set (or before migration 009).
+          cabinet_price: p.cabinet_price == null ? null : Number(p.cabinet_price),
           moq: p.moq,
+          // Same rule as cart and checkout (order_rules.js).
+          min_order_quantity: minOrderQuantity(p),
+          max_order_quantity: maxOrderQuantity(p),
+          stock_enforced: stockEnforced(),
+          availability: availability(p),
           badge: p.badge,
           rating: p.rating,
           img: p.img,
@@ -1788,8 +2329,9 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
     const cleanName = (name || '').trim();
     const cleanSku = (sku || '').trim().toUpperCase();
     const cleanCat = (category || 'spares').trim().toLowerCase();
-    const cleanPrice = parseFloat(price || 0);
-    const cleanPurchasePrice = parseFloat(purchase_price !== undefined ? purchase_price : (purchasePrice !== undefined ? purchasePrice : 0));
+    // Brand, Purchase Price, Dealer Price and MRP are optional: blank = not set.
+    const cleanPrice = optionalAmount(price);
+    const cleanPurchasePrice = optionalAmount(purchase_price !== undefined ? purchase_price : purchasePrice);
     const cleanStock = Number(req.body.stock_quantity ?? req.body.stock ?? 50);
     const cleanMinStock = Number(req.body.min_stock ?? req.body.minStock ?? 10);
     if (![cleanStock, cleanMinStock].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 2147483647) ||
@@ -1799,19 +2341,29 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
 
     if (!cleanName) return res.status(400).json({ success: false, error: 'Product name is required.' });
     if (!cleanSku) return res.status(400).json({ success: false, error: 'Product SKU is required.' });
-    if (isNaN(cleanPrice) || cleanPrice <= 0) return res.status(400).json({ success: false, error: 'Valid dealer price is required.' });
+    if (!isBlankField(price) && (isNaN(cleanPrice) || cleanPrice <= 0)) return res.status(400).json({ success: false, error: 'Dealer price must be greater than zero.' });
+    const priceError = productPriceError({ purchasePrice: cleanPurchasePrice, price: cleanPrice, mrp });
+    if (priceError) return res.status(400).json({ success: false, error: priceError });
 
     let categoryId;
+    let categoryKey;
     try {
       const [categoryRows] = await pool.query(
-        `SELECT id FROM categories WHERE LOWER(id) = ? OR LOWER(key_name) = ? OR LOWER(title) = ? LIMIT 1`,
+        `SELECT id, key_name FROM categories WHERE LOWER(id) = ? OR LOWER(key_name) = ? OR LOWER(title) = ? LIMIT 1`,
         [cleanCat, cleanCat, cleanCat]
       );
       if (!categoryRows.length) return res.status(400).json({ success: false, error: 'Select an existing product category.' });
       categoryId = categoryRows[0].id;
+      // Store the category's own key (as bulk import does), not the text the
+      // client sent, so the product lists under the right customer category.
+      categoryKey = categoryRows[0].key_name || cleanCat;
     } catch (dbErr) {
       return res.status(503).json({ success: false, error: 'database is unavailable. No product was saved.' });
     }
+    const cabinetPrice = cabinetPriceFor(isCabinetCategory(categoryId, categoryKey), req.body.cabinet_price ?? req.body.cabinetPrice);
+    if (cabinetPrice.error) return res.status(400).json({ success: false, error: cabinetPrice.error });
+    const withCabinetColumn = await hasCabinetPriceColumn();
+    if (cabinetPrice.value !== null && !withCabinetColumn) return res.status(503).json({ success: false, error: CABINET_PRICE_NO_COLUMN });
 
     // Check duplicate SKU
     const [duplicateRows] = await pool.query('SELECT sku FROM products WHERE UPPER(sku) = ? LIMIT 1', [cleanSku]);
@@ -1841,14 +2393,15 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
     let cleanImg = 'purifier.jpg';
     if (rawImg) {
       try {
-        cleanImg = saveUploadedFile(rawImg);
+        cleanImg = await storeProductImage(rawImg);
       } catch (imgErr) {
+        console.error('[PRODUCT IMAGE] Save failed:', imgErr.message);
         return res.status(400).json({ success: false, error: imgErr.message || 'Product image could not be saved.' });
       }
     }
 
     const cleanDesc = (desc || short_desc || full_desc || '').trim();
-    const cleanBrand = (brand || 'RO Wholesale').trim();
+    const cleanBrand = String(brand ?? '').trim(); // blank = not set (column is NOT NULL)
     const cleanApps = (applications || 'Commercial & Domestic Water Plants').trim();
 
     const prodId = `prod_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
@@ -1856,7 +2409,7 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
       id: prodId,
       sku: cleanSku,
       name: cleanName,
-      category: cleanCat,
+      category: categoryKey,
       category_id: categoryId,
       brand: cleanBrand,
       purchase_price: cleanPurchasePrice,
@@ -1864,7 +2417,9 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
       price: cleanPrice,
       stock_quantity: cleanStock,
       min_stock: cleanMinStock,
-      mrp: parseFloat(mrp || cleanPrice * 1.25),
+      // Blank MRP = not available (0); never estimated from the dealer price.
+      mrp: optionalAmount(mrp),
+      cabinet_price: cabinetPrice.value,
       moq: moq ? (moq.toString().startsWith('MOQ:') ? moq : `MOQ: ${moq}`) : 'MOQ: 1 Unit',
       badge: String(badge || '').trim(),
       rating: String(rating || '★★★★★ (5.0)').trim(),
@@ -1880,13 +2435,14 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
     // Persist to database first; never report success from the JSON fallback.
     try {
       await pool.query(
-        `INSERT INTO products (id, category_id, category_key, sku, name, brand, purchase_price, price, mrp, moq, badge, rating, img, description, specs_json, features_json, applications, status, stock_quantity, min_stock)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO products (id, category_id, category_key, sku, name, brand, purchase_price, price, mrp, moq, badge, rating, img, description, specs_json, features_json, applications, status, stock_quantity, min_stock${withCabinetColumn ? ', cabinet_price' : ''})
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${withCabinetColumn ? ', ?' : ''})`,
         [
           newProd.id, newProd.category_id, newProd.category, newProd.sku, newProd.name, newProd.brand,
           newProd.purchase_price, newProd.price, newProd.mrp, newProd.moq, newProd.badge, newProd.rating,
           newProd.img, newProd.desc, JSON.stringify(newProd.specs), JSON.stringify(newProd.features),
-          newProd.applications, newProd.status, newProd.stock_quantity, newProd.min_stock
+          newProd.applications, newProd.status, newProd.stock_quantity, newProd.min_stock,
+          ...(withCabinetColumn ? [newProd.cabinet_price] : [])
         ]
       );
     } catch (dbErr) {
@@ -1968,6 +2524,12 @@ app.post('/api/admin/products/bulk', requireAdminAuth, async (req, res) => {
         continue;
       }
 
+      const rowPriceError = productPriceError({ purchasePrice: cleanPurchasePrice, price: cleanPrice, mrp: raw.mrp });
+      if (rowPriceError) {
+        skippedSKUs.push({ sku: cleanSku, reason: rowPriceError });
+        continue;
+      }
+
       if (existingSkus.has(cleanSku)) {
         skippedSKUs.push({ sku: cleanSku, reason: `Duplicate SKU "${cleanSku}" already exists in database` });
         continue;
@@ -1985,7 +2547,7 @@ app.post('/api/admin/products/bulk', requireAdminAuth, async (req, res) => {
       let cleanImg = 'purifier.jpg';
       if (rawImg) {
         try {
-          cleanImg = saveUploadedFile(rawImg);
+          cleanImg = await storeProductImage(rawImg);
         } catch (imgErr) {
           skippedSKUs.push({ sku: cleanSku, reason: `Image could not be saved: ${imgErr.message}` });
           existingSkus.delete(cleanSku);
@@ -2086,15 +2648,20 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
     const cleanName = (name || '').trim();
     const cleanSku = (sku || '').trim().toUpperCase();
     const cleanCat = (category || 'spares').trim().toLowerCase();
-    const cleanPrice = parseFloat(price || 0);
 
     if (!cleanName) return res.status(400).json({ success: false, error: 'Product name is required.' });
     if (!cleanSku) return res.status(400).json({ success: false, error: 'Product SKU is required.' });
-    if (isNaN(cleanPrice) || cleanPrice <= 0) return res.status(400).json({ success: false, error: 'Valid dealer price is required.' });
 
     const [databaseProducts] = await pool.query('SELECT * FROM products WHERE id = ? OR sku = ? LIMIT 1', [targetId, targetId]);
     const databaseProduct = databaseProducts[0];
     if (!databaseProduct) return res.status(404).json({ success: false, error: 'Product not found.' });
+    // Optional money fields: a value is validated; blank keeps the saved value.
+    const cleanPrice = optionalAmount(price, Number(databaseProduct.price || 0));
+    if (!isBlankField(price) && (isNaN(cleanPrice) || cleanPrice <= 0)) return res.status(400).json({ success: false, error: 'Dealer price must be greater than zero.' });
+    const rawPP = purchase_price !== undefined ? purchase_price : purchasePrice;
+    const cleanPurchasePrice = optionalAmount(rawPP, Number(databaseProduct.purchase_price || 0));
+    const editPriceError = productPriceError({ purchasePrice: cleanPurchasePrice, price: cleanPrice, mrp });
+    if (editPriceError) return res.status(400).json({ success: false, error: editPriceError });
     // Check duplicate SKU using the authoritative database catalog.
     const [duplicateRows] = await pool.query('SELECT id FROM products WHERE UPPER(sku) = ? AND id <> ? LIMIT 1', [cleanSku, databaseProduct.id]);
     if (duplicateRows.length) {
@@ -2132,6 +2699,13 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
     );
     if (!categoryRows.length) return res.status(400).json({ success: false, error: 'Select an existing product category.' });
     const categoryRow = categoryRows[0];
+    // Cabinet Price: required for Cabinet (blank keeps the saved one); moving the
+    // product to another category clears it.
+    const savedCabinetPrice = databaseProduct.cabinet_price == null ? null : Number(databaseProduct.cabinet_price);
+    const cabinetPrice = cabinetPriceFor(isCabinetCategory(categoryRow.id, categoryRow.key_name), req.body.cabinet_price ?? req.body.cabinetPrice, savedCabinetPrice);
+    if (cabinetPrice.error) return res.status(400).json({ success: false, error: cabinetPrice.error });
+    const withCabinetColumn = await hasCabinetPriceColumn();
+    if (cabinetPrice.value !== null && !withCabinetColumn) return res.status(503).json({ success: false, error: CABINET_PRICE_NO_COLUMN });
     const cleanStock = Number(req.body.stock_quantity ?? req.body.stock ?? existing.stock_quantity ?? existing.stock ?? 50);
     const cleanMinStock = Number(req.body.min_stock ?? req.body.minStock ?? existing.min_stock ?? existing.minStock ?? 10);
     if (![cleanStock, cleanMinStock].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 2147483647) ||
@@ -2157,16 +2731,13 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
       cleanFeatures = features.split(/[\n,]+/).map(f => f.trim()).filter(Boolean);
     }
 
-    const rawPP = purchase_price !== undefined ? purchase_price : purchasePrice;
-    const cleanPurchasePrice = rawPP !== undefined ? parseFloat(rawPP || 0) : parseFloat(existing.purchase_price || existing.purchasePrice || 0);
-
     let cleanImg = existing.img || 'purifier.jpg';
     const rawImg = img !== undefined ? img : image;
     if (rawImg !== undefined) {
       if (rawImg === null || !String(rawImg).trim()) {
         cleanImg = '';
       } else {
-        try { cleanImg = saveUploadedFile(String(rawImg).trim()); }
+        try { cleanImg = await storeProductImage(String(rawImg).trim()); }
         catch (imgErr) { return res.status(400).json({ success: false, error: imgErr.message || 'Product image could not be saved.' }); }
       }
     }
@@ -2178,12 +2749,17 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
       sku: cleanSku,
       category: categoryRow.key_name,
       category_id: categoryRow.id,
-      brand: (brand || existing.brand || 'RO Wholesale').trim(),
+      // Optional: blank keeps the saved brand (never a made-up one).
+      brand: String(isBlankField(brand) ? (existing.brand || '') : brand).trim(),
       purchase_price: cleanPurchasePrice,
       purchasePrice: cleanPurchasePrice,
       price: cleanPrice,
-      mrp: parseFloat(mrp || cleanPrice * 1.25),
-      moq: moq ? (moq.toString().startsWith('MOQ:') ? moq : `MOQ: ${moq}`) : (existing.moq || 'MOQ: 1 Unit'),
+      // A blank MRP keeps the saved value (0 = not available); never estimated.
+      mrp: (mrp !== undefined && mrp !== null && String(mrp).trim() !== '' && !isNaN(parseFloat(mrp)))
+        ? parseFloat(mrp)
+        : Number(existing.mrp || 0),
+      // A blank MOQ field keeps the saved value, including "not set" (never 1).
+      moq: moq ? (moq.toString().startsWith('MOQ:') ? moq : `MOQ: ${moq}`) : (existing.moq || null),
       badge: String(badge !== undefined ? badge : existing.badge || '').trim(),
       rating: String(rating !== undefined ? rating : existing.rating || '★★★★★ (5.0)').trim(),
       img: cleanImg,
@@ -2191,16 +2767,19 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
       specs: cleanSpecs,
       features: cleanFeatures,
       applications: (applications !== undefined ? applications : existing.applications || '').trim(),
-      status: status === 'inactive' ? 'inactive' : 'active'
+      status: status === 'inactive' ? 'inactive' : 'active',
+      cabinet_price: cabinetPrice.value
     };
 
     await pool.query(
-      `UPDATE products SET category_id = ?, category_key = ?, sku = ?, name = ?, brand = ?, purchase_price = ?, price = ?, mrp = ?, moq = ?, badge = ?, rating = ?, img = ?, description = ?, specs_json = ?, features_json = ?, applications = ?, status = ?, stock_quantity = ?, min_stock = ? WHERE id = ?`,
+      `UPDATE products SET category_id = ?, category_key = ?, sku = ?, name = ?, brand = ?, purchase_price = ?, price = ?, mrp = ?, moq = ?, badge = ?, rating = ?, img = ?, description = ?, specs_json = ?, features_json = ?, applications = ?, status = ?, stock_quantity = ?, min_stock = ?${withCabinetColumn ? ', cabinet_price = ?' : ''} WHERE id = ?`,
       [
         updatedProd.category_id, updatedProd.category, updatedProd.sku, updatedProd.name, updatedProd.brand,
         updatedProd.purchase_price, updatedProd.price, updatedProd.mrp, updatedProd.moq, updatedProd.badge, updatedProd.rating,
         updatedProd.img, updatedProd.desc, JSON.stringify(updatedProd.specs), JSON.stringify(updatedProd.features),
-        updatedProd.applications, updatedProd.status, updatedProd.stock_quantity, updatedProd.min_stock, databaseProduct.id
+        updatedProd.applications, updatedProd.status, updatedProd.stock_quantity, updatedProd.min_stock,
+        ...(withCabinetColumn ? [updatedProd.cabinet_price] : []),
+        databaseProduct.id
       ]
     );
     return res.status(200).json({
@@ -2237,6 +2816,7 @@ app.delete('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
 app.get('/api/categories', async (req, res) => {
   try {
     const [rows] = await pool.query(`SELECT * FROM categories ORDER BY display_order ASC`);
+    res.set('Cache-Control', 'no-store');
     return res.json({ success: true, count: rows.length, categories: rows });
   } catch (err) {
     console.error('[API ERROR] Get categories:', err);
@@ -2247,6 +2827,7 @@ app.get('/api/categories', async (req, res) => {
 app.get('/api/admin/categories', requireAdminAuth, async (req, res) => {
   try {
     const [rows] = await pool.query(`SELECT * FROM categories ORDER BY display_order ASC`);
+    res.set('Cache-Control', 'no-store');
     return res.json({ success: true, count: rows.length, categories: rows });
   } catch (err) {
     console.error('[API ERROR] Admin categories:', err);
@@ -2277,7 +2858,7 @@ app.post('/api/admin/categories', requireAdminAuth, async (req, res) => {
     let processedImage = 'cat_spares.jpg';
     try {
       const rawImg = image_url || image || img;
-      if (rawImg) processedImage = saveUploadedFile(rawImg, 'cat');
+      if (rawImg) processedImage = await storeProductImage(rawImg, 'cat');
     } catch (imgErr) {
       return res.status(400).json({ success: false, error: imgErr.message });
     }
@@ -2336,7 +2917,7 @@ app.put('/api/admin/categories/:id', requireAdminAuth, async (req, res) => {
     const rawImg = image_url !== undefined ? image_url : (image !== undefined ? image : img);
     if (rawImg !== undefined) {
       try {
-        processedImage = rawImg ? saveUploadedFile(rawImg, 'cat') : '';
+        processedImage = rawImg ? await storeProductImage(rawImg, 'cat') : '';
       } catch (imgErr) {
         return res.status(400).json({ success: false, error: imgErr.message });
       }
@@ -2530,7 +3111,8 @@ app.get('/api/admin/orders', requireAdminAuth, async (req, res) => {
             deliveryAddress: o.delivery_address || '',
             deliveryNote: o.delivery_note || '',
             status: deliveryStatus,
-            originalOrderStatus: o.status || 'Processing',
+            orderStatus: effectiveOrderStatus(o.status, deliveredQuantity, orderedQuantity),
+            originalOrderStatus: effectiveOrderStatus(o.status, deliveredQuantity, orderedQuantity),
             deliveryStatus,
             shopDeliveryStarted: items.some(i => i.shop_delivery_record_id != null),
             deliveredQuantity,
@@ -2761,37 +3343,81 @@ app.get('/api/admin/analytics', requireAdminAuth, async (req, res) => {
   }
 });
 
+// Supplied vs ordered units for an order (only Shop App-confirmed supplies count).
+async function orderSupplyTotals(queryable, orderId) {
+  const [confirmationMeta] = await queryable.query(`SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'shop_delivery_items' AND column_name = 'delivery_confirmed'
+  ) AS available`);
+  const confirmed = confirmationMeta[0]?.available === true ? 'COALESCE(d.delivery_confirmed, FALSE)' : 'COALESCE(d.delivered, FALSE)';
+  const [rows] = await queryable.query(`SELECT COALESCE(SUM(oi.quantity), 0)::int AS ordered_quantity,
+      COALESCE(SUM(CASE WHEN ${confirmed} THEN COALESCE(d.delivered_quantity, 0) ELSE 0 END), 0)::int AS delivered_quantity
+    FROM order_items oi LEFT JOIN shop_delivery_items d ON d.order_item_id = oi.id
+    WHERE oi.order_id = ?`, [orderId]);
+  return { ordered: Number(rows[0]?.ordered_quantity || 0), delivered: Number(rows[0]?.delivered_quantity || 0) };
+}
+
+// Admin: order status (Pending, Processing & Dispatched, Partially Delivered,
+// Delivered, Cancelled). Must agree with the quantities supplied in the Shop
+// App; never changes the payment status. Cancelling returns the unsupplied
+// units to stock; re-opening a cancelled order takes them again.
 app.put('/api/admin/orders/:id/status', requireAdminAuth, async (req, res) => {
+  let conn;
   try {
     const orderId = req.params.id;
-    const { status } = req.body;
-    const cleanStatus = String(status || 'Processing').trim();
-    if (!cleanStatus) return res.status(400).json({ success: false, error: 'Order status is required.' });
-    const [shopDeliveryRows] = await pool.query('SELECT COUNT(*)::int AS delivery_rows FROM shop_delivery_items WHERE order_id = ?', [orderId]);
-    if (Number(shopDeliveryRows[0]?.delivery_rows || 0) > 0) {
-      return res.status(409).json({ success: false, error: 'Delivery has been submitted by the Shop App. Its status is synchronized from the saved delivery quantities.' });
+    const status = normalizeOrderStatus(req.body.status);
+    if (!status) return res.status(400).json({ success: false, error: `Choose one of: ${ORDER_STATUSES.join(', ')}.` });
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    const [[existing]] = await conn.query('SELECT order_id, status FROM orders WHERE order_id = ? LIMIT 1 FOR UPDATE', [orderId]);
+    if (!existing) { await conn.rollback(); return res.status(404).json({ success: false, error: 'Order not found.' }); }
+    const supply = await orderSupplyTotals(conn, orderId);
+    const problem = orderStatusChangeError(status, supply.delivered, supply.ordered);
+    if (problem) {
+      await conn.rollback();
+      return res.status(409).json({ success: false, error: problem, deliveredQuantity: supply.delivered, orderedQuantity: supply.ordered });
     }
-    if (cleanStatus.toLowerCase() === 'delivered') {
-      const [deliveryRows] = await pool.query(`SELECT COALESCE(SUM(oi.quantity), 0)::int AS ordered_quantity,
-          COALESCE(SUM(COALESCE(d.delivered_quantity, CASE WHEN d.delivered THEN oi.quantity ELSE 0 END)), 0)::int AS delivered_quantity
-        FROM order_items oi LEFT JOIN shop_delivery_items d ON d.order_item_id = oi.id
-        WHERE oi.order_id = ?`, [orderId]);
-      if (Number(deliveryRows[0]?.ordered_quantity || 0) !== Number(deliveryRows[0]?.delivered_quantity || 0)) {
-        return res.status(409).json({ success: false, error: 'An order can be marked Delivered only after every ordered unit is recorded as delivered in the Shop App.' });
-      }
-    }
-    const [updateResult] = await pool.query(`UPDATE orders SET status = ? WHERE order_id = ?`, [cleanStatus, orderId]);
-    if (!updateResult.affectedRows) {
-      const [[existing]] = await pool.query('SELECT order_id FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
-      if (!existing) return res.status(404).json({ success: false, error: 'Order not found.' });
-    }
+    const wasCancelled = normalizeOrderStatus(existing.status) === 'Cancelled';
+    let stock = null;
+    if (status === 'Cancelled' && !wasCancelled) stock = await releaseOrderStock(conn, orderId);
+    if (status !== 'Cancelled' && wasCancelled) stock = await reReserveOrderStock(conn, orderId);
+    await conn.query('UPDATE orders SET status = ? WHERE order_id = ?', [status, orderId]);
+    await conn.commit();
     return res.json({
       success: true,
-      message: `Order #${orderId} status updated to "${cleanStatus}".`
+      status,
+      stockReturned: stock?.released?.reduce((sum, line) => sum + line.units, 0) || 0,
+      message: `Order #${orderId} status updated to "${status}".`
     });
   } catch (err) {
-    console.error('[API ERROR] Update order status:', err);
+    if (conn) await conn.rollback().catch(() => {});
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
+    console.error('[API ERROR] Update order status:', err.code || err.name);
     return res.status(503).json({ success: false, error: 'database is unavailable. Order status was not changed.' });
+  } finally {
+    conn?.release();
+  }
+});
+
+// Admin: payment status, kept separate from the order status. Cash on
+// Delivery stays DUE_ON_DELIVERY until someone records the money.
+app.put('/api/admin/orders/:id/payment-status', requireAdminAuth, async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const paymentStatus = normalizePaymentStatus(req.body.paymentStatus);
+    const [[order]] = await pool.query('SELECT order_id, payment_method, payment_status FROM orders WHERE order_id = ? LIMIT 1', [orderId]);
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found.' });
+    const problem = paymentStatusChangeError(order.payment_method, order.payment_status, paymentStatus);
+    if (problem) return res.status(paymentStatus ? 409 : 400).json({ success: false, error: problem });
+    await pool.query('UPDATE orders SET payment_status = ? WHERE order_id = ?', [paymentStatus, orderId]);
+    return res.json({
+      success: true,
+      paymentStatus,
+      message: `Order #${orderId} payment status updated to "${paymentStatus.toUpperCase()}".`
+    });
+  } catch (err) {
+    console.error('[API ERROR] Update payment status:', err.code || err.name);
+    return res.status(503).json({ success: false, error: 'database is unavailable. Payment status was not changed.' });
   }
 });
 
@@ -2841,7 +3467,9 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'web_preview', 'index.html'));
 });
 
-const server = app.listen(PORT, '0.0.0.0', () => {
+// RO_LISTEN_HOST=127.0.0.1 keeps a local copy reachable only from this computer.
+// Never set on Render, so production keeps listening on all interfaces.
+const server = app.listen(PORT, process.env.RO_LISTEN_HOST || '0.0.0.0', () => {
   console.log(`===================================================`);
   console.log(`🚀 RO Wholesale B2B Backend Server Running on Port ${PORT}`);
   console.log(`🌐 Dealer Portal Live Web: http://127.0.0.1:${PORT}/`);
@@ -2873,3 +3501,5 @@ const shutdown = (signal) => {
 };
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+module.exports = { app, server };

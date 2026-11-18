@@ -8,7 +8,10 @@ import '../../../../core/theme/app_colors.dart';
 import '../../../../core/widgets/loading_skeleton.dart';
 import '../../../../core/widgets/responsive_layout.dart';
 import '../../../products/domain/models/product_model.dart';
+import '../../../products/presentation/widgets/max_quantity_dialog.dart';
+import '../../domain/order_pricing.dart';
 import '../providers/cart_provider.dart';
+import '../../../products/presentation/widgets/cabinet_price_text.dart';
 
 class CartScreen extends ConsumerWidget {
   const CartScreen({super.key});
@@ -18,6 +21,8 @@ class CartScreen extends ConsumerWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final primaryColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
     final cartState = ref.watch(cartProvider);
+    // Live totals with the server's pricing rules (no GST in the cart).
+    final totals = ref.watch(cartTotalsProvider(false));
     ref.listen<CartState>(cartProvider, (previous, next) {
       if (next.errorMessage != null &&
           next.errorMessage != previous?.errorMessage) {
@@ -71,58 +76,58 @@ class CartScreen extends ConsumerWidget {
             : ResponsiveContentWrapper(
                 maxWidth: 1000,
                 child: Column(
-                children: [
-                  // Cart Items & Summary Scrollable View
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          // GST Tax Benefit Alert Card
-                          _buildGstAlertBanner(isDark, primaryColor),
-                          const SizedBox(height: 16),
+                  children: [
+                    // Cart Items & Summary Scrollable View
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // GST Tax Benefit Alert Card
+                            _buildGstAlertBanner(isDark, primaryColor),
+                            const SizedBox(height: 16),
 
-                          // Items List
-                          ListView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: cartState.items.length,
-                            itemBuilder: (context, index) {
-                              final item = cartState.items[index];
-                              return _buildCartItemCard(
-                                context,
-                                ref,
-                                item,
-                                isDark,
-                                primaryColor,
-                              );
-                            },
-                          ),
-                          const SizedBox(height: 16),
+                            // Items List
+                            ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: cartState.items.length,
+                              itemBuilder: (context, index) {
+                                final item = cartState.items[index];
+                                return _buildCartItemCard(
+                                  context,
+                                  ref,
+                                  item,
+                                  isDark,
+                                  primaryColor,
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 16),
 
-                          // Cart Summary Breakdown Card
-                          _buildCartSummaryCard(
-                            context,
-                            cartState,
-                            isDark,
-                            primaryColor,
-                          ),
-                        ],
+                            // Cart Summary Breakdown Card
+                            _buildCartSummaryCard(
+                              context,
+                              totals,
+                              isDark,
+                              primaryColor,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
 
-                  // Sticky Bottom Checkout Action Section
-                  _buildStickyBottomCheckout(
-                    context,
-                    cartState,
-                    isDark,
-                    primaryColor,
-                  ),
-                ],
+                    // Sticky Bottom Checkout Action Section
+                    _buildStickyBottomCheckout(
+                      context,
+                      cartState,
+                      isDark,
+                      primaryColor,
+                    ),
+                  ],
+                ),
               ),
-            ),
       ),
     );
   }
@@ -252,8 +257,13 @@ class CartScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'SKU: ${product.sku} • ₹${product.dealerPrice.toStringAsFixed(2)} / Unit',
+                  'SKU: ${product.sku} • ${formatInr(product.dealerPrice)} / Unit',
                   style: const TextStyle(fontSize: 10.5, color: Colors.grey),
+                ),
+                CabinetPriceText(
+                  product,
+                  fontSize: 10.5,
+                  padding: const EdgeInsets.only(top: 2),
                 ),
                 const SizedBox(height: 8),
 
@@ -303,6 +313,14 @@ class CartScreen extends ConsumerWidget {
                           ),
                           GestureDetector(
                             onTap: () {
+                              // Product maximum (PDF quantity): the popup.
+                              if (product.exceedsMaximum(quantity + 1)) {
+                                showMaxQuantityDialog(
+                                  context,
+                                  product.maxOrderQuantity!,
+                                );
+                                return;
+                              }
                               ref
                                   .read(cartProvider.notifier)
                                   .updateQuantity(product.id, quantity + 1);
@@ -321,7 +339,7 @@ class CartScreen extends ConsumerWidget {
 
                     // Total Item Price
                     Text(
-                      '₹${itemTotal.toStringAsFixed(2)}',
+                      formatInr(itemTotal),
                       style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w900,
@@ -340,7 +358,7 @@ class CartScreen extends ConsumerWidget {
 
   Widget _buildCartSummaryCard(
     BuildContext context,
-    dynamic cartState,
+    OrderTotals totals,
     bool isDark,
     Color primaryColor,
   ) {
@@ -366,31 +384,25 @@ class CartScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 14),
           _buildSummaryRow(
-            'Subtotal (${cartState.totalItemCount} Pcs)',
-            '₹${cartState.subtotal.toStringAsFixed(2)}',
+            'Subtotal (${totals.itemCount} Pcs)',
+            formatInr(totals.subtotal),
             isDark,
           ),
           const SizedBox(height: 8),
           _buildSummaryRow(
-            'Gold Dealer Discount (-10%)',
-            '- ₹${cartState.dealerDiscount.toStringAsFixed(2)}',
+            discountLabel(totals.rules),
+            '- ${formatInr(totals.discount)}',
             isDark,
             isDiscount: true,
           ),
           const SizedBox(height: 8),
-                    _buildSummaryRow(
-            'GST',
-            '₹0.00 (Optional at checkout)',
-            isDark,
-          ),
+          _buildSummaryRow('GST', 'Added at checkout', isDark),
           const SizedBox(height: 8),
           _buildSummaryRow(
             'Delivery / Freight',
-            cartState.deliveryFee == 0
-                ? 'FREE'
-                : '₹${cartState.deliveryFee.toStringAsFixed(2)}',
+            totals.freeDelivery ? 'FREE' : formatInr(totals.deliveryFee),
             isDark,
-            isHighlight: cartState.deliveryFee == 0,
+            isHighlight: totals.freeDelivery,
           ),
           const Divider(height: 24),
           Row(
@@ -404,8 +416,8 @@ class CartScreen extends ConsumerWidget {
                   color: isDark ? Colors.white : const Color(0xFF0F172A),
                 ),
               ),
-                            Text(
-                '₹${cartState.grandTotal.toStringAsFixed(2)}',
+              Text(
+                formatInr(totals.grandTotal),
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w900,
@@ -527,6 +539,30 @@ class CartScreen extends ConsumerWidget {
               height: 48,
               child: ElevatedButton.icon(
                 onPressed: () {
+                  // Every line must be orderable: MOQ <= quantity <= stock
+                  // (checkout refuses it otherwise).
+                  final problems = <String>[];
+                  for (final item in cartState.items as List) {
+                    final product = item.product as ProductModel;
+                    final quantity = item.quantity as int;
+                    // Above the product maximum: the same popup.
+                    if (product.exceedsMaximum(quantity)) {
+                      showMaxQuantityDialog(context, product.maxOrderQuantity!);
+                      return;
+                    }
+                    final problem = product.quantityProblem(quantity);
+                    if (problem != null) problems.add(problem);
+                  }
+                  if (problems.isNotEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          '${problems.join(' ')} Update or remove ${problems.length == 1 ? 'it' : 'them'} to check out.',
+                        ),
+                      ),
+                    );
+                    return;
+                  }
                   context.push('/checkout');
                 },
                 style: ElevatedButton.styleFrom(

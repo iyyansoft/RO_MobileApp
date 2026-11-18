@@ -83,7 +83,10 @@ test('admin-created shop credentials authenticate and return the associated shop
       }
       if (sql.startsWith('SELECT id, employee_id, shop_name, full_name, password_hash')) return [[employee]];
       if (sql.startsWith('SELECT active, shop_name')) return [[employee]];
-      if (sql.includes('COALESCE(SUM(CASE WHEN o.created_at::date')) return [[{ today_sales: 0, monthly_sales: 0, today_orders: 0, new_enquiries: 0 }]];
+      // Shop scope lookups (dashboard counts only this shop's orders).
+      if (sql.includes("to_regclass('public.shop_order_assignments')")) return [[{ available: false }]];
+      if (sql.includes('AS matching_shop_count')) return [[{ shop_count: 1, matching_shop_count: 1 }]];
+      if (sql.includes('AS today_sales')) return [[{ today_sales: 0, monthly_sales: 0, today_orders: 0, new_enquiries: 0 }]];
       if (sql.includes('UPDATE shop_employees')) return [{ affectedRows: 1 }];
       throw new Error('Unexpected query in mock.');
     },
@@ -272,6 +275,7 @@ test('partial delivery saves quantities, reconciles dealer prices and notifies a
         return [{ affectedRows: 1 }];
       }
       if (sql.includes('UPDATE orders SET payment_status')) { paymentStatus = 'paid'; events.push('cash-collected'); return [{ affectedRows: 1 }]; }
+      if (sql.includes('UPDATE orders SET status')) { events.push({ orderStatus: values[0] }); return [{ affectedRows: 1 }]; }
       if (sql.includes('DELETE FROM shop_admin_notifications')) { events.push('notification-cleared'); return [{ affectedRows: 1 }]; }
       throw new Error(`Unexpected query in delivery mock: ${sql}`);
     },
@@ -294,7 +298,8 @@ test('partial delivery saves quantities, reconciles dealer prices and notifies a
     ] };
     const draft = await submit(token, { mode: 'submit', items: payload.items.map(item => ({ ...item, deliveryConfirmed: false, deliveryStatus: 'not_delivered', delivered: false })) });
     assert.equal(draft.status, 200);
-    assert.equal((await draft.json()).status, 'Pending');
+    // Nothing confirmed yet: the order keeps its current status.
+    assert.equal((await draft.json()).status, 'Processing & Dispatched');
     assert.equal(saved.get(11).delivered_quantity, 1);
     assert.equal(saved.get(11).delivery_confirmed, false);
     assert.equal(notificationCount, 0);
@@ -359,6 +364,10 @@ test('partial delivery saves quantities, reconciles dealer prices and notifies a
     assert.equal(paymentStatus, 'paid');
     assert.ok(events.includes('cash-collected'));
     assert.ok(events.includes('commit'));
+    // The order status is saved with the supply, inside the same transaction.
+    const statusWrites = events.filter(event => event && event.orderStatus).map(event => event.orderStatus);
+    assert.ok(statusWrites.includes('Partially Delivered'));
+    assert.equal(statusWrites.at(-1), 'Delivered');
   });
 });
 
@@ -381,6 +390,7 @@ test('single-shop delivery remains authorized when the optional assignment table
       }
       if (sql.includes('SELECT oi.id, oi.unit_price')) return [[{ id: 71, unit_price: 500, quantity: 1, delivered_quantity: 1, delivery_confirmed: true }]];
       if (sql.includes('UPDATE orders SET payment_status')) { savedPaymentStatus = 'paid'; return [{ affectedRows: 1 }]; }
+      if (sql.includes('UPDATE orders SET status')) return [{ affectedRows: 1 }];
       if (sql.includes('DELETE FROM shop_admin_notifications')) return [{ affectedRows: 0 }];
       throw new Error(`Unexpected single-shop fallback query: ${sql}`);
     },

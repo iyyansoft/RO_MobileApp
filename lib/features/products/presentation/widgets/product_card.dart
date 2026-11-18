@@ -1,11 +1,13 @@
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/widgets/app_image.dart';
+import '../../../../core/utils/rupee_format.dart';
 
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/product_model.dart';
 import '../screens/product_details_screen.dart';
+import 'cabinet_price_text.dart';
 
 class ProductCard extends StatelessWidget {
   final ProductModel product;
@@ -13,7 +15,6 @@ class ProductCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onAddToCart;
   final String? heroTag;
-  final bool showPurchasePrice;
   final Color? accentColorOverride;
 
   const ProductCard({
@@ -23,9 +24,11 @@ class ProductCard extends StatelessWidget {
     this.onTap,
     this.onAddToCart,
     this.heroTag,
-    this.showPurchasePrice = false,
     this.accentColorOverride,
   });
+
+  /// Add buttons are disabled for products with stock 0.
+  VoidCallback? get _addAction => product.canOrder ? onAddToCart : null;
 
   void _handleTap(BuildContext context) {
     if (onTap != null) {
@@ -205,16 +208,19 @@ class ProductCard extends StatelessWidget {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(
-                                      'MRP ₹${product.mrp.toStringAsFixed(0)}',
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 10,
-                                        decoration: TextDecoration.lineThrough,
+                                    // MRP 0 = not available: never "MRP ₹0".
+                                    if (product.mrp > 0)
+                                      Text(
+                                        'MRP ${rupee(product.mrp)}',
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 10,
+                                          decoration:
+                                              TextDecoration.lineThrough,
+                                        ),
                                       ),
-                                    ),
                                     Text(
-                                      '₹${(showPurchasePrice ? product.detailsPrice : product.dealerPrice).toStringAsFixed(0)}',
+                                      rupee(product.dealerPrice),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
@@ -226,6 +232,7 @@ class ProductCard extends StatelessWidget {
                                         letterSpacing: -0.5,
                                       ),
                                     ),
+                                    CabinetPriceText(product, fontSize: 11),
                                   ],
                                 ),
                               ),
@@ -233,7 +240,7 @@ class ProductCard extends StatelessWidget {
                               SizedBox(
                                 height: 42,
                                 child: FilledButton.icon(
-                                  onPressed: onAddToCart,
+                                  onPressed: _addAction,
                                   style: FilledButton.styleFrom(
                                     backgroundColor: primaryColor,
                                     foregroundColor: Colors.white,
@@ -258,7 +265,7 @@ class ProductCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'MOQ: ${product.moq} pcs  ·  SKU: ${product.sku}',
+                            '${product.moqLabel('pcs')}  ·  SKU: ${product.sku}',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
@@ -437,7 +444,7 @@ class ProductCard extends StatelessWidget {
                           const SizedBox(height: 4),
                           // MOQ Badge
                           Text(
-                            'MOQ: ${product.moq} Pcs',
+                            product.moqLabel(),
                             style: TextStyle(
                               fontSize: 9.5,
                               fontWeight: FontWeight.w600,
@@ -455,18 +462,19 @@ class ProductCard extends StatelessWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                // MRP Struck through
-                                Text(
-                                  'MRP ₹${product.mrp.toStringAsFixed(0)}',
-                                  style: const TextStyle(
-                                    fontSize: 9.5,
-                                    decoration: TextDecoration.lineThrough,
-                                    color: Colors.grey,
+                                // MRP Struck through (hidden when 0 = not available)
+                                if (product.mrp > 0)
+                                  Text(
+                                    'MRP ${rupee(product.mrp)}',
+                                    style: const TextStyle(
+                                      fontSize: 9.5,
+                                      decoration: TextDecoration.lineThrough,
+                                      color: Colors.grey,
+                                    ),
                                   ),
-                                ),
                                 // Dealer Price
                                 Text(
-                                  '₹${(showPurchasePrice ? product.detailsPrice : product.dealerPrice).toStringAsFixed(0)}',
+                                  rupee(product.dealerPrice),
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w900,
@@ -475,6 +483,7 @@ class ProductCard extends StatelessWidget {
                                         : const Color(0xFF0F172A),
                                   ),
                                 ),
+                                CabinetPriceText(product, fontSize: 10),
                               ],
                             ),
                           ),
@@ -483,7 +492,7 @@ class ProductCard extends StatelessWidget {
                             width: 32,
                             height: 32,
                             child: ElevatedButton(
-                              onPressed: onAddToCart,
+                              onPressed: _addAction,
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: primaryColor,
                                 foregroundColor: Colors.white,
@@ -599,13 +608,18 @@ class ProductCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            '• MOQ: ${product.moq} Pcs',
+                            '• ${product.moqLabel()}',
                             style: const TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
+                      ),
+                      CabinetPriceText(
+                        product,
+                        fontSize: 10.5,
+                        padding: const EdgeInsets.only(top: 4),
                       ),
                       const SizedBox(height: 6),
                       Row(
@@ -614,7 +628,7 @@ class ProductCard extends StatelessWidget {
                           Row(
                             children: [
                               Text(
-                                '₹${(showPurchasePrice ? product.detailsPrice : product.dealerPrice).toStringAsFixed(0)}',
+                                rupee(product.dealerPrice),
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w900,
@@ -624,14 +638,16 @@ class ProductCard extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(width: 6),
-                              Text(
-                                '₹${product.mrp.toStringAsFixed(0)}',
-                                style: const TextStyle(
-                                  fontSize: 10.5,
-                                  decoration: TextDecoration.lineThrough,
-                                  color: Colors.grey,
+                              // MRP 0 = not available: not shown.
+                              if (product.mrp > 0)
+                                Text(
+                                  rupee(product.mrp),
+                                  style: const TextStyle(
+                                    fontSize: 10.5,
+                                    decoration: TextDecoration.lineThrough,
+                                    color: Colors.grey,
+                                  ),
                                 ),
-                              ),
                               if (product.discountPercentage > 0) ...[
                                 const SizedBox(width: 6),
                                 Container(
@@ -657,7 +673,7 @@ class ProductCard extends StatelessWidget {
                             ],
                           ),
                           ElevatedButton.icon(
-                            onPressed: onAddToCart,
+                            onPressed: _addAction,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: primaryColor,
                               foregroundColor: Colors.white,

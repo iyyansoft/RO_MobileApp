@@ -40,7 +40,7 @@ void main() {
 
     // Verify primary center banner title and action button matching reference
     expect(find.text('Neero+ RO\nWater Purifiers'), findsOneWidget);
-    expect(find.text('Shop Now  →'), findsWidgets);
+    expect(find.text('Shop Now'), findsWidgets);
     expect(find.text('BEST SELLER'), findsOneWidget);
   });
 }

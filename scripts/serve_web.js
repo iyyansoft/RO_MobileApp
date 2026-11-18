@@ -1,6 +1,12 @@
 const express = require('express');
 const path = require('path');
 const https = require('https');
+const http = require('http');
+
+// Backend the /api proxy forwards to. Defaults to the deployed Render API;
+// set API_PROXY_TARGET=http://localhost:8081 to use a local server.js.
+const apiTarget = new URL(process.env.API_PROXY_TARGET || 'https://ro-mobileapp.onrender.com');
+const apiClient = apiTarget.protocol === 'http:' ? http : https;
 
 const app = express();
 const PRIMARY_PORT = parseInt(process.env.WEB_PORT, 10) || 8080;
@@ -19,23 +25,24 @@ app.use((req, res, next) => {
 });
 
 // Transparent proxy for /api requests forwarding to the deployed Render backend
-app.use('/api', (req, res) => {
-  const targetPath = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+// Admin-uploaded product images (/uploads/...) live on the same backend.
+const proxyTo = prefix => (req, res) => {
+  const targetPath = prefix + (req.url.startsWith('/') ? req.url : '/' + req.url);
   const headers = { ...req.headers };
   delete headers.host;
   delete headers.origin;
   delete headers.referer;
-  headers.host = 'ro-mobileapp.onrender.com';
+  headers.host = apiTarget.host;
 
   const options = {
-    hostname: 'ro-mobileapp.onrender.com',
-    port: 443,
+    hostname: apiTarget.hostname,
+    port: apiTarget.port || (apiTarget.protocol === 'http:' ? 80 : 443),
     path: targetPath,
     method: req.method,
     headers: headers,
   };
 
-  const proxyReq = https.request(options, (proxyRes) => {
+  const proxyReq = apiClient.request(options, (proxyRes) => {
     res.writeHead(proxyRes.statusCode, proxyRes.headers);
     proxyRes.pipe(res);
   });
@@ -55,7 +62,13 @@ app.use('/api', (req, res) => {
   });
 
   req.pipe(proxyReq);
-});
+};
+app.use('/api', proxyTo('/api'));
+app.use('/uploads', proxyTo('/uploads'));
+// Public product share pages (WhatsApp link previews; MRP only).
+app.use('/share', proxyTo('/share'));
+// Local sandbox only: PDF catalogue pictures served by the sandbox backend.
+app.use('/__pdf_images', proxyTo('/__pdf_images'));
 
 // Local category/product images: http://localhost:8080/images/<file> -> assets/images/<file>
 app.use('/images', express.static(path.join(__dirname, '..', 'assets', 'images')));
@@ -78,7 +91,8 @@ app.get('*', (req, res) => {
 });
 
 function startListener(port) {
-  const server = app.listen(port, '0.0.0.0', () => {
+  // WEB_HOST=127.0.0.1 keeps it reachable only from this computer.
+  const server = app.listen(port, process.env.WEB_HOST || '0.0.0.0', () => {
     console.log(`Flutter Web Server listening at: http://localhost:${port}`);
   });
   server.on('error', (err) => {

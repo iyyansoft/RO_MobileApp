@@ -4,7 +4,7 @@ import 'package:ro_wholesale_dealer_app/features/products/domain/models/product_
 import 'package:ro_wholesale_dealer_app/features/products/presentation/widgets/product_card.dart';
 
 void main() {
-  testWidgets('Home purchase-price cards keep dealer-price cards separate', (
+  testWidgets('customer card shows dealer price and MRP, never purchase price', (
     tester,
   ) async {
     final product = ProductModel.fromJson({
@@ -13,26 +13,25 @@ void main() {
       'sku': 'SKU',
       'img': 'assets/images/purifier.jpg',
       'purchase_price': 500,
-      'dealer_price': 900,
-      'mrp': 1000,
+      'dealer_price': 8500,
+      'mrp': 12000,
     });
-    for (final purchase in [true, false]) {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: SizedBox(
-              width: 180,
-              height: 280,
-              child: ProductCard(product: product, showPurchasePrice: purchase),
-            ),
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 180,
+            height: 280,
+            child: ProductCard(product: product),
           ),
         ),
-      );
-      await tester.pump();
-      expect(find.text(purchase ? '₹500' : '₹900'), findsOneWidget);
-      expect(find.text(purchase ? '₹900' : '₹500'), findsNothing);
-      expect(tester.takeException(), isNull);
-    }
+      ),
+    );
+    await tester.pump();
+    expect(find.text('₹8,500'), findsOneWidget);
+    expect(find.text('MRP ₹12,000'), findsOneWidget);
+    expect(find.textContaining('500'), findsOneWidget, reason: 'only ₹8,500');
+    expect(tester.takeException(), isNull);
   });
   testWidgets('grid product card fits short and narrow layouts', (
     tester,

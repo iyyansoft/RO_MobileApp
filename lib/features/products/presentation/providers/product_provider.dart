@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../domain/models/product_model.dart';
 import '../../domain/models/category_model.dart';
+import '../../domain/cabinet_display_order.dart';
 
 enum SortOption {
   popularity('Popularity'),
@@ -42,7 +43,7 @@ class ProductFilterState {
     this.selectedBrands = const {},
     // Start with the product image beside its details; the listing toolbar
     // still lets users switch to the existing grid layout.
-    this.isGridView = false,
+    this.isGridView = true,
     this.isLoading = false,
     this.isLoadingMore = false,
     this.page = 1,
@@ -159,49 +160,148 @@ final supabaseCatalogClientProvider = Provider<SupabaseClient>(
   (ref) => SupabaseConfig.client,
 );
 
-final catalogProductsProvider = FutureProvider<List<ProductModel>>((ref) async {
-  if (SupabaseConfig.catalogEnabled) {
-    final rows = await ref
-        .watch(supabaseCatalogClientProvider)
-        .from('catalog_products')
-        // Keep the mobile contract explicit: the public catalog surface must
-        // never fetch internal purchase pricing or future privileged fields.
-        .select(
-          'id,category_id,category_key,category_name,sku,name,brand,price,'
-          'dealer_price,mrp,moq,badge,rating,img,description,desc,specs,'
-          'features,applications,stock_quantity,status,created_at',
-        )
-        .order('category_key', ascending: true)
-        .order('name', ascending: true);
-    return rows
-        .map((row) => ProductModel.fromJson(Map<String, dynamic>.from(row)))
-        .toList();
+/// Reads the dealer catalog from its configured source (Express `/api/products`
+/// by default, or the Supabase `catalog_products` view when enabled). Shared by
+/// [catalogProductsProvider] and the background refresh in
+/// `CatalogAutoRefresh`, so both always read the same backend and database.
+final catalogProductsLoaderProvider =
+    Provider<Future<List<ProductModel>> Function()>((ref) {
+      if (SupabaseConfig.catalogEnabled) {
+        final client = ref.watch(supabaseCatalogClientProvider);
+        return () => _loadSupabaseProducts(client);
+      }
+      final api = ref.watch(apiClientProvider);
+      return () async {
+        final response = await api.get('products');
+        return ((response.data as Map)['products'] as List)
+            .map(
+              (e) => ProductModel.fromJson(Map<String, dynamic>.from(e as Map)),
+            )
+            .toList();
+      };
+    });
+
+final catalogCategoriesLoaderProvider =
+    Provider<Future<List<CategoryModel>> Function()>((ref) {
+      if (SupabaseConfig.catalogEnabled) {
+        final client = ref.watch(supabaseCatalogClientProvider);
+        return () => _loadSupabaseCategories(client);
+      }
+      final api = ref.watch(apiClientProvider);
+      return () async {
+        final response = await api.get('categories');
+        return ((response.data as Map)['categories'] as List)
+            .map(
+              (e) =>
+                  CategoryModel.fromJson(Map<String, dynamic>.from(e as Map)),
+            )
+            .toList();
+      };
+    });
+
+/// Holds a catalog that the background refresh has already downloaded, so
+/// re-running the catalog providers uses it instead of fetching again.
+class CatalogHandOff {
+  List<ProductModel>? products;
+  List<CategoryModel>? categories;
+
+  List<ProductModel>? takeProducts() {
+    final value = products;
+    products = null;
+    return value;
   }
-  final response = await ref.watch(apiClientProvider).get('products');
-  return ((response.data as Map)['products'] as List)
-      .map((e) => ProductModel.fromJson(Map<String, dynamic>.from(e as Map)))
-      .toList();
+
+  List<CategoryModel>? takeCategories() {
+    final value = categories;
+    categories = null;
+    return value;
+  }
+}
+
+final catalogHandOffProvider = Provider<CatalogHandOff>(
+  (ref) => CatalogHandOff(),
+);
+
+/// Fields the customer app shows; a change in any of them means the catalog
+/// on screen is out of date.
+String productCatalogSignature(List<ProductModel> products) => [
+  for (final p in products)
+    [
+      p.id,
+      p.name,
+      p.sku,
+      p.categoryId,
+      p.categoryName,
+      p.brand,
+      p.dealerPrice,
+      p.mrp,
+      p.cabinetPrice,
+      p.imageUrl,
+      p.stockStatus.name,
+      p.moq,
+      p.moqSet,
+      p.moqUnit,
+      p.stockQuantity,
+      p.rating,
+      p.isFeatured,
+      p.description,
+      p.createdAt?.toIso8601String(),
+      p.specifications,
+      p.features,
+    ].join('\u0001'),
+].join('\u0002');
+
+String categoryCatalogSignature(List<CategoryModel> categories) => [
+  for (final c in categories)
+    [c.id, c.databaseId, c.name, c.imagePath, c.description].join('\u0001'),
+].join('\u0002');
+
+final catalogProductsProvider = FutureProvider<List<ProductModel>>((ref) async {
+  final load = ref.watch(catalogProductsLoaderProvider);
+  final handedOff = ref.read(catalogHandOffProvider).takeProducts();
+  if (handedOff != null) return handedOff;
+  return load();
 });
+
+Future<List<ProductModel>> _loadSupabaseProducts(SupabaseClient client) async {
+  final rows = await client
+      .from('catalog_products')
+      // Keep the mobile contract explicit: the public catalog surface must
+      // never fetch internal purchase pricing or future privileged fields.
+      .select(
+        'id,category_id,category_key,category_name,sku,name,brand,price,'
+        'dealer_price,mrp,moq,badge,rating,img,description,desc,specs,'
+        'features,applications,stock_quantity,status,created_at',
+      )
+      .order('category_key', ascending: true)
+      .order('name', ascending: true);
+  return rows
+      .map((row) => ProductModel.fromJson(Map<String, dynamic>.from(row)))
+      .toList();
+}
+
+Future<List<CategoryModel>> _loadSupabaseCategories(
+  SupabaseClient client,
+) async {
+  final rows = await client
+      .from('categories')
+      .select(
+        'id,key_name,title,description,badge_text,icon_color,image_url,'
+        'display_order',
+      )
+      .order('display_order', ascending: true);
+  return rows
+      .map((row) => CategoryModel.fromJson(Map<String, dynamic>.from(row)))
+      .toList();
+}
+
 final catalogCategoriesProvider = FutureProvider<List<CategoryModel>>((
   ref,
 ) async {
-  if (SupabaseConfig.catalogEnabled) {
-    final rows = await ref
-        .watch(supabaseCatalogClientProvider)
-        .from('categories')
-        .select(
-          'id,key_name,title,description,badge_text,icon_color,image_url,'
-          'display_order',
-        )
-        .order('display_order', ascending: true);
-    return rows
-        .map((row) => CategoryModel.fromJson(Map<String, dynamic>.from(row)))
-        .toList();
-  }
-  final response = await ref.watch(apiClientProvider).get('categories');
-  return ((response.data as Map)['categories'] as List)
-      .map((e) => CategoryModel.fromJson(Map<String, dynamic>.from(e as Map)))
-      .toList();
+  final load = ref.watch(catalogCategoriesLoaderProvider);
+  final handedOff = ref.read(catalogHandOffProvider).takeCategories();
+  if (handedOff != null) return handedOff;
+  return load();
 });
 final categoriesProvider = Provider<List<CategoryModel>>((ref) {
   final categories = ref.watch(catalogCategoriesProvider).valueOrNull ?? [];
@@ -219,9 +319,22 @@ final allProductsProvider = Provider<List<ProductModel>>(
 );
 
 final filteredProductsProvider = Provider<List<ProductModel>>((ref) {
-  final filterState = ref.watch(productFilterProvider);
-  final allProducts = ref.watch(allProductsProvider);
-  final categories = ref.watch(categoriesProvider);
+  return listingProducts(
+    ref.watch(allProductsProvider),
+    ref.watch(categoriesProvider),
+    ref.watch(productFilterProvider),
+  );
+}, dependencies: [productFilterProvider]);
+
+/// The products a listing page shows for [filterState]: search, category,
+/// price, stock and brand filters, then the sort. Shared by the listing
+/// pages and the Home Best Sellers slider (which shows the Cabinet category
+/// exactly as its category page does).
+List<ProductModel> listingProducts(
+  List<ProductModel> allProducts,
+  List<CategoryModel> categories,
+  ProductFilterState filterState,
+) {
   final selectedCategories = categories.where(
     (category) =>
         category.id == filterState.selectedCategoryId ||
@@ -292,9 +405,30 @@ final filteredProductsProvider = Provider<List<ProductModel>>((ref) {
       filtered.sort((a, b) => b.rating.compareTo(a.rating));
       break;
     case SortOption.newest:
-      filtered.sort((a, b) => b.id.compareTo(a.id));
+      filtered = ProductModel.newestFirst(filtered);
       break;
   }
 
+  // Cabinet category, default order: the six 20" housings go last. A sort
+  // the dealer picks (price, discount, newest) is left as chosen.
+  if (filterState.sortOption == SortOption.popularity &&
+      isCabinetCategory(selectedCategory)) {
+    filtered = cabinetDisplayOrder(filtered);
+  }
+
   return filtered;
-}, dependencies: [productFilterProvider]);
+}
+
+/// The Cabinet category page's products in its default order (Popularity),
+/// recomputed from the latest catalogue; empty when there is no Cabinet
+/// category. Used by the Home Best Sellers slider.
+final cabinetCategoryProductsProvider = Provider<List<ProductModel>>((ref) {
+  final categories = ref.watch(categoriesProvider);
+  final cabinet = categories.where(isCabinetCategory);
+  if (cabinet.isEmpty) return const [];
+  return listingProducts(
+    ref.watch(allProductsProvider),
+    categories,
+    ProductFilterState(selectedCategoryId: cabinet.first.id),
+  );
+});

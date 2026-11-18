@@ -149,7 +149,8 @@ void main() {
         'id': 'filter',
         'name': 'Filter',
         'price': 100.55,
-        'moq': 10,
+        // Single units: MOQ 1 (MOQ 10 rules are in out_of_stock_ordering_test).
+        'moq': 1,
       });
       final api = ApiClient(
         interceptors: [
@@ -179,7 +180,7 @@ void main() {
                             {
                               'id': 'filter',
                               'price': 100.55,
-                              'moq': 10,
+                              'moq': 1,
                               'quantity': quantity,
                             },
                           ],

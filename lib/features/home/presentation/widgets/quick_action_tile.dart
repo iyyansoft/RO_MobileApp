@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 
-/// Clean, minimal quick-action card for the Home dashboard.
+/// Premium quick-action card for the Home dashboard.
 ///
-/// White card with a hairline border, a soft tinted icon circle, title and a
-/// short subtitle. On hover (web/desktop) the border and arrow pick up the
-/// accent colour and the card lifts slightly; it dips a touch while pressed.
+/// White card (20px radius, hairline border, soft shadow) with a tinted
+/// gradient icon tile in the card's accent colour, a title, a one-line
+/// description and an arrow chip. The whole card is one tap target.
+///
+/// * Wide layout ([compact] false): icon, text and arrow in one row.
+/// * Compact layout (phones / 2-column grid): icon and arrow on top, text
+///   below, so titles and descriptions are never squeezed.
+///
+/// Hover (web/desktop) lifts the card, tints the border and slides the arrow;
+/// pressing scales it down slightly.
 class QuickActionTile extends StatefulWidget {
   const QuickActionTile({
     super.key,
@@ -38,113 +45,147 @@ class _QuickActionTileState extends State<QuickActionTile> {
     final compact = widget.compact;
     final isDark = widget.isDark;
     final accent = widget.color;
-    final radius = BorderRadius.circular(compact ? 14 : 16);
-    final lift = _hovered && !_pressed ? -2.0 : 0.0;
-    final scale = _pressed ? 0.985 : 1.0;
+    final active = _hovered && !_pressed;
 
     final surface = isDark ? const Color(0xFF132233) : Colors.white;
     final border = _hovered
-        ? accent.withValues(alpha: 0.45)
-        : (isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE6ECF2));
-    final title = isDark ? Colors.white : const Color(0xFF0F172A);
+        ? accent.withValues(alpha: 0.40)
+        : (isDark ? const Color(0xFF1E2D3D) : const Color(0xFFE3EAF3));
+    final titleColor = isDark ? Colors.white : const Color(0xFF0F172A);
     final muted = isDark ? Colors.white60 : const Color(0xFF64748B);
+    final radius = BorderRadius.circular(20);
 
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTapDown: (_) => setState(() => _pressed = true),
-        onTapCancel: () => setState(() => _pressed = false),
-        onTapUp: (_) => setState(() => _pressed = false),
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOutCubic,
-          transform: Matrix4.translationValues(0, lift, 0)
-            ..scaleByDouble(scale, scale, 1, 1),
-          transformAlignment: Alignment.center,
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 12 : 16,
-            vertical: compact ? 11 : 14,
-          ),
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: radius,
-            border: Border.all(color: border, width: 1),
-            boxShadow: [
-              BoxShadow(
-                color: (_hovered ? accent : const Color(0xFF0F2850)).withValues(
-                  alpha: isDark ? 0.18 : (_hovered ? 0.12 : 0.04),
-                ),
-                blurRadius: _hovered ? 18 : 8,
-                offset: Offset(0, _hovered ? 6 : 2),
-              ),
-            ],
-          ),
-          child: Row(
+    final iconTile = Container(
+      width: compact ? 42 : 48,
+      height: compact ? 42 : 48,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(compact ? 13 : 15),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accent.withValues(alpha: isDark ? 0.30 : 0.16),
+            accent.withValues(alpha: isDark ? 0.16 : 0.07),
+          ],
+        ),
+        border: Border.all(color: accent.withValues(alpha: 0.18)),
+      ),
+      child: Icon(widget.icon, color: accent, size: compact ? 21 : 23),
+    );
+
+    final arrow = AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      width: compact ? 28 : 30,
+      height: compact ? 28 : 30,
+      transform: Matrix4.translationValues(active ? 3 : 0, 0, 0),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: active
+            ? accent
+            : (isDark ? Colors.white10 : const Color(0xFFF1F5F9)),
+      ),
+      child: Icon(
+        Icons.arrow_forward_rounded,
+        size: compact ? 15 : 16,
+        color: active ? Colors.white : muted,
+      ),
+    );
+
+    final title = Text(
+      widget.label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: compact ? 14 : 15,
+        fontWeight: FontWeight.w700,
+        color: titleColor,
+        letterSpacing: -0.1,
+      ),
+    );
+    final subtitle = Text(
+      widget.subtitle,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: compact ? 12 : 12.5,
+        fontWeight: FontWeight.w500,
+        color: muted,
+      ),
+    );
+
+    final content = compact
+        ? Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              // Soft tinted icon circle.
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                width: compact ? 36 : 42,
-                height: compact ? 36 : 42,
-                decoration: BoxDecoration(
-                  color: accent.withValues(
-                    alpha: isDark ? 0.18 : (_hovered ? 0.16 : 0.10),
-                  ),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  widget.icon,
-                  color: accent,
-                  size: compact ? 18 : 21,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [iconTile, const Spacer(), arrow],
               ),
-              SizedBox(width: compact ? 10 : 12),
+              const SizedBox(height: 14),
+              title,
+              const SizedBox(height: 3),
+              subtitle,
+            ],
+          )
+        : Row(
+            children: [
+              iconTile,
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      widget.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: title,
-                        fontSize: compact ? 12.5 : 14,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.1,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      widget.subtitle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: muted,
-                        fontSize: compact ? 10 : 11.5,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+                  children: [title, const SizedBox(height: 3), subtitle],
                 ),
               ),
-              const SizedBox(width: 6),
-              AnimatedSlide(
-                duration: const Duration(milliseconds: 200),
-                offset: Offset(_hovered ? 0.15 : 0, 0),
-                child: Icon(
-                  Icons.arrow_forward_rounded,
-                  size: compact ? 16 : 18,
-                  color: _hovered
-                      ? accent
-                      : (isDark ? Colors.white30 : const Color(0xFFB4BFCC)),
-                ),
-              ),
+              const SizedBox(width: 10),
+              arrow,
             ],
+          );
+
+    return Semantics(
+      button: true,
+      label: '${widget.label}. ${widget.subtitle}',
+      excludeSemantics: true,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapDown: (_) => setState(() => _pressed = true),
+          onTapCancel: () => setState(() => _pressed = false),
+          onTapUp: (_) => setState(() => _pressed = false),
+          onTap: widget.onTap,
+          child: AnimatedScale(
+            duration: const Duration(milliseconds: 140),
+            scale: _pressed ? 0.97 : 1.0,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              transform: Matrix4.translationValues(0, active ? -3 : 0, 0),
+              padding: compact
+                  ? const EdgeInsets.fromLTRB(14, 14, 14, 14)
+                  : const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              decoration: BoxDecoration(
+                color: surface,
+                borderRadius: radius,
+                border: Border.all(color: border),
+                boxShadow: [
+                  BoxShadow(
+                    color: (active ? accent : const Color(0xFF0F2850))
+                        .withValues(
+                          alpha: isDark ? 0.25 : (active ? 0.14 : 0.05),
+                        ),
+                    blurRadius: active ? 22 : 14,
+                    offset: Offset(0, active ? 10 : 4),
+                  ),
+                ],
+              ),
+              child: content,
+            ),
           ),
         ),
       ),

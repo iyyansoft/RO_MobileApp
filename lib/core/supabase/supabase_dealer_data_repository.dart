@@ -476,12 +476,8 @@ class SupabaseDealerDataRepository {
       ..sort(
         (a, b) => _date(b['created_at']).compareTo(_date(a['created_at'])),
       );
-    // Preserve the current Express rule pending a real credit-policy source.
-    const creditLimit = 250000.0;
-    final totalSpent = invoices.fold<double>(
-      0,
-      (sum, invoice) => sum + _double(invoice['grand_total']),
-    );
+    // Same as the Express API: no invented credit limit. The limit is a
+    // backend setting (DEALER_CREDIT_LIMIT) that this pilot path cannot read.
     const monthNames = [
       'Jan',
       'Feb',
@@ -498,8 +494,8 @@ class SupabaseDealerDataRepository {
     ];
     return {
       'success': true,
-      'creditLimit': creditLimit,
-      'availableCredit': max(0, creditLimit - (totalSpent % creditLimit)),
+      'creditLimit': null,
+      'availableCredit': null,
       'invoices': invoices.map((invoice) {
         final date = _date(invoice['created_at']);
         return {
@@ -508,7 +504,7 @@ class SupabaseDealerDataRepository {
           'date': '${monthNames[date.month - 1]} ${date.day}, ${date.year}',
           'amount': _double(invoice['grand_total']),
           'gstAmount': _double(invoice['gst']),
-          'itemsSummary': 'RO Water Equipment',
+          'itemsSummary': '${invoice['items_summary'] ?? ''}',
         };
       }).toList(),
     };

@@ -8,165 +8,275 @@ import '../../../../core/network/api_client.dart';
 import '../../domain/models/product_model.dart';
 import '../../domain/models/product_share.dart';
 
+// Card is laid out at 1080 x 1350 (4:5 portrait, WhatsApp-friendly) and
+// rendered at 4/3 scale: a 1440 x 1800 px image.
 const double _cardWidth = 1080;
-const double _cardPadding = 64;
-const Color _ink = Color(0xFF14243A);
-const Color _muted = Color(0xFF64748B);
-const Color _accent = Color(0xFF2457C5);
-const Color _paper = Color(0xFFF4F7FC);
+const double _cardMinHeight = 1350;
+const double _scale = 4 / 3;
+const double _inset = 64;
+const Color _ink = Color(0xFF0F2137);
+const Color _muted = Color(0xFF5B6B7F);
+const Color _accent = Color(0xFF0B5FD9);
+const Color _accentSoft = Color(0xFFE6F0FD);
+const Color _photoPanel = Colors.white;
+const Color _line = Color(0xFFE2E8F0);
+const String _logoAsset = 'assets/images/RO_LOGO.png';
 
-/// Renders the original product photo with a clear product information card.
-/// Only MRP is included as a price; dealer and purchase prices are never read.
+/// The text printed on the share card, top to bottom. Prices come only from
+/// [ProductModel.mrp]: the dealer and purchase prices are never read.
+List<String> shareCardText(ProductModel product) => [
+  if (product.categoryName.trim().isNotEmpty)
+    product.categoryName.trim().toUpperCase(),
+  product.name.trim(),
+  if (product.sku.trim().isNotEmpty) 'SKU: ${product.sku.trim()}',
+  if (product.mrp > 0) 'MRP',
+  if (product.mrp > 0) mrpSharePrice(product),
+];
+
+/// Builds the WhatsApp product card (PNG) from the product's own photo bytes.
+Future<Uint8List> renderProductShareCard(
+  ProductModel product,
+  Uint8List photoBytes, {
+  Uint8List? logoBytes,
+}) async {
+  final photo = await _decode(photoBytes);
+  ui.Image? logo;
+  try {
+    final logoData = logoBytes ?? await _loadLogo();
+    if (logoData != null) logo = await _decode(logoData);
+  } catch (_) {
+    logo = null; // the card is still complete without the logo
+  }
+  try {
+    return await _paintShareCard(product, photo, logo);
+  } finally {
+    photo.dispose();
+    logo?.dispose();
+  }
+}
+
+/// Same card from an image source (data URI, asset or backend path).
 Future<Uint8List> renderProductShareImage(
   ProductModel product, {
   String? imageSource,
 }) async {
   final source = imageSource ?? product.allImages.first;
-  final photo = await _loadImage(source);
+  return renderProductShareCard(product, await _loadSource(source));
+}
+
+Future<Uint8List?> _loadLogo() async {
   try {
-    return await _paintShareCard(product, photo);
-  } finally {
-    photo.dispose();
+    final data = await rootBundle.load(_logoAsset);
+    return data.buffer.asUint8List();
+  } catch (_) {
+    return null;
   }
 }
 
-Future<ui.Image> _loadImage(String source) async {
-  late Uint8List bytes;
+Future<Uint8List> _loadSource(String source) async {
   if (source.startsWith('data:image/')) {
-    bytes = base64Decode(source.split(',').last);
-  } else if (source.startsWith('assets/') ||
-      source.startsWith('web_preview/')) {
-    final data = await rootBundle.load(source);
-    bytes = data.buffer.asUint8List();
-  } else {
-    final url = Uri.parse(ApiClient.defaultBaseUrl)
-        .resolve('/')
-        .resolve(source)
-        .toString();
-    final data = await NetworkAssetBundle(Uri.parse(url)).load('');
-    bytes = data.buffer.asUint8List();
+    return base64Decode(source.split(',').last);
   }
+  if (source.startsWith('assets/') || source.startsWith('web_preview/')) {
+    final data = await rootBundle.load(source);
+    return data.buffer.asUint8List();
+  }
+  final url = Uri.parse(ApiClient.defaultBaseUrl)
+      .resolve('/')
+      .resolve(source)
+      .toString();
+  final data = await NetworkAssetBundle(Uri.parse(url)).load('');
+  return data.buffer.asUint8List();
+}
+
+Future<ui.Image> _decode(Uint8List bytes) async {
   final codec = await ui.instantiateImageCodec(bytes);
   try {
-    final frame = await codec.getNextFrame();
-    return frame.image;
+    return (await codec.getNextFrame()).image;
   } finally {
     codec.dispose();
   }
 }
 
-Future<Uint8List> _paintShareCard(ProductModel product, ui.Image photo) async {
-  const horizontalInset = _cardPadding;
-  const contentWidth = _cardWidth - horizontalInset * 2;
-  const photoHeight = 500.0;
-  const photoTop = 0.0;
-  const bodyTop = photoTop + photoHeight + 42;
+TextPainter _text(
+  String text, {
+  required double size,
+  FontWeight weight = FontWeight.w600,
+  Color color = _ink,
+  double letterSpacing = 0,
+  int? maxLines,
+  double maxWidth = _cardWidth - _inset * 2,
+}) {
+  return TextPainter(
+    text: TextSpan(
+      text: text,
+      style: TextStyle(
+        color: color,
+        fontSize: size,
+        fontWeight: weight,
+        height: 1.18,
+        letterSpacing: letterSpacing,
+        fontFamily: 'Roboto',
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+    maxLines: maxLines,
+    ellipsis: maxLines == null ? null : '…',
+  )..layout(maxWidth: maxWidth);
+}
 
-  final blocks = <_CardText>[
-    _CardText(
-      product.name,
-      fontSize: 48,
-      weight: FontWeight.w800,
-      gapAfter: 24,
-    ),
-    if (product.brand.trim().isNotEmpty)
-      _CardText('Brand: ${product.brand.trim()}', fontSize: 27, color: _muted),
-    if (product.sku.trim().isNotEmpty)
-      _CardText(
-        'Product Code (SKU): ${product.sku.trim()}',
-        fontSize: 27,
-        color: _muted,
-      ),
-    if (product.categoryName.trim().isNotEmpty)
-      _CardText(
-        'Category: ${product.categoryName.trim()}',
-        fontSize: 27,
-        color: _muted,
-        gapAfter: 22,
-      ),
-    const _CardText('MRP', fontSize: 24, color: _muted, gapAfter: 2),
-    _CardText(
-      '${String.fromCharCode(0x20B9)}${mrpSharePrice(product)}',
-      fontSize: 52,
-      weight: FontWeight.w800,
-      color: _accent,
-      gapAfter: 26,
-    ),
-    _CardText(
-      'Availability: ${product.stockStatus.label}',
-      fontSize: 27,
-      weight: FontWeight.w700,
-    ),
-    _CardText('MOQ: ${product.moq}', fontSize: 27, color: _muted, gapAfter: 28),
-    if (product.description.trim().isNotEmpty)
-      _CardText(
-        'Description\n${product.description.trim()}',
-        fontSize: 26,
-        gapAfter: 24,
-      ),
-    if (product.specifications.isNotEmpty)
-      _CardText(
-        'Specifications\n${product.specifications.entries.map((e) => '${e.key}: ${e.value}').join('\n')}',
-        fontSize: 25,
-        gapAfter: 24,
-      ),
-    if (product.features.isNotEmpty)
-      _CardText(
-        'Features\n${product.features.map((item) => '${String.fromCharCode(0x2022)} $item').join('\n')}',
-        fontSize: 25,
-      ),
-    if (product.rating > 0)
-      _CardText(
-        'Rating: ${product.rating}${product.reviewCount > 0 ? ' (${product.reviewCount} reviews)' : ''}',
-        fontSize: 24,
-        color: _muted,
-        gapBefore: 24,
-      ),
-  ];
+Future<Uint8List> _paintShareCard(
+  ProductModel product,
+  ui.Image photo,
+  ui.Image? logo,
+) async {
+  const contentWidth = _cardWidth - _inset * 2;
+  const headerHeight = 148.0;
+  const photoTop = headerHeight + 12;
+  const photoHeight = 640.0;
 
-  final layouts = blocks.map((block) => block.layout(contentWidth)).toList();
-  final bodyHeight = layouts.fold<double>(
-    0,
-    (height, layout) =>
-        height + layout.height + layout.block.gapBefore + layout.block.gapAfter,
+  final category = product.categoryName.trim();
+  final categoryText = category.isEmpty
+      ? null
+      : _text(
+          category.toUpperCase(),
+          size: 26,
+          weight: FontWeight.w800,
+          color: _accent,
+          letterSpacing: 1.6,
+          maxLines: 1,
+          maxWidth: contentWidth - 48,
+        );
+  final name = _text(
+    product.name.trim(),
+    size: 54,
+    weight: FontWeight.w800,
+    maxLines: 3,
   );
-  final cardHeight = bodyTop + bodyHeight + 64;
-  final sizedRecorder = ui.PictureRecorder();
-  final sizedCanvas = Canvas(
-    sizedRecorder,
-    Rect.fromLTWH(0, 0, _cardWidth, cardHeight),
+  final sku = product.sku.trim().isEmpty
+      ? null
+      : _text('SKU: ${product.sku.trim()}', size: 32, color: _muted);
+  final hasMrp = product.mrp > 0;
+  final mrpLabel = _text(
+    'MRP',
+    size: 28,
+    weight: FontWeight.w700,
+    color: _muted,
+  );
+  final mrpValue = _text(
+    mrpSharePrice(product),
+    size: 84,
+    weight: FontWeight.w900,
+    color: _accent,
   );
 
-  sizedCanvas.drawRect(
-    Rect.fromLTWH(0, 0, _cardWidth, cardHeight),
-    Paint()..color = Colors.white,
+  // Vertical layout.
+  var y = photoTop + photoHeight + 40;
+  final categoryTop = y;
+  if (categoryText != null) y += categoryText.height + 20 + 28;
+  final nameTop = y;
+  y += name.height + 16;
+  final skuTop = y;
+  if (sku != null) y += sku.height + 36;
+  final priceTop = y;
+  if (hasMrp) y += 24 + mrpLabel.height + 4 + mrpValue.height + 24;
+  final height = (y + 56).clamp(_cardMinHeight, 4000).toDouble();
+
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder)..scale(_scale);
+  final full = Rect.fromLTWH(0, 0, _cardWidth, height);
+  canvas.drawRect(full, Paint()..color = Colors.white);
+
+  // Header: brand logo and a thin accent rule.
+  if (logo != null) {
+    _drawContained(
+      canvas,
+      logo,
+      const Rect.fromLTWH(_inset, 34, 300, headerHeight - 68),
+      alignment: Alignment.centerLeft,
+    );
+  }
+  canvas.drawRect(
+    const Rect.fromLTWH(_inset, headerHeight - 2, contentWidth, 2),
+    Paint()..color = _line,
   );
-  sizedCanvas.drawRect(
-    const Rect.fromLTWH(0, 0, _cardWidth, photoHeight),
-    Paint()..color = _paper,
+
+  // Product photo, fitted (never cropped) on a soft panel.
+  final photoPanel = RRect.fromRectAndRadius(
+    const Rect.fromLTWH(_inset, photoTop + 16, contentWidth, photoHeight - 16),
+    const Radius.circular(36),
   );
-  _drawContainedImage(
-    sizedCanvas,
+  canvas.drawRRect(photoPanel, Paint()..color = _photoPanel);
+  canvas.drawRRect(
+    photoPanel,
+    Paint()
+      ..color = _line
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2,
+  );
+  canvas.save();
+  canvas.clipRRect(photoPanel);
+  // Trim the white border around the product so it fills the panel.
+  final content = await _contentBounds(photo);
+  _drawContained(
+    canvas,
     photo,
-    const Rect.fromLTWH(36, 28, _cardWidth - 72, photoHeight - 56),
+    photoPanel.outerRect.deflate(40),
+    source: content,
   );
+  canvas.restore();
 
-  var y = bodyTop;
-  for (final layout in layouts) {
-    y += layout.block.gapBefore;
-    layout.painter.paint(sizedCanvas, Offset(horizontalInset, y));
-    y += layout.height + layout.block.gapAfter;
+  // Category pill.
+  if (categoryText != null) {
+    final pill = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        _inset,
+        categoryTop,
+        categoryText.width + 48,
+        categoryText.height + 20,
+      ),
+      const Radius.circular(40),
+    );
+    canvas.drawRRect(pill, Paint()..color = _accentSoft);
+    categoryText.paint(canvas, Offset(_inset + 24, categoryTop + 10));
   }
 
-  sizedCanvas.drawRect(
-    Rect.fromLTWH(horizontalInset, cardHeight - 12, contentWidth, 8),
+  name.paint(canvas, Offset(_inset, nameTop));
+  sku?.paint(canvas, Offset(_inset, skuTop));
+
+  // MRP block (the only price on the card).
+  if (hasMrp) {
+    final box = RRect.fromRectAndRadius(
+      Rect.fromLTWH(
+        _inset,
+        priceTop,
+        contentWidth,
+        24 + mrpLabel.height + 4 + mrpValue.height + 24,
+      ),
+      const Radius.circular(28),
+    );
+    canvas.drawRRect(box, Paint()..color = _accentSoft);
+    mrpLabel.paint(canvas, Offset(_inset + 32, priceTop + 24));
+    mrpValue.paint(
+      canvas,
+      Offset(_inset + 32, priceTop + 24 + mrpLabel.height + 4),
+    );
+  }
+
+  // Footer accent.
+  canvas.drawRect(
+    Rect.fromLTWH(0, height - 14, _cardWidth, 14),
     Paint()..color = _accent,
   );
-  final picture = sizedRecorder.endRecording();
-  final image = await picture.toImage(_cardWidth.toInt(), cardHeight.ceil());
+
+  final picture = recorder.endRecording();
+  final image = await picture.toImage(
+    (_cardWidth * _scale).round(),
+    (height * _scale).round(),
+  );
   try {
     final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    if (data == null) throw StateError('Could not encode product share card');
+    if (data == null) throw StateError('Could not encode the product card.');
     return data.buffer.asUint8List();
   } finally {
     image.dispose();
@@ -174,61 +284,62 @@ Future<Uint8List> _paintShareCard(ProductModel product, ui.Image photo) async {
   }
 }
 
-void _drawContainedImage(Canvas canvas, ui.Image image, Rect destination) {
-  final sourceSize = Size(image.width.toDouble(), image.height.toDouble());
-  final fit = applyBoxFit(BoxFit.contain, sourceSize, destination.size);
-  final sourceRect = Alignment.center.inscribe(
-    fit.source,
-    Offset.zero & sourceSize,
+/// The part of [image] that is not near-white background (whole image when
+/// it has no such border).
+Future<Rect> _contentBounds(ui.Image image) async {
+  final whole = Rect.fromLTWH(
+    0,
+    0,
+    image.width.toDouble(),
+    image.height.toDouble(),
   );
-  final outputRect = Alignment.center.inscribe(fit.destination, destination);
+  final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+  if (data == null) return whole;
+  final w = image.width, h = image.height;
+  var left = w, top = h, right = -1, bottom = -1;
+  for (var y = 0; y < h; y += 2) {
+    final row = y * w * 4;
+    for (var x = 0; x < w; x += 2) {
+      final i = row + x * 4;
+      final a = data.getUint8(i + 3);
+      if (a < 16) continue;
+      final r = data.getUint8(i),
+          g = data.getUint8(i + 1),
+          b = data.getUint8(i + 2);
+      if (r > 240 && g > 240 && b > 240) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+  if (right < left || bottom < top) return whole;
+  const pad = 8.0;
+  return Rect.fromLTRB(
+    (left - pad).clamp(0, w).toDouble(),
+    (top - pad).clamp(0, h).toDouble(),
+    (right + pad + 2).clamp(0, w).toDouble(),
+    (bottom + pad + 2).clamp(0, h).toDouble(),
+  );
+}
+
+void _drawContained(
+  Canvas canvas,
+  ui.Image image,
+  Rect destination, {
+  Alignment alignment = Alignment.center,
+  Rect? source,
+}) {
+  final area =
+      source ??
+      Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble());
+  final fit = applyBoxFit(BoxFit.contain, area.size, destination.size);
+  final sourceRect = Alignment.center.inscribe(fit.source, area);
+  final outputRect = alignment.inscribe(fit.destination, destination);
   canvas.drawImageRect(
     image,
     sourceRect,
     outputRect,
     Paint()..filterQuality = FilterQuality.high,
   );
-}
-
-class _CardText {
-  final String text;
-  final double fontSize;
-  final FontWeight weight;
-  final Color color;
-  final double gapBefore;
-  final double gapAfter;
-
-  const _CardText(
-    this.text, {
-    required this.fontSize,
-    this.weight = FontWeight.w500,
-    this.color = _ink,
-    this.gapBefore = 0,
-    this.gapAfter = 12,
-  });
-
-  _LaidOutCardText layout(double width) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: text,
-        style: TextStyle(
-          color: color,
-          fontSize: fontSize,
-          fontWeight: weight,
-          height: 1.28,
-          fontFamily: 'Roboto',
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout(maxWidth: width);
-    return _LaidOutCardText(this, painter, painter.height);
-  }
-}
-
-class _LaidOutCardText {
-  final _CardText block;
-  final TextPainter painter;
-  final double height;
-
-  const _LaidOutCardText(this.block, this.painter, this.height);
 }

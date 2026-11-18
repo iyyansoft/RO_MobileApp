@@ -1,9 +1,9 @@
-import 'dart:async';
-
 import '../../../products/presentation/widgets/cart_actions.dart';
 import '../../../../core/widgets/app_image.dart';
 import '../../../../core/widgets/category_image.dart';
-import '../widgets/animated_banner_background.dart';
+import '../widgets/hero_carousel/hero_banner_carousel.dart';
+import '../widgets/home_search_bar.dart';
+import '../../../products/presentation/widgets/filter_bottom_sheet.dart';
 import '../widgets/quick_action_tile.dart';
 import '../widgets/home_product_card.dart';
 import '../widgets/wholesale_promo_banner.dart';
@@ -25,6 +25,9 @@ import '../../../products/domain/models/product_model.dart';
 import '../../../products/presentation/providers/product_provider.dart';
 import '../../../products/presentation/screens/product_details_screen.dart';
 import '../../../products/presentation/screens/product_listing_screen.dart';
+import '../../domain/home_best_sellers.dart';
+import '../widgets/home_product_carousel.dart';
+import '../../../products/domain/cabinet_display_order.dart';
 
 const _homeBlue = AppColors.primaryLight;
 
@@ -241,57 +244,10 @@ class _WaterWavePageBackgroundPainter extends CustomPainter {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  // Infinite carousel virtual index starting at 6001 so that banner 1 (Commercial RO Plants)
-  // is centered by default, banner 0 (Carbon Filters) is on left, banner 2 (Membranes) is on right.
-  int _virtualIndex = 6001;
-  PageController? _bannerPageController;
-  int? _lastLayoutMode;
   final ScrollController _scrollController = ScrollController();
-  Timer? _bannerTimer;
-
-  void _initBannerController(bool isDesktop, bool isTablet) {
-    final mode = isDesktop ? 2 : (isTablet ? 1 : 0);
-    if (_bannerPageController != null && _lastLayoutMode == mode) return;
-    _lastLayoutMode = mode;
-    _bannerPageController?.dispose();
-    // Desktop: 0.44 displays one prominent center banner with left and right banners partially visible.
-    // Tablet: 0.72 displays centered banner with subtle peek.
-    // Mobile: 1.0 displays exactly one complete banner at a time with swipe support.
-    final fraction = isDesktop ? 0.44 : (isTablet ? 0.72 : 1.0);
-    _bannerPageController = PageController(
-      initialPage: _virtualIndex,
-      viewportFraction: fraction,
-    );
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _scheduleBannerAdvance();
-  }
-
-  void _scheduleBannerAdvance() {
-    _bannerTimer?.cancel();
-    _bannerTimer = Timer(const Duration(milliseconds: 4500), () {
-      if (!mounted ||
-          _bannerPageController == null ||
-          !_bannerPageController!.hasClients) {
-        _scheduleBannerAdvance();
-        return;
-      }
-      _virtualIndex++;
-      _bannerPageController!.animateToPage(
-        _virtualIndex,
-        duration: const Duration(milliseconds: 650),
-        curve: Curves.easeInOutCubic,
-      );
-    });
-  }
 
   @override
   void dispose() {
-    _bannerTimer?.cancel();
-    _bannerPageController?.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -308,10 +264,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final featuredProducts = allProducts.where((p) => p.isFeatured).isNotEmpty
         ? allProducts.where((p) => p.isFeatured).toList()
         : allProducts.where((p) => p.discountPercentage > 0).take(4).toList();
-    final bestSellers = allProducts
-        .where((p) => p.discountPercentage >= 30)
-        .toList();
-    final newArrivals = allProducts.reversed.toList();
+    // Best Sellers: the Cabinet category page's products, in its order, from
+    // the same (auto-refreshed) catalogue, as a horizontal slider. View All
+    // opens that page. Without a Cabinet category: the previous rule.
+    final cabinetProducts = ref.watch(cabinetCategoryProductsProvider);
+    final bestSellersAreCabinets = cabinetProducts.isNotEmpty;
+    final bestSellers = bestSellersAreCabinets
+        ? cabinetProducts
+        : homeBestSellersFallback(allProducts);
+    final cabinetMatches = categories.where(isCabinetCategory);
+    final cabinetCategory = cabinetMatches.isEmpty
+        ? null
+        : cabinetMatches.first;
+    // /api/products is ordered by category and name, so order by the date
+    // each product was added to surface products just created by the admin.
+    final newArrivals = ProductModel.newestFirst(allProducts);
     final wholesaleDeals = allProducts.where((p) => p.moq >= 10).toList();
 
     final catalog = ref.watch(catalogProductsProvider);
@@ -366,16 +333,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           // 1. PREMIUM REDESIGNED APP HEADER (Branding & Action Buttons)
                           _buildHeader(context),
 
-                          if (catalog.isLoading)
+                          // Search + quick actions (always available, even
+                          // while the catalogue is still loading).
+                          _buildTopSection(context, isDark),
+
+                          if (catalog.isLoading && !catalog.hasValue)
                             _buildSkeletonDashboard()
-                          else if (catalog.hasError)
+                          else if (catalog.hasError && !catalog.hasValue)
                             _buildCatalogError(catalog.error)
                           else ...[
-                            _buildSearchBar(context, isDark, primaryColor),
-
-                            _buildQuickActions(context, isDark),
-
-                            _buildBannerCarousel(context, isDark),
+                            HeroBannerCarousel(
+                              onNavigate: (route) => context.go(route),
+                            ),
 
                             // 1. Categories Section
                             _buildSectionHeader(
@@ -399,19 +368,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               context,
                               title: 'Best Sellers',
                               actionLabel: 'View All',
-                              onAction: () => context.go('/products'),
+                              onAction:
+                                  bestSellersAreCabinets &&
+                                      cabinetCategory != null
+                                  ? () => _pushHomeRoute(
+                                      context,
+                                      ProductListingScreen(
+                                        initialCategoryId: cabinetCategory.id,
+                                        initialCategoryName:
+                                            cabinetCategory.name,
+                                      ),
+                                      useRootNavigator: false,
+                                    )
+                                  : () => context.go('/products'),
                               isDark: isDark,
                             ),
-                            _buildResponsiveProductGrid(
-                              context,
-                              bestSellers.isNotEmpty
-                                  ? bestSellers
-                                  : allProducts,
-                              sectionKey: 'best_sellers',
-                              emptyMessage:
-                                  'Best seller products will appear here soon.',
-                              maxItems: 4,
-                            ),
+                            if (bestSellersAreCabinets)
+                              _buildBestSellersCarousel(context, bestSellers)
+                            else
+                              _buildResponsiveProductGrid(
+                                context,
+                                bestSellers,
+                                sectionKey: 'best_sellers',
+                                emptyMessage: 'Best seller products will appear here soon.',
+                                maxItems: 4,
+                              ),
 
                             // 3. Full-Width Middle Promotional Banner (Immediately below Best Sellers)
                             _buildFullWidthMiddlePromoBanner(context, isDark),
@@ -849,122 +830,84 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  Widget _buildSearchBar(
-    BuildContext context,
-    bool isDark,
-    Color primaryColor,
-  ) {
+  // Top dashboard section: product search and the four quick actions.
+  Widget _buildTopSection(BuildContext context, bool isDark) {
     final isDesktop = context.isDesktop;
     return Padding(
-      padding: EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: isDesktop ? 14 : 8,
+      padding: EdgeInsets.fromLTRB(
+        16,
+        isDesktop ? 24 : 12,
+        16,
+        isDesktop ? 32 : 24,
       ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: isDesktop ? 1100 : double.infinity,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          HomeSearchBar(
+            isDark: isDark,
+            onOpenProduct: (product) =>
+                _pushHomeRoute(context, ProductDetailsScreen(product: product)),
+            onAddToCart: (product) => addProductToCart(context, ref, product),
+            onOpenFilters: () => _openFilters(context),
           ),
-          child: Material(
-            color: isDark ? AppColors.surfaceDark : Colors.white,
-            borderRadius: BorderRadius.circular(32),
-            child: InkWell(
-              onTap: () => _openSearchModal(context),
-              borderRadius: BorderRadius.circular(32),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(32),
-                  border: Border.all(
-                    color: isDark
-                        ? const Color(0xFF1E2D3D)
-                        : const Color(0xFFE2E8F0),
-                    width: 1.2,
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0F2850)
-                          .withValues(alpha: isDark ? 0.2 : 0.04),
-                      blurRadius: 14,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.search_rounded,
-                      color: Color(0xFF64748B),
-                      size: 22,
-                    ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Search RO systems, membranes, pumps, spares...',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF94A3B8),
-                          fontWeight: FontWeight.w400,
-                        ),
-                      ),
-                    ),
-                    Container(
-                      margin: const EdgeInsets.symmetric(vertical: 4),
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0F2544),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.tune_rounded,
-                        color: Colors.white,
-                        size: 19,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
+          SizedBox(height: isDesktop ? 28 : 24),
+          _buildQuickActions(context, isDark),
+        ],
       ),
     );
   }
 
-  // 3. Quick Actions Row (4 Aligned Cards)
+  /// Opens the catalogue filter sheet (shared with the product listing). If
+  /// the dealer changes any filter, the filtered product listing opens.
+  Future<void> _openFilters(BuildContext context) async {
+    String signature(ProductFilterState s) => [
+      s.selectedCategoryId,
+      s.minPrice,
+      s.maxPrice,
+      s.inStockOnly,
+      (s.selectedBrands.toList()..sort()).join(','),
+      s.sortOption,
+    ].join('|');
+
+    final before = signature(ref.read(productFilterProvider));
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useRootNavigator: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const FilterBottomSheet(),
+    );
+    if (!mounted || !context.mounted) return;
+    if (signature(ref.read(productFilterProvider)) == before) return;
+    _pushHomeRoute(
+      context,
+      const ProductListingScreen(),
+      useRootNavigator: false,
+    );
+  }
+
+  // Quick actions: 4 in a row on wide screens, a 2-column grid otherwise.
   Widget _buildQuickActions(BuildContext context, bool isDark) {
-    final isDesktop = context.isDesktop;
-    final actions = [
-      {
-        'icon': Icons.bolt_rounded,
-        'label': 'Bulk Order',
-        'subtitle': 'Buy in bulk',
-        'color': const Color(0xFF2563EB),
-      },
-      {
-        'icon': Icons.local_shipping_rounded,
-        'label': 'Track Orders',
-        'subtitle': 'Delivery status',
-        'color': const Color(0xFF059669),
-      },
-      {
-        'icon': Icons.receipt_long_rounded,
-        'label': 'GST Invoice',
-        'subtitle': 'Download invoices',
-        'color': const Color(0xFF7C3AED),
-      },
-      {
-        'icon': Icons.account_balance_wallet_rounded,
-        'label': 'Credit Limit',
-        'subtitle': 'Available credit',
-        'color': const Color(0xFFD97706),
-      },
+    const actions = [
+      (Icons.bolt_rounded, 'Bulk Order', 'Buy in bulk', Color(0xFF2563EB)),
+      (
+        Icons.local_shipping_rounded,
+        'Track Orders',
+        'Delivery status',
+        Color(0xFF059669),
+      ),
+      (
+        Icons.receipt_long_rounded,
+        'GST Invoice',
+        'Download invoices',
+        Color(0xFF7C3AED),
+      ),
+      (
+        Icons.account_balance_wallet_rounded,
+        'Credit Limit',
+        'Available credit',
+        Color(0xFFD97706),
+      ),
     ];
 
     void handleActionTap(String label) {
@@ -977,717 +920,44 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       }
     }
 
-    Widget buildCard(Map<String, dynamic> act, {bool isMobileCompact = false}) {
-      final label = act['label'] as String;
-      return QuickActionTile(
-        icon: act['icon'] as IconData,
-        label: label,
-        subtitle: act['subtitle'] as String,
-        color: act['color'] as Color,
-        compact: isMobileCompact,
-        isDark: isDark,
-        onTap: () => handleActionTap(label),
-      );
-    }
-
-    if (isDesktop) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1100),
-            child: Row(
-              children: actions.map((act) {
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: buildCard(act),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // Tablet & Mobile
     return LayoutBuilder(
       builder: (context, constraints) {
-        if (constraints.maxWidth > 560) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: actions.map((act) {
-                return Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: buildCard(act, isMobileCompact: true),
-                  ),
-                );
-              }).toList(),
+        final width = constraints.maxWidth;
+        final columns = width >= 860 ? 4 : 2;
+        // Phones: stacked card layout so text never gets squeezed.
+        final compact = width < 560;
+        final gap = columns == 4 ? 20.0 : (compact ? 12.0 : 16.0);
+
+        final rows = <Widget>[];
+        for (var i = 0; i < actions.length; i += columns) {
+          if (i > 0) rows.add(SizedBox(height: gap));
+          rows.add(
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var j = i; j < i + columns; j++) ...[
+                    if (j > i) SizedBox(width: gap),
+                    Expanded(
+                      child: QuickActionTile(
+                        icon: actions[j].$1,
+                        label: actions[j].$2,
+                        subtitle: actions[j].$3,
+                        color: actions[j].$4,
+                        compact: compact,
+                        isDark: isDark,
+                        onTap: () => handleActionTap(actions[j].$2),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           );
         }
-
-        // Narrow Mobile: 2x2 grid
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(child: buildCard(actions[0], isMobileCompact: true)),
-                  const SizedBox(width: 8),
-                  Expanded(child: buildCard(actions[1], isMobileCompact: true)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(child: buildCard(actions[2], isMobileCompact: true)),
-                  const SizedBox(width: 8),
-                  Expanded(child: buildCard(actions[3], isMobileCompact: true)),
-                ],
-              ),
-            ],
-          ),
-        );
+        return Column(children: rows);
       },
     );
-  }
-
-  // 4. Exactly 6 Unique Promotional Banners Infinite Carousel
-  Widget _buildBannerCarousel(BuildContext context, bool isDark) {
-    final isDesktop = context.isDesktop;
-    final isTablet = context.isTablet;
-    _initBannerController(isDesktop, isTablet);
-
-    final carouselHeight = isDesktop ? 256.0 : (isTablet ? 214.0 : 196.0);
-
-    return Column(
-      children: [
-        SizedBox(
-          height: carouselHeight,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              PageView.builder(
-                controller: _bannerPageController,
-                itemCount: null,
-                onPageChanged: (idx) {
-                  setState(() {
-                    _virtualIndex = idx;
-                  });
-                  _scheduleBannerAdvance();
-                },
-                itemBuilder: (context, idx) {
-                  final bannerIndex = idx % 6;
-                  return AnimatedBuilder(
-                    animation: _bannerPageController!,
-                    builder: (context, child) {
-                      double currentPosition = idx.toDouble();
-                      if (_bannerPageController!.hasClients &&
-                          _bannerPageController!.position.haveDimensions) {
-                        currentPosition =
-                            _bannerPageController!.page ?? idx.toDouble();
-                      }
-                      final diff = (currentPosition - idx).abs();
-                      final scale = isDesktop
-                          ? (1.0 - (diff * 0.12).clamp(0.0, 0.12))
-                          : (isTablet
-                                ? (1.0 - (diff * 0.08).clamp(0.0, 0.08))
-                                : 1.0);
-                      final opacity = isDesktop
-                          ? (1.0 - (diff * 0.15).clamp(0.0, 0.15))
-                          : 1.0;
-
-                      return Transform.scale(
-                        scale: scale,
-                        alignment: Alignment.center,
-                        child: Opacity(opacity: opacity, child: child),
-                      );
-                    },
-                    child: _buildCarouselBannerItem(
-                      context,
-                      bannerIndex,
-                      isDark,
-                      isDesktop,
-                    ),
-                  );
-                },
-              ),
-              // Floating Navigation Arrows (Desktop & Tablet)
-              if (isDesktop || isTablet) ...[
-                Positioned(
-                  left: isDesktop ? 8 : 4,
-                  top: 0,
-                  bottom: 0,
-                  child: Center(
-                    child: _buildCarouselArrow(
-                      icon: Icons.chevron_left_rounded,
-                      onTap: () {
-                        if (_bannerPageController != null &&
-                            _bannerPageController!.hasClients) {
-                          _virtualIndex--;
-                          _bannerPageController!.animateToPage(
-                            _virtualIndex,
-                            duration: const Duration(milliseconds: 550),
-                            curve: Curves.easeInOutCubic,
-                          );
-                        }
-                      },
-                    ),
-                  ),
-                ),
-                Positioned(
-                  right: isDesktop ? 8 : 4,
-                  top: 0,
-                  bottom: 0,
-                  child: Center(
-                    child: _buildCarouselArrow(
-                      icon: Icons.chevron_right_rounded,
-                      onTap: () {
-                        if (_bannerPageController != null &&
-                            _bannerPageController!.hasClients) {
-                          _virtualIndex++;
-                          _bannerPageController!.animateToPage(
-                            _virtualIndex,
-                            duration: const Duration(milliseconds: 550),
-                            curve: Curves.easeInOutCubic,
-                          );
-                        }
-                      },
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
-        // 6 Pagination Dots
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(6, (idx) {
-            final isActive = (_virtualIndex % 6) == idx;
-            return GestureDetector(
-              onTap: () {
-                if (_bannerPageController != null &&
-                    _bannerPageController!.hasClients) {
-                  final currentDot = _virtualIndex % 6;
-                  var diff = idx - currentDot;
-                  if (diff > 3) diff -= 6;
-                  if (diff < -3) diff += 6;
-                  _virtualIndex += diff;
-                  _bannerPageController!.animateToPage(
-                    _virtualIndex,
-                    duration: const Duration(milliseconds: 550),
-                    curve: Curves.easeInOutCubic,
-                  );
-                }
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                margin: const EdgeInsets.symmetric(horizontal: 3.5),
-                width: isActive ? 22 : 6.5,
-                height: 6.5,
-                decoration: BoxDecoration(
-                  color: isActive
-                      ? const Color(0xFF0077D4)
-                      : (isDark ? Colors.white24 : const Color(0xFFCBD5E1)),
-                  borderRadius: BorderRadius.circular(3.5),
-                ),
-              ),
-            );
-          }),
-        ),
-        const SizedBox(height: 10),
-      ],
-    );
-  }
-
-  Widget _buildCarouselArrow({
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.white,
-      shape: const CircleBorder(),
-      elevation: 3,
-      shadowColor: const Color(0x28000000),
-      child: InkWell(
-        onTap: onTap,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: 36,
-          height: 36,
-          alignment: Alignment.center,
-          child: Icon(icon, size: 22, color: const Color(0xFF334155)),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBannerButton({
-    required String label,
-    required Color color,
-    required VoidCallback onTap,
-    Color textColor = Colors.white,
-    bool isSmall = false,
-  }) {
-    return Material(
-      color: color,
-      borderRadius: BorderRadius.circular(24),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: isSmall ? 14 : 20,
-            vertical: isSmall ? 7 : 10,
-          ),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: color.withValues(alpha: 0.32),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: textColor,
-              fontSize: isSmall ? 11 : 13,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.2,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBannerBadge({
-    required String text,
-    required Color bgColor,
-    required Color textColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: textColor,
-          fontSize: 9.5,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.8,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCarouselCardContainer({
-    required Widget child,
-    required LinearGradient gradient,
-    required Color accentColor,
-    required bool isDark,
-    required bool isDesktop,
-  }) {
-    return Container(
-      margin: EdgeInsets.symmetric(horizontal: isDesktop ? 8 : 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: isDark ? Colors.white12 : Colors.white.withValues(alpha: 0.85),
-          width: 1.4,
-        ),
-        boxShadow: [
-          // Soft coloured glow + a tight contact shadow for depth.
-          BoxShadow(
-            color: accentColor.withValues(alpha: isDark ? 0.25 : 0.22),
-            blurRadius: 26,
-            spreadRadius: -4,
-            offset: const Offset(0, 10),
-          ),
-          BoxShadow(
-            color: const Color(0xFF0F2850)
-                .withValues(alpha: isDark ? 0.3 : 0.07),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(21),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            AnimatedBannerBackground(
-              gradient: gradient,
-              accentColor: accentColor,
-              isDark: isDark,
-            ),
-            child,
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPurifierFeaturePills(bool isDesktop) {
-    final pills = [
-      (Icons.water_drop_rounded, 'Multi-Stage'),
-      (Icons.shield_rounded, 'RO + UV'),
-      (Icons.eco_rounded, 'Mineral'),
-      (Icons.handyman_rounded, 'Low Maint.'),
-    ];
-    return Wrap(
-      spacing: isDesktop ? 6 : 4,
-      runSpacing: 4,
-      children: pills.map((p) {
-        return Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: isDesktop ? 6 : 4,
-            vertical: 2,
-          ),
-          decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.9),
-            borderRadius: BorderRadius.circular(6),
-            border: Border.all(color: const Color(0xFFBAE6FD), width: 0.8),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0284C7).withValues(alpha: 0.06),
-                blurRadius: 4,
-                offset: const Offset(0, 1),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                p.$1,
-                size: isDesktop ? 10.5 : 8.5,
-                color: const Color(0xFF0284C7),
-              ),
-              const SizedBox(width: 3),
-              Text(
-                p.$2,
-                style: TextStyle(
-                  fontSize: isDesktop ? 8.5 : 7.5,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF0369A1),
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildCarouselCardContent({
-    required Widget badge,
-    required String title,
-    required String description,
-    required String buttonLabel,
-    required Color buttonColor,
-    required Color titleColor,
-    required Color descriptionColor,
-    required String imageAsset,
-    required VoidCallback onButtonTap,
-    required bool isDesktop,
-    Color? buttonTextColor,
-    Widget? featurePills,
-  }) {
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        isDesktop ? 30 : 16,
-        isDesktop ? 18 : 12,
-        isDesktop ? 18 : 12,
-        isDesktop ? 18 : 12,
-      ),
-      child: Row(
-        children: [
-          // Copy. Keeps its full width so text wraps normally, and scales
-          // down slightly (instead of overflowing) when a banner's content is
-          // taller than the space available.
-          Expanded(
-            flex: 11,
-            child: LayoutBuilder(
-              builder: (context, copyBox) => FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: SizedBox(
-                  width: copyBox.maxWidth,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      badge,
-                      SizedBox(height: isDesktop ? 10 : 6),
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: isDesktop ? 24 : 15.5,
-                          fontWeight: FontWeight.w900,
-                          color: titleColor,
-                          height: 1.12,
-                          letterSpacing: -0.4,
-                        ),
-                      ),
-                      SizedBox(height: isDesktop ? 7 : 4),
-                      Text(
-                        description,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: isDesktop ? 12.5 : 9.5,
-                          color: descriptionColor,
-                          height: 1.35,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      if (featurePills != null) ...[
-                        SizedBox(height: isDesktop ? 8 : 4),
-                        featurePills,
-                      ],
-                      SizedBox(height: isDesktop ? 14 : 8),
-                      _buildBannerButton(
-                        label: buttonLabel,
-                        color: buttonColor,
-                        textColor: buttonTextColor ?? Colors.white,
-                        onTap: onButtonTap,
-                        isSmall: !isDesktop,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          SizedBox(width: isDesktop ? 16 : 10),
-          // Product showcase: transparent cut-out, shown whole (never
-          // cropped or stretched) directly on the banner background.
-          Expanded(
-            flex: 9,
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: isDesktop ? 10 : 8),
-              child: FloatingBannerProduct(
-                child: Image.asset(
-                  imageAsset,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.water_drop_rounded,
-                    size: 55,
-                    color: Color(0xFF0284C7),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCarouselBannerItem(
-    BuildContext context,
-    int index,
-    bool isDark,
-    bool isDesktop,
-  ) {
-    switch (index) {
-      case 0:
-        // 1. Genuine RO Spares (Left banner in reference image)
-        return _buildCarouselCardContainer(
-          isDark: isDark,
-          isDesktop: isDesktop,
-          accentColor: const Color(0xFF0284C7),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF9CCEF5), Color(0xFFC3E2FA), Color(0xFFE8F4FE)],
-          ),
-          child: _buildCarouselCardContent(
-            badge: _buildBannerBadge(
-              text: '100% GENUINE',
-              bgColor: const Color(0xFFE0F2FE),
-              textColor: const Color(0xFF0284C7),
-            ),
-            title: 'Genuine\nRO Spares',
-            description: 'Filters | Membranes |\nPumps | Accessories',
-            buttonLabel: 'Shop Now  →',
-            buttonColor: const Color(0xFF0284C7),
-            titleColor: const Color(0xFF0F2850),
-            descriptionColor: const Color(0xFF0369A1),
-            imageAsset: 'assets/images/banners_cutout/spare_parts.png',
-            onButtonTap: () => context.go('/products'),
-            isDesktop: isDesktop,
-          ),
-        );
-
-      case 1:
-        // 2. Neero+ RO Water Purifiers (Center flagship banner in reference image)
-        return _buildCarouselCardContainer(
-          isDark: isDark,
-          isDesktop: isDesktop,
-          accentColor: const Color(0xFF0284C7),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF94C8F4), Color(0xFFBEDDF9), Color(0xFFE6F2FE)],
-          ),
-          child: _buildCarouselCardContent(
-            badge: _buildBannerBadge(
-              text: 'BEST SELLER',
-              bgColor: const Color(0xFF0284C7),
-              textColor: Colors.white,
-            ),
-            title: 'Neero+ RO\nWater Purifiers',
-            description: 'Pure • Safe • Healthy Drinking Water',
-            buttonLabel: 'Shop Now  →',
-            buttonColor: const Color(0xFF0284C7),
-            titleColor: const Color(0xFF0F2850),
-            descriptionColor: const Color(0xFF0369A1),
-            imageAsset: 'assets/images/banners_cutout/ro_system.png',
-            featurePills: _buildPurifierFeaturePills(isDesktop),
-            onButtonTap: () => context.go('/products'),
-            isDesktop: isDesktop,
-          ),
-        );
-
-      case 2:
-        // 3. RO Pipes, Tubing & Fittings
-        return _buildCarouselCardContainer(
-          isDark: isDark,
-          isDesktop: isDesktop,
-          accentColor: const Color(0xFF0284C7),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF9DD0F2), Color(0xFFC0E3F6), Color(0xFFD9F3E8)],
-          ),
-          child: _buildCarouselCardContent(
-            badge: _buildBannerBadge(
-              text: 'INSTALL ESSENTIALS',
-              bgColor: const Color(0xFF0284C7),
-              textColor: Colors.white,
-            ),
-            title: 'RO Pipes, Tubing\n& Fittings',
-            description:
-                'Tubing, Connectors & Accessories\nfor Every RO Installation',
-            buttonLabel: 'Shop Fittings  →',
-            buttonColor: const Color(0xFF0284C7),
-            titleColor: const Color(0xFF0F2850),
-            descriptionColor: const Color(0xFF0369A1),
-            imageAsset: 'assets/images/banners_cutout/tubes.png',
-            onButtonTap: () => context.go('/products'),
-            isDesktop: isDesktop,
-          ),
-        );
-
-      case 3:
-        // 4. Premium Filter Membranes
-        return _buildCarouselCardContainer(
-          isDark: isDark,
-          isDesktop: isDesktop,
-          accentColor: const Color(0xFF8B5CF6),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFFC9AEF8), Color(0xFFDCCBFB), Color(0xFFF1E9FE)],
-          ),
-          child: _buildCarouselCardContent(
-            badge: _buildBannerBadge(
-              text: '98% TDS REJECTION',
-              bgColor: const Color(0xFF8B5CF6),
-              textColor: Colors.white,
-            ),
-            title: 'Premium Filter\nMembranes',
-            description: 'High TDS Rejection 75 GPD &\n100 GPD Vented Anti-Bacterial Sheets',
-            buttonLabel: 'Order Spares  →',
-            buttonColor: const Color(0xFF7C3AED),
-            titleColor: const Color(0xFF3B0764),
-            descriptionColor: const Color(0xFF581C87),
-            imageAsset: 'assets/images/banners_cutout/membrane.png',
-            onButtonTap: () => context.go('/products'),
-            isDesktop: isDesktop,
-          ),
-        );
-
-      case 4:
-        // 5. High Pressure RO Booster Pumps
-        return _buildCarouselCardContainer(
-          isDark: isDark,
-          isDesktop: isDesktop,
-          accentColor: const Color(0xFF06B6D4),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF8BDDEC), Color(0xFFB6EAF3), Color(0xFFDDF7FB)],
-          ),
-          child: _buildCarouselCardContent(
-            badge: _buildBannerBadge(
-              text: 'HEAVY DUTY',
-              bgColor: const Color(0xFF06B6D4),
-              textColor: Colors.white,
-            ),
-            title: 'High Pressure\nRO Booster Pumps',
-            description: '100 GPD to 450 GPD Heavy-Duty Motors\n100% Pure Copper Windings',
-            buttonLabel: 'Explore Range  →',
-            buttonColor: const Color(0xFF0891B2),
-            titleColor: const Color(0xFF0E4C56),
-            descriptionColor: const Color(0xFF155E75),
-            imageAsset: 'assets/images/banners_cutout/pumps.png',
-            onButtonTap: () => context.go('/products'),
-            isDesktop: isDesktop,
-          ),
-        );
-
-      case 5:
-      default:
-        // 6. Activated Carbon Filters
-        return _buildCarouselCardContainer(
-          isDark: isDark,
-          isDesktop: isDesktop,
-          accentColor: const Color(0xFF10B981),
-          gradient: const LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF98E2B8), Color(0xFFC0EED3), Color(0xFFE2F8EB)],
-          ),
-          child: _buildCarouselCardContent(
-            badge: _buildBannerBadge(
-              text: 'LONG LASTING',
-              bgColor: const Color(0xFFD1FAE5),
-              textColor: const Color(0xFF059669),
-            ),
-            title: 'Activated\nCarbon Filters',
-            description: 'Remove Chlorine, Odour\n& Organic Impurities',
-            buttonLabel: 'Shop Now  →',
-            buttonColor: const Color(0xFF10B981),
-            titleColor: const Color(0xFF064E3B),
-            descriptionColor: const Color(0xFF166534),
-            imageAsset: 'assets/images/banners_cutout/filter.png',
-            onButtonTap: () => context.go('/products'),
-            isDesktop: isDesktop,
-          ),
-        );
-    }
   }
 
   // Section Header
@@ -2261,6 +1531,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   // Responsive 4-Column Product Grid (Desktop: 4, Tablet: 3, Mobile: 2)
+  /// Best Sellers slider: 4 Cabinet cards across on desktop (3 on tablet,
+  /// 2 on phone); the rest by swiping, mouse drag or the arrows.
+  Widget _buildBestSellersCarousel(
+    BuildContext context,
+    List<ProductModel> products,
+  ) {
+    final isDesktop = context.isDesktop;
+    final isTablet = context.isTablet;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: HomeProductCarousel(
+        products: products,
+        sectionKey: 'best_sellers',
+        visibleCount: isDesktop
+            ? homeBestSellerVisibleDesktop
+            : (isTablet
+                  ? homeBestSellerVisibleTablet
+                  : homeBestSellerVisiblePhone),
+        spacing: isDesktop ? 20.0 : (isTablet ? 14.0 : 12.0),
+        onTap: (product, heroTag) => _pushHomeRoute(
+          context,
+          ProductDetailsScreen(product: product, heroTag: heroTag),
+        ),
+        onAddToCart: (product) => addProductToCart(context, ref, product),
+      ),
+    );
+  }
+
   Widget _buildResponsiveProductGrid(
     BuildContext context,
     List<ProductModel> products, {
@@ -2386,18 +1684,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         children: [
           LoadingSkeleton.rectangular(
             width: double.infinity,
-            height: 48,
-            borderRadius: 16,
-          ),
-          SizedBox(height: 16),
-          LoadingSkeleton.rectangular(
-            width: double.infinity,
-            height: 70,
-            borderRadius: 16,
-          ),
-          SizedBox(height: 16),
-          LoadingSkeleton.rectangular(
-            width: double.infinity,
             height: 150,
             borderRadius: 20,
           ),
@@ -2414,551 +1700,5 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   void _showCartDrawerModal(BuildContext context) {
     context.go('/cart');
-  }
-
-  void _openSearchModal(BuildContext context) {
-    debugPrint("HEADER SEARCH BUTTON TAPPED");
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useRootNavigator: true,
-      backgroundColor: Colors.transparent,
-      builder: (modalContext) => const _SearchModalWidget(),
-    );
-  }
-}
-
-// FRESH REBUILT DEDICATED SEARCH UI MODAL
-class _SearchModalWidget extends ConsumerStatefulWidget {
-  const _SearchModalWidget();
-
-  @override
-  ConsumerState<_SearchModalWidget> createState() => _SearchModalWidgetState();
-}
-
-class _SearchModalWidgetState extends ConsumerState<_SearchModalWidget> {
-  final TextEditingController _searchController = TextEditingController();
-  final FocusNode _searchFocusNode = FocusNode();
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _searchFocusNode.requestFocus();
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _searchFocusNode.dispose();
-    super.dispose();
-  }
-
-  // Singular & Plural Aware Case-Insensitive Category & Product Search Matching
-  bool _matchSearchQuery(ProductModel product, String query) {
-    final raw = query.trim().toLowerCase();
-    if (raw.isEmpty) return false;
-
-    // Normalize multiple whitespace
-    final q = raw.replaceAll(RegExp(r'\s+'), ' ');
-
-    final catId = product.categoryId.toLowerCase();
-    final catName = product.categoryName.toLowerCase();
-    final prodName = product.name.toLowerCase();
-    final brandName = product.brand.toLowerCase();
-    final skuName = product.sku.toLowerCase();
-    final descName = product.description.toLowerCase();
-
-    // 1. Requirement 6: Explicit Category Keyword Search Mappings
-    final isFilterQuery =
-        q == 'filter' || q == 'filters' || q.startsWith('filter');
-    final isPumpQuery =
-        q == 'pump' ||
-        q == 'pumps' ||
-        q.startsWith('pump') ||
-        q.contains('booster');
-    final isMembraneQuery =
-        q == 'membrane' || q == 'membranes' || q.startsWith('membrane');
-    final isPipeQuery = q == 'pipe' || q == 'pipes' || q.contains('tubing');
-    final isSpareQuery =
-        q == 'spare' ||
-        q == 'spares' ||
-        q.contains('spare') ||
-        q.contains('part');
-    final isAccessoryQuery =
-        q == 'accessory' || q == 'accessories' || q.contains('fitting');
-
-    if (isFilterQuery &&
-        (catId.contains('filter') ||
-            catName.contains('filter') ||
-            prodName.contains('filter'))) {
-      return true;
-    }
-    if (isPumpQuery &&
-        (catId.contains('pump') ||
-            catName.contains('pump') ||
-            prodName.contains('pump'))) {
-      return true;
-    }
-    if (isMembraneQuery &&
-        (catId.contains('membrane') ||
-            catName.contains('membrane') ||
-            prodName.contains('membrane'))) {
-      return true;
-    }
-    if (isPipeQuery &&
-        (catId.contains('pipe') ||
-            catName.contains('pipe') ||
-            prodName.contains('pipe') ||
-            prodName.contains('tubing'))) {
-      return true;
-    }
-    if (isSpareQuery &&
-        (catId.contains('spare') ||
-            catName.contains('spare') ||
-            catId.contains('part') ||
-            catName.contains('part') ||
-            prodName.contains('spare') ||
-            prodName.contains('part') ||
-            catId.contains('purifier_parts'))) {
-      return true;
-    }
-    if (isAccessoryQuery &&
-        (catId.contains('accessory') ||
-            catName.contains('accessory') ||
-            catId.contains('connector') ||
-            catName.contains('connector'))) {
-      return true;
-    }
-
-    // 2. Singular & Plural Tokens Matching
-    final String singularQ = (q.endsWith('s') && q.length > 2)
-        ? q.substring(0, q.length - 1)
-        : q;
-    final String pluralQ = q.endsWith('s') ? q : '${q}s';
-
-    final List<String> matchTokens = [q, singularQ, pluralQ];
-
-    final List<String> targetFields = [
-      prodName,
-      brandName,
-      catName,
-      catId,
-      skuName,
-      descName,
-    ];
-
-    for (final token in matchTokens) {
-      if (token.isEmpty) continue;
-      for (final field in targetFields) {
-        if (field.contains(token)) return true;
-      }
-    }
-    return false;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final allProducts = ref.watch(allProductsProvider);
-    final query = _searchController.text.trim();
-    final searchResults = allProducts
-        .where((p) => _matchSearchQuery(p, query))
-        .toList();
-
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.92,
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF0F172A) : Colors.white,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        children: [
-          // Drag Handle
-          const SizedBox(height: 10),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white24 : Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(height: 12),
-
-          // Header Row: < Back Button | Search TextField | Clear (X)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                // Back Button (Matched 46px height and 14px radius)
-                Material(
-                  color: Colors.transparent,
-                  borderRadius: BorderRadius.circular(14),
-                  child: InkWell(
-                    onTap: () => Navigator.pop(context),
-                    borderRadius: BorderRadius.circular(14),
-                    child: Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? const Color(0xFF1E293B)
-                            : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: isDark
-                              ? const Color(0xFF334155)
-                              : const Color(0xFFE2E8F0),
-                          width: 1.0,
-                        ),
-                      ),
-                      child: Center(
-                        child: Icon(
-                          Icons.arrow_back_rounded,
-                          color: isDark
-                              ? Colors.white
-                              : const Color(0xFF0F172A),
-                          size: 20,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-
-                // Search TextField (Matched 46px height, 14px radius, subtle border & shadow)
-                Expanded(
-                  child: Container(
-                    height: 46,
-                    decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF1E293B) : Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: isDark
-                            ? const Color(0xFF334155)
-                            : const Color(0xFFE2E8F0),
-                        width: 1.0,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(
-                            alpha: isDark ? 0.2 : 0.04,
-                          ),
-                          blurRadius: 6,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: TextField(
-                      controller: _searchController,
-                      focusNode: _searchFocusNode,
-                      autofocus: true,
-                      showCursor: true,
-                      cursorColor: _homeBlue,
-                      textAlignVertical: TextAlignVertical.center,
-                      onChanged: (val) => setState(() {}),
-                      style: TextStyle(
-                        fontSize: 14.5,
-                        color: isDark ? Colors.white : const Color(0xFF0F172A),
-                        fontWeight: FontWeight.w500,
-                      ),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        hintText: 'Search products, parts, brands...',
-                        hintStyle: const TextStyle(
-                          fontSize: 13.5,
-                          color: Color(0xFF94A3B8),
-                          fontWeight: FontWeight.w400,
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.search_rounded,
-                          color: Color(0xFF94A3B8),
-                          size: 20,
-                        ),
-                        suffixIcon: _searchController.text.isNotEmpty
-                            ? IconButton(
-                                icon: const Icon(
-                                  Icons.cancel_rounded,
-                                  size: 18,
-                                  color: Color(0xFF94A3B8),
-                                ),
-                                onPressed: () {
-                                  setState(() {
-                                    _searchController.clear();
-                                  });
-                                },
-                              )
-                            : null,
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 12),
-          const Divider(height: 1),
-
-          // Search Results or Empty State View
-          Expanded(
-            child: query.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 20,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.trending_up_rounded,
-                              size: 18,
-                              color: _homeBlue,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Trending Wholesale Searches',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -0.2,
-                                color: isDark
-                                    ? Colors.white
-                                    : const Color(0xFF0F172A),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 10,
-                          children:
-                              [
-                                'Filter',
-                                'RO Pump',
-                                'Membrane',
-                                'Pipe',
-                                'RO Spares',
-                                '50 LPH System',
-                                'SMPS Adapter',
-                                'Float Valve',
-                              ].map((tag) {
-                                return Material(
-                                  color: Colors.transparent,
-                                  borderRadius: BorderRadius.circular(10),
-                                  child: InkWell(
-                                    onTap: () {
-                                      setState(() {
-                                        _searchController.text = tag;
-                                      });
-                                    },
-                                    borderRadius: BorderRadius.circular(10),
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 8.5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: isDark
-                                            ? const Color(0xFF1E293B)
-                                            : const Color(0xFFF1F5F9),
-                                        borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(
-                                          color: isDark
-                                              ? const Color(0xFF334155)
-                                              : const Color(0xFFE2E8F0),
-                                          width: 1.0,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        tag,
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w600,
-                                          color: isDark
-                                              ? Colors.white70
-                                              : const Color(0xFF1E293B),
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                        ),
-                      ],
-                    ),
-                  )
-                : searchResults.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(
-                            Icons.search_off_rounded,
-                            size: 54,
-                            color: Colors.grey,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            'No products found',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: isDark
-                                  ? Colors.white
-                                  : const Color(0xFF0F172A),
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            'No results match "$query". Try searching for "filter", "pump", "membrane", "pipe", or "spares".',
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: searchResults.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 12),
-                    itemBuilder: (context, index) {
-                      final product = searchResults[index];
-                      return Material(
-                        color: isDark
-                            ? const Color(0xFF1E293B)
-                            : const Color(0xFFF8FAFC),
-                        borderRadius: BorderRadius.circular(16),
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(16),
-                          onTap: () {
-                            Navigator.pop(
-                              context,
-                            ); // Close search modal cleanly
-                            _pushHomeRoute(
-                              context,
-                              ProductDetailsScreen(product: product),
-                            );
-                          },
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Container(
-                                  width: 56,
-                                  height: 56,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: Colors.grey.withValues(alpha: 0.2),
-                                    ),
-                                  ),
-                                  padding: const EdgeInsets.all(4),
-                                  child: AppImage(
-                                    product.displayImageUrl,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.water_drop_rounded,
-                                      color: _homeBlue,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        product.brand.toUpperCase(),
-                                        style: const TextStyle(
-                                          fontSize: 9.5,
-                                          fontWeight: FontWeight.w900,
-                                          color: _homeBlue,
-                                        ),
-                                      ),
-                                      Text(
-                                        product.name,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: 13.5,
-                                          fontWeight: FontWeight.w800,
-                                          color: isDark
-                                              ? Colors.white
-                                              : const Color(0xFF0F172A),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            '₹${product.dealerPrice.toStringAsFixed(0)}',
-                                            style: const TextStyle(
-                                              fontSize: 14,
-                                              fontWeight: FontWeight.w900,
-                                              color: _homeBlue,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            'MOQ: ${product.moq}',
-                                            style: const TextStyle(
-                                              fontSize: 11,
-                                              color: Colors.grey,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: const BoxDecoration(
-                                      color: _homeBlue,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.add_rounded,
-                                      color: Colors.white,
-                                      size: 16,
-                                    ),
-                                  ),
-                                  onPressed: () =>
-                                      addProductToCart(context, ref, product),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    );
   }
 }

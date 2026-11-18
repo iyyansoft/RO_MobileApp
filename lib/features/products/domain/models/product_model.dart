@@ -7,8 +7,9 @@ enum StockStatus {
     switch (this) {
       case StockStatus.inStock:
         return 'IN STOCK';
+      // Stock above 0 but below the MOQ: the minimum order is unavailable.
       case StockStatus.lowStock:
-        return 'LOW STOCK';
+        return 'BELOW MOQ';
       case StockStatus.outOfStock:
         return 'OUT OF STOCK';
     }
@@ -26,17 +27,97 @@ class ProductModel {
   final double dealerPrice;
   final double? purchasePrice;
 
+  /// Cabinet Price (products.cabinet_price) for Cabinet products; null when
+  /// not set or for other categories. Never derived from Dealer Price or MRP.
+  final double? cabinetPrice;
+
+  /// True when a Cabinet Price should be shown.
+  bool get hasCabinetPrice => cabinetPrice != null && cabinetPrice! > 0;
+
   double get detailsPrice => purchasePrice ?? dealerPrice;
   final String imageUrl;
   final List<String> galleryImages;
   final StockStatus stockStatus;
-  final int moq; // Minimum Order Quantity
+  final int moq; // Minimum Order Quantity (1 when not set, for cart maths)
+  /// False when the catalogue has no MOQ for this product (blank in the
+  /// database). Screens then show "MOQ not set" instead of a number.
+  final bool moqSet;
+
+  /// Real inventory (products.stock_quantity); null when not tracked, or
+  /// when a local preview has stock checks off. Never derived from the MOQ.
+  final int? stockQuantity;
+
+  /// Most units per order line, from the server: for the supplier-PDF
+  /// catalogue this is the PDF quantity ("10 nos" -> 10). Null = no limit.
+  final int? maxOrderQuantity;
+
+  /// Stock 0 (or marked out of stock).
+  bool get isOutOfStock => stockStatus == StockStatus.outOfStock;
+
+  /// Not used by the current rule (kept for older data).
+  bool get isBelowMoq => stockStatus == StockStatus.lowStock;
+
+  /// Smallest quantity that may be ordered: always 1.
+  int get minOrderQty => 1;
+
+  /// Largest quantity allowed: the product maximum and the stock, whichever
+  /// is lower (null when neither applies).
+  int? get maxOrderQty {
+    final limits = [?maxOrderQuantity, ?stockQuantity];
+    if (limits.isEmpty) return null;
+    return limits.reduce((a, b) => a < b ? a : b);
+  }
+
+  /// Can be added to the cart and ordered.
+  bool get canOrder => !isOutOfStock;
+
+  /// The MOQ as saved, for messages ("10 nos"), or "1".
+  String get moqText =>
+      moqSet ? '$moq${moqUnit == null ? '' : ' $moqUnit'}' : '1';
+
+  /// Why it cannot be ordered at all, or null when it can.
+  String? get orderBlockedReason =>
+      isOutOfStock ? '$name is out of stock.' : null;
+
+  /// True when [quantity] is above the product maximum (shows the
+  /// "Maximum Order Quantity Reached" popup).
+  bool exceedsMaximum(int quantity) =>
+      maxOrderQuantity != null && quantity > maxOrderQuantity!;
+
+  /// "You can order a maximum of 10 units for this product."
+  String get maximumMessage =>
+      'You can order a maximum of $maxOrderQuantity units for this product.';
+
+  /// Why [quantity] (in total, in the cart) cannot be ordered, or null.
+  String? quantityProblem(int quantity) {
+    final blocked = orderBlockedReason;
+    if (blocked != null) return blocked;
+    if (quantity < 1) return 'Quantity must be at least 1.';
+    if (exceedsMaximum(quantity)) return maximumMessage;
+    final stock = stockQuantity;
+    if (stock != null && quantity > stock)
+      return 'Only $stock of $name in stock.';
+    return null;
+  }
+
+  /// "MOQ: 10 Pcs", or "MOQ not set" when the catalogue has no value.
+  /// Unit as saved with the quantity ("10 nos" -> "nos"), or null.
+  final String? moqUnit;
+
+  /// "MOQ: 10 nos" with the saved unit (or [unit] when none was saved), or
+  /// "MOQ not set" when the catalogue has no value.
+  String moqLabel([String unit = 'Pcs']) =>
+      moqSet ? 'MOQ: $moq ${moqUnit ?? unit}' : 'MOQ not set';
   final double rating;
   final int reviewCount;
   final bool isFeatured;
   final String description;
   final Map<String, String> specifications;
   final List<String> features;
+
+  /// When the product was added (from the database); null for older API
+  /// responses. Used for "New Arrivals" and the "Newest First" sort.
+  final DateTime? createdAt;
 
   const ProductModel({
     required this.id,
@@ -48,16 +129,22 @@ class ProductModel {
     required this.mrp,
     required this.dealerPrice,
     this.purchasePrice,
+    this.cabinetPrice,
     required this.imageUrl,
     this.galleryImages = const [],
     required this.stockStatus,
     required this.moq,
+    this.moqSet = true,
+    this.moqUnit,
+    this.stockQuantity,
+    this.maxOrderQuantity,
     this.rating = 0,
     this.reviewCount = 0,
     this.isFeatured = false,
     this.description = '',
     this.specifications = const {},
     this.features = const [],
+    this.createdAt,
   });
 
   static const Map<String, int> _catalogSpriteBySku = {
@@ -130,7 +217,20 @@ class ProductModel {
   factory ProductModel.fromJson(Map<String, dynamic> json) {
     double number(dynamic value) =>
         double.tryParse('$value'.replaceAll(RegExp(r'[^0-9.]'), '')) ?? 0;
-    final quantity = RegExp(r'\d+').firstMatch('${json['moq'] ?? 1}');
+    final moqRaw = '${json['moq'] ?? ''}';
+    // stock_enforced is false only in a local preview with stock checks off.
+    final stockQuantity =
+        json['stock_quantity'] == null || json['stock_enforced'] == false
+        ? null
+        : number(json['stock_quantity']).floor();
+    final maxOrderQuantity = int.tryParse(
+      '${json['max_order_quantity'] ?? ''}',
+    );
+    final quantity = RegExp(r'\d+').firstMatch(moqRaw);
+    // The unit written after the number, kept as saved ("10 nos" -> "nos").
+    final moqUnit = RegExp(r'\d+\s*([A-Za-z][A-Za-z.]*)')
+        .firstMatch(moqRaw)
+        ?.group(1);
     final rawRating = '${json['rating'] ?? 0}';
     final ratingMatch = RegExp(r'\d+(?:\.\d+)?').firstMatch(rawRating);
     String categoryValue(List<dynamic> values) => values
@@ -163,14 +263,24 @@ class ProductModel {
           json['purchase_price'] == null && json['purchasePrice'] == null
           ? null
           : number(json['purchase_price'] ?? json['purchasePrice']),
+      cabinetPrice: _positiveOrNull(
+        json['cabinet_price'] ?? json['cabinetPrice'],
+      ),
       imageUrl: '${json['img'] ?? json['imgSrc'] ?? ''}',
-      stockStatus:
-          ('${json['badge']}'.toLowerCase().contains('out of stock') ||
-              (json['stock_quantity'] != null &&
-                  number(json['stock_quantity']) <= 0))
-          ? StockStatus.outOfStock
-          : StockStatus.inStock,
+      stockStatus: _stockStatus(
+        markedOutOfStock: '${json['badge']}'.toLowerCase().contains(
+          'out of stock',
+        ),
+        stock: stockQuantity,
+        minOrder: 1,
+      ),
+      stockQuantity: stockQuantity,
+      maxOrderQuantity: maxOrderQuantity != null && maxOrderQuantity >= 1
+          ? maxOrderQuantity
+          : null,
       moq: int.tryParse(quantity?.group(0) ?? '1') ?? 1,
+      moqSet: quantity != null,
+      moqUnit: moqUnit,
       rating: double.tryParse(ratingMatch?.group(0) ?? '0') ?? 0,
       reviewCount: 0,
       isFeatured: '${json['badge'] ?? ''}'.isNotEmpty,
@@ -181,6 +291,49 @@ class ProductModel {
       features: json['features'] is List
           ? (json['features'] as List).map((v) => '$v').toList()
           : [],
+      createdAt: DateTime.tryParse(
+        '${json['created_at'] ?? json['createdAt'] ?? ''}',
+      ),
     );
   }
+
+  /// Newest first by [createdAt]; products without a date keep their order
+  /// after the dated ones.
+  static List<ProductModel> newestFirst(Iterable<ProductModel> products) {
+    final indexed = products.toList().asMap().entries.toList();
+    indexed.sort((a, b) {
+      final ad = a.value.createdAt, bd = b.value.createdAt;
+      if (ad != null && bd != null) {
+        final c = bd.compareTo(ad);
+        if (c != 0) return c;
+      } else if (ad != null) {
+        return -1;
+      } else if (bd != null) {
+        return 1;
+      }
+      return a.key.compareTo(b.key);
+    });
+    return [for (final e in indexed) e.value];
+  }
+}
+
+/// A price above zero, or null (blank, 0 or not a number: never shown as ₹0).
+double? _positiveOrNull(dynamic value) {
+  if (value == null) return null;
+  final amount = value is num ? value.toDouble() : double.tryParse('$value'.trim());
+  return amount != null && amount.isFinite && amount > 0 ? amount : null;
+}
+
+/// Stock 0 -> Out of Stock; stock below the MOQ -> Below MOQ; else In Stock.
+/// Stock is the real inventory and is never set from the MOQ.
+StockStatus _stockStatus({
+  required bool markedOutOfStock,
+  required int? stock,
+  required int minOrder,
+}) {
+  if (markedOutOfStock || (stock != null && stock <= 0)) {
+    return StockStatus.outOfStock;
+  }
+  if (stock != null && stock < minOrder) return StockStatus.lowStock;
+  return StockStatus.inStock;
 }

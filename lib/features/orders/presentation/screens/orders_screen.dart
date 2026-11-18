@@ -683,6 +683,86 @@ class _OrderCardState extends ConsumerState<_OrderCard> {
     );
   }
 
+  /// Amounts exactly as saved with the order (never recomputed here), so
+  /// they match the invoice and what was charged.
+  Widget _priceSummary(Color ink) {
+    num amount(String key) => num.tryParse('${order[key] ?? 0}') ?? 0;
+    final withGst = order['withGst'] == true;
+    final rows = <(String, String, Color?)>[
+      ('Subtotal', _money(amount('subtotal')), null),
+      if (amount('discount') > 0)
+        (
+          'Dealer discount',
+          '- ${_money(amount('discount'))}',
+          const Color(0xFF059669),
+        ),
+      (withGst ? 'GST' : 'GST (Without GST)', _money(amount('gst')), null),
+      (
+        'Delivery / Freight',
+        amount('deliveryFee') == 0 ? 'FREE' : _money(amount('deliveryFee')),
+        amount('deliveryFee') == 0 ? const Color(0xFF059669) : null,
+      ),
+    ];
+    return Container(
+      key: const ValueKey('order-price-summary'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _line),
+      ),
+      child: Column(
+        children: [
+          for (final (label, value, color) in rows)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: const TextStyle(fontSize: 12.5, color: _muted),
+                    ),
+                  ),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: color ?? ink,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const Divider(height: 16, color: _line),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Grand total',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: ink,
+                  ),
+                ),
+              ),
+              Text(
+                _money(amount('grandTotal')),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: ink,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _details(List<ProductModel> catalog, List<Map> items, Color ink) {
     final delivery = _addressText(order['deliveryAddress']);
     final billing = _addressText(order['billingAddress']);
@@ -765,6 +845,12 @@ class _OrderCardState extends ConsumerState<_OrderCard> {
                 ],
               ),
             ),
+          if (order['subtotal'] != null) ...[
+            const SizedBox(height: 10),
+            const _SectionLabel('Price summary'),
+            const SizedBox(height: 4),
+            _priceSummary(ink),
+          ],
           const SizedBox(height: 10),
           const _SectionLabel('Details'),
           const SizedBox(height: 4),

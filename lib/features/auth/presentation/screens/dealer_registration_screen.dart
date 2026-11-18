@@ -105,19 +105,33 @@ class _DealerRegistrationScreenState
             child: SingleChildScrollView(
               padding: const EdgeInsets.all(20),
               child: Container(
-                margin: context.isWideScreen ? const EdgeInsets.symmetric(vertical: 36) : EdgeInsets.zero,
-                padding: context.isWideScreen ? const EdgeInsets.all(36) : EdgeInsets.zero,
+                margin: context.isWideScreen
+                    ? const EdgeInsets.symmetric(vertical: 36)
+                    : EdgeInsets.zero,
+                padding: context.isWideScreen
+                    ? const EdgeInsets.all(36)
+                    : EdgeInsets.zero,
                 decoration: context.isWideScreen
                     ? BoxDecoration(
-                        color: Theme.of(context).brightness == Brightness.dark ? AppColors.surfaceDark : Colors.white,
+                        color: Theme.of(context).brightness == Brightness.dark
+                            ? AppColors.surfaceDark
+                            : Colors.white,
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1E2D3D) : const Color(0xFFE2E8F0),
+                          color: Theme.of(context).brightness == Brightness.dark
+                              ? const Color(0xFF1E2D3D)
+                              : const Color(0xFFE2E8F0),
                           width: 1,
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: Theme.of(context).brightness == Brightness.dark ? 0.3 : 0.05),
+                            color: Colors.black.withValues(
+                              alpha:
+                                  Theme.of(context).brightness ==
+                                      Brightness.dark
+                                  ? 0.3
+                                  : 0.05,
+                            ),
                             blurRadius: 24,
                             offset: const Offset(0, 8),
                           ),
@@ -125,162 +139,169 @@ class _DealerRegistrationScreenState
                       )
                     : null,
                 child: Form(
-                key: _form,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Center(child: BrandLogo(width: 250, height: 90)),
-                    const SizedBox(height: 18),
-                    const Text(
-                      'Register for wholesale access',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Create your account and verify your email to start shopping immediately.',
-                    ),
-                    const SizedBox(height: 20),
-                    TextFormField(
-                      controller: _name,
-                      textCapitalization: TextCapitalization.words,
-                      textInputAction: TextInputAction.next,
-                      autofillHints: const [AutofillHints.name],
-                      decoration: const InputDecoration(labelText: 'Full name'),
-                      validator: (v) =>
-                          (v ?? '').trim().isEmpty ? 'Required' : null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _mobile,
-                      keyboardType: TextInputType.phone,
-                      textInputAction: TextInputAction.next,
-                      autofillHints: const [AutofillHints.telephoneNumber],
-                      maxLength: 10,
-                      decoration: const InputDecoration(
-                        labelText: 'Mobile number',
-                        counterText: '',
-                      ),
-                      onChanged: (_) => _clearSignupErrors(),
-                      validator: (v) =>
-                          RegExp(r'^\d{10}$').hasMatch((v ?? '').trim())
-                          ? null
-                          : 'Enter a 10-digit mobile number',
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _email,
-                      keyboardType: TextInputType.emailAddress,
-                      textInputAction: TextInputAction.next,
-                      autofillHints: const [AutofillHints.email],
-                      decoration: const InputDecoration(
-                        labelText: 'Email address',
-                      ),
-                      onChanged: (_) => _clearSignupErrors(),
-                      validator: (v) =>
-                          RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
-                              .hasMatch((v ?? '').trim())
-                          ? null
-                          : 'Enter a valid email',
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _address,
-                      maxLines: 2,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Business or delivery address (optional)',
-                      ),
-                      validator: (_) => null,
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _company,
-                      textCapitalization: TextCapitalization.words,
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Company Name (optional)',
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _gst,
-                      textCapitalization: TextCapitalization.characters,
-                      textInputAction: TextInputAction.next,
-                      maxLength: 15,
-                      decoration: const InputDecoration(
-                        labelText: 'GST Number (optional)',
-                        counterText: '',
-                      ),
-                      validator: (value) =>
-                          (value ?? '').trim().isEmpty || isValidGstin(value!)
-                          ? null
-                          : 'Enter a valid GST number',
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _password,
-                      obscureText: true,
-                      autofillHints: const [AutofillHints.newPassword],
-                      textInputAction: TextInputAction.next,
-                      decoration: const InputDecoration(
-                        labelText: 'Password',
-                        helperText: 'Use at least 8 characters',
-                      ),
-                      validator: (v) => (v ?? '').length >= 8
-                          ? null
-                          : 'Use at least 8 characters',
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: _confirm,
-                      obscureText: true,
-                      autofillHints: const [AutofillHints.newPassword],
-                      textInputAction: TextInputAction.done,
-                      decoration: const InputDecoration(
-                        labelText: 'Confirm password',
-                      ),
-                      validator: (v) =>
-                          v == _password.text ? null : 'Passwords do not match',
-                    ),
-                    if (_errorsInitialized &&
-                        (state.errorMessage != null ||
-                            auth.errorMessage != null))
-                      Padding(
-                        padding: const EdgeInsets.only(top: 12),
-                        child: Text(
-                          state.errorMessage ?? auth.errorMessage!,
-                          style: const TextStyle(color: Colors.red),
+                  key: _form,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Center(child: BrandLogo(width: 250, height: 90)),
+                      const SizedBox(height: 18),
+                      const Text(
+                        'Register for wholesale access',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
-                    const SizedBox(height: 20),
-                    FilledButton(
-                      onPressed:
-                          _isSubmitting || state.isSubmitting || auth.isLoading
-                          ? null
-                          : _submit,
-                      child:
-                          _isSubmitting || state.isSubmitting || auth.isLoading
-                          ? const CircularProgressIndicator()
-                          : const Text('Create account'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton(
-                      onPressed: _isSubmitting
-                          ? null
-                          : () => context.go('/login'),
-                      child: const Text('Already have an account? Sign in'),
-                    ),
-                  ],
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Create your account and verify your email to start shopping immediately.',
+                      ),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: _name,
+                        textCapitalization: TextCapitalization.words,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.name],
+                        decoration: const InputDecoration(
+                          labelText: 'Full name',
+                        ),
+                        validator: (v) =>
+                            (v ?? '').trim().isEmpty ? 'Required' : null,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _mobile,
+                        keyboardType: TextInputType.phone,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.telephoneNumber],
+                        maxLength: 10,
+                        decoration: const InputDecoration(
+                          labelText: 'Mobile number',
+                          counterText: '',
+                        ),
+                        onChanged: (_) => _clearSignupErrors(),
+                        validator: (v) =>
+                            RegExp(r'^\d{10}$').hasMatch((v ?? '').trim())
+                            ? null
+                            : 'Enter a 10-digit mobile number',
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _email,
+                        keyboardType: TextInputType.emailAddress,
+                        textInputAction: TextInputAction.next,
+                        autofillHints: const [AutofillHints.email],
+                        decoration: const InputDecoration(
+                          labelText: 'Email address',
+                        ),
+                        onChanged: (_) => _clearSignupErrors(),
+                        validator: (v) =>
+                            RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                                .hasMatch((v ?? '').trim())
+                            ? null
+                            : 'Enter a valid email',
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _address,
+                        maxLines: 2,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Business or delivery address (optional)',
+                        ),
+                        validator: (_) => null,
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _company,
+                        textCapitalization: TextCapitalization.words,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Company Name (optional)',
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _gst,
+                        textCapitalization: TextCapitalization.characters,
+                        textInputAction: TextInputAction.next,
+                        maxLength: 15,
+                        decoration: const InputDecoration(
+                          labelText: 'GST Number (optional)',
+                          counterText: '',
+                        ),
+                        validator: (value) =>
+                            (value ?? '').trim().isEmpty || isValidGstin(value!)
+                            ? null
+                            : 'Enter a valid GST number',
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _password,
+                        obscureText: true,
+                        autofillHints: const [AutofillHints.newPassword],
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          labelText: 'Password',
+                          helperText: 'Use at least 8 characters',
+                        ),
+                        validator: (v) => (v ?? '').length >= 8
+                            ? null
+                            : 'Use at least 8 characters',
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _confirm,
+                        obscureText: true,
+                        autofillHints: const [AutofillHints.newPassword],
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          labelText: 'Confirm password',
+                        ),
+                        validator: (v) => v == _password.text
+                            ? null
+                            : 'Passwords do not match',
+                      ),
+                      if (_errorsInitialized &&
+                          (state.errorMessage != null ||
+                              auth.errorMessage != null))
+                        Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: Text(
+                            state.errorMessage ?? auth.errorMessage!,
+                            style: const TextStyle(color: Colors.red),
+                          ),
+                        ),
+                      const SizedBox(height: 20),
+                      FilledButton(
+                        onPressed:
+                            _isSubmitting ||
+                                state.isSubmitting ||
+                                auth.isLoading
+                            ? null
+                            : _submit,
+                        child:
+                            _isSubmitting ||
+                                state.isSubmitting ||
+                                auth.isLoading
+                            ? const CircularProgressIndicator()
+                            : const Text('Create account'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextButton(
+                        onPressed: _isSubmitting
+                            ? null
+                            : () => context.go('/login'),
+                        child: const Text('Already have an account? Sign in'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
     );
   }
 }

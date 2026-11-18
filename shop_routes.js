@@ -1,6 +1,8 @@
+const { availability: productAvailability, minOrderQuantity, maxOrderQuantity } = require('./order_rules');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const { signEmployeeToken, verifyEmployeeToken, allocateDeliveryValues } = require('./shop_service');
+const { effectiveOrderStatus, normalizeOrderStatus } = require('./order_status');
 
 module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth) {
   const failedEmployeeLogins = new Map();
@@ -18,6 +20,50 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
       // Older Shop App databases stored the employee confirmation in `delivered`.
       : `COALESCE(${alias}.delivered, FALSE)`;
   }
+  // Business day for "Today" / date filters. Orders are stored in UTC
+  // (timestamp without time zone); shops work in local time, so an order
+  // placed at 00:30 IST must count as that IST day, not the previous UTC day.
+  const configuredZone = String(process.env.SHOP_TIME_ZONE || 'Asia/Kolkata').trim();
+  const shopTimeZone = /^[A-Za-z][A-Za-z0-9_+\-/]{1,63}$/.test(configuredZone) ? configuredZone : 'Asia/Kolkata';
+  const localDate = column => `((${column} AT TIME ZONE 'UTC') AT TIME ZONE '${shopTimeZone}')::date`;
+  const localToday = `((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE '${shopTimeZone}')::date`;
+
+  /**
+   * SQL condition limiting orders (alias `o`) to the employee's shop, using the
+   * same rules everywhere: an order assigned to this shop, or — while only one
+   * shop is active — an order that has no assignment yet.
+   * `placeholder(n)` renders the n-th (1-based) value of this condition, so it
+   * can be appended to queries that use `?` or numbered `$n` parameters.
+   */
+  async function shopOrderScope(queryable, shopName, placeholder = () => '?') {
+    const [assignmentMetadata] = await queryable.query("SELECT to_regclass('public.shop_order_assignments') IS NOT NULL AS available");
+    const assignmentAvailable = assignmentMetadata[0]?.available === true;
+    const [shopCountRows] = await queryable.query(`SELECT COUNT(DISTINCT lower(shop_name))::int AS shop_count,
+        COUNT(DISTINCT lower(shop_name)) FILTER (WHERE lower(shop_name) = lower(?))::int AS matching_shop_count
+      FROM shop_employees WHERE active = TRUE AND shop_name IS NOT NULL AND btrim(shop_name) <> ''`, [shopName]);
+    const onlyEmployeeShop = Number(shopCountRows[0]?.shop_count || 0) === 1
+      && Number(shopCountRows[0]?.matching_shop_count || 0) === 1;
+    if (!assignmentAvailable) {
+      if (onlyEmployeeShop) return { sql: '', values: [] };
+      const error = new Error('Shop assignment is not configured for multiple shops. Ask an administrator to assign orders.');
+      error.status = 503;
+      throw error;
+    }
+    if (onlyEmployeeShop) {
+      return {
+        sql: `AND (
+            EXISTS (SELECT 1 FROM shop_order_assignments soa WHERE soa.order_id = o.order_id AND lower(soa.shop_name) = lower(${placeholder(1)}))
+            OR NOT EXISTS (SELECT 1 FROM shop_order_assignments soa WHERE soa.order_id = o.order_id)
+          )`,
+        values: [shopName],
+      };
+    }
+    return {
+      sql: `AND EXISTS (SELECT 1 FROM shop_order_assignments soa WHERE soa.order_id = o.order_id AND lower(soa.shop_name) = lower(${placeholder(1)}))`,
+      values: [shopName],
+    };
+  }
+
   async function requireEmployee(req, res, next) {
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
     const identity = verifyEmployeeToken(token, secret);
@@ -77,18 +123,22 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
 
   app.get('/api/shop/dashboard', requireEmployee, async (req, res) => {
     try {
+      // Same shop scope as Current Orders: a shop only counts its own orders.
+      const scope = await shopOrderScope(pool, String(req.shopEmployee.shopName || ''));
       const [rows] = await pool.query(`
         SELECT
-          COALESCE(SUM(CASE WHEN o.created_at::date = CURRENT_DATE THEN d.delivered_amount ELSE 0 END), 0) AS today_sales,
-          COALESCE(SUM(CASE WHEN date_trunc('month', o.created_at) = date_trunc('month', CURRENT_TIMESTAMP) THEN d.delivered_amount ELSE 0 END), 0) AS monthly_sales,
-          COUNT(DISTINCT CASE WHEN o.created_at::date = CURRENT_DATE THEN o.order_id END) AS today_orders,
+          COALESCE(SUM(CASE WHEN ${localDate('o.created_at')} = ${localToday} THEN d.delivered_amount ELSE 0 END), 0) AS today_sales,
+          COALESCE(SUM(CASE WHEN date_trunc('month', ${localDate('o.created_at')}) = date_trunc('month', ${localToday}) THEN d.delivered_amount ELSE 0 END), 0) AS monthly_sales,
+          COUNT(DISTINCT CASE WHEN ${localDate('o.created_at')} = ${localToday} THEN o.order_id END) AS today_orders,
           (SELECT COUNT(*) FROM shop_product_enquiries WHERE status = 'new') AS new_enquiries
         FROM orders o
         JOIN order_items oi ON oi.order_id = o.order_id
-        LEFT JOIN shop_delivery_items d ON d.order_item_id = oi.id`);
+        LEFT JOIN shop_delivery_items d ON d.order_item_id = oi.id
+        WHERE TRUE ${scope.sql}`, scope.values);
       const item = rows[0] || {};
       return res.json({ success: true, shop: { name: req.shopEmployee.shopName, employeeName: req.shopEmployee.name, loginId: req.shopEmployee.employeeId }, metrics: { todaySales: Number(item.today_sales || 0), monthlySales: Number(item.monthly_sales || 0), todayOrders: Number(item.today_orders || 0), newEnquiries: Number(item.new_enquiries || 0) } });
     } catch (error) {
+      if (error.status) return res.status(error.status).json({ success: false, error: error.message });
       console.error('[SHOP DASHBOARD ERROR]', error.code || error.name);
       return res.status(503).json({ success: false, error: 'Shop dashboard data is unavailable.' });
     }
@@ -103,34 +153,19 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
       if ((from && !/^\d{4}-\d{2}-\d{2}$/.test(from)) || (to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) || (from && to && from > to)) {
         return res.status(400).json({ success: false, error: 'Use a valid order date range in YYYY-MM-DD format.' });
       }
-      const [assignmentMetadata] = await pool.query("SELECT to_regclass('public.shop_order_assignments') IS NOT NULL AS available");
-      const assignmentAvailable = assignmentMetadata[0]?.available === true;
       const hasConfirmationColumn = await hasDeliveryConfirmationColumn(pool);
       const shopName = String(req.shopEmployee.shopName || '');
-      let assignmentFilter = '';
-      const queryValues = [search, status, from, to];
-      const [shopCountRows] = await pool.query(`SELECT COUNT(DISTINCT lower(shop_name))::int AS shop_count,
-          COUNT(DISTINCT lower(shop_name)) FILTER (WHERE lower(shop_name) = lower(?))::int AS matching_shop_count
-        FROM shop_employees WHERE active = TRUE AND shop_name IS NOT NULL AND btrim(shop_name) <> ''`, [shopName]);
-      const onlyEmployeeShop = Number(shopCountRows[0]?.shop_count || 0) === 1
-        && Number(shopCountRows[0]?.matching_shop_count || 0) === 1;
-      if (assignmentAvailable) {
-        if (onlyEmployeeShop) {
-          assignmentFilter = `AND (
-            EXISTS (SELECT 1 FROM shop_order_assignments soa WHERE soa.order_id = o.order_id AND lower(soa.shop_name) = lower(?))
-            OR (NOT EXISTS (SELECT 1 FROM shop_order_assignments soa WHERE soa.order_id = o.order_id)
-              AND EXISTS (SELECT 1 FROM shop_employees se WHERE se.active = TRUE AND lower(se.shop_name) = lower(?)))
-          )`;
-          queryValues.push(shopName, shopName);
-        } else {
-          assignmentFilter = 'AND EXISTS (SELECT 1 FROM shop_order_assignments soa WHERE soa.order_id = o.order_id AND lower(soa.shop_name) = lower(?))';
-          queryValues.push(shopName);
-        }
-      } else {
-        if (!onlyEmployeeShop) {
-          return res.status(503).json({ success: false, error: 'Shop assignment is not configured for multiple shops. Ask an administrator to assign orders.' });
-        }
+      // The query below numbers its own values $1–$4, so the shop condition
+      // continues from $5 (a bare `?` would be renumbered to $1 = search).
+      let scope;
+      try {
+        scope = await shopOrderScope(pool, shopName, n => `$${4 + n}`);
+      } catch (error) {
+        if (error.status) return res.status(error.status).json({ success: false, error: error.message });
+        throw error;
       }
+      const assignmentFilter = scope.sql;
+      const queryValues = [search, status, from, to, ...scope.values];
       const confirmedD = deliveryConfirmedExpression('d', hasConfirmationColumn);
       const confirmedSd = deliveryConfirmedExpression('sd', hasConfirmationColumn);
       const [orders] = await pool.query(`
@@ -143,29 +178,33 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
         WHERE ($1 = '%%' OR o.order_id ILIKE $1 OR o.user_name ILIKE $1 OR COALESCE(o.user_business, '') ILIKE $1 OR EXISTS (SELECT 1 FROM order_items si WHERE si.order_id=o.order_id AND si.product_name ILIKE $1))
           AND ($2 = '' OR lower(o.status) = $2
             OR ($2 = 'delivered' AND NOT EXISTS (SELECT 1 FROM order_items si LEFT JOIN shop_delivery_items sd ON sd.order_item_id = si.id WHERE si.order_id = o.order_id AND (NOT ${confirmedSd} OR COALESCE(sd.delivered_quantity, 0) < si.quantity)))
-            OR ($2 = 'partially delivered' AND (SELECT COALESCE(SUM(CASE WHEN ${confirmedSd} THEN sd.delivered_quantity ELSE 0 END), 0) FROM order_items si LEFT JOIN shop_delivery_items sd ON sd.order_item_id = si.id WHERE si.order_id = o.order_id) > 0 AND (SELECT COALESCE(SUM(CASE WHEN ${confirmedSd} THEN sd.delivered_quantity ELSE 0 END), 0) FROM order_items si LEFT JOIN shop_delivery_items sd ON sd.order_item_id = si.id WHERE si.order_id = o.order_id) < (SELECT COALESCE(SUM(si.quantity), 0) FROM order_items si WHERE si.order_id = o.order_id))
-            OR ($2 = 'pending' AND NOT EXISTS (SELECT 1 FROM shop_delivery_items sd WHERE sd.order_id = o.order_id AND ${confirmedSd} = TRUE AND sd.delivered_quantity > 0))
+            OR ($2 = 'partially delivered' AND lower(o.status) <> 'cancelled' AND (SELECT COALESCE(SUM(CASE WHEN ${confirmedSd} THEN sd.delivered_quantity ELSE 0 END), 0) FROM order_items si LEFT JOIN shop_delivery_items sd ON sd.order_item_id = si.id WHERE si.order_id = o.order_id) > 0 AND (SELECT COALESCE(SUM(CASE WHEN ${confirmedSd} THEN sd.delivered_quantity ELSE 0 END), 0) FROM order_items si LEFT JOIN shop_delivery_items sd ON sd.order_item_id = si.id WHERE si.order_id = o.order_id) < (SELECT COALESCE(SUM(si.quantity), 0) FROM order_items si WHERE si.order_id = o.order_id))
+            OR ($2 = 'pending' AND lower(o.status) <> 'cancelled' AND NOT EXISTS (SELECT 1 FROM shop_delivery_items sd WHERE sd.order_id = o.order_id AND ${confirmedSd} = TRUE AND sd.delivered_quantity > 0))
             OR ($2 = 'undelivered' AND EXISTS (SELECT 1 FROM shop_delivery_items sd WHERE sd.order_id = o.order_id) AND NOT EXISTS (SELECT 1 FROM shop_delivery_items sd WHERE sd.order_id = o.order_id AND ${confirmedSd} = TRUE AND sd.delivered_quantity > 0)))
-          AND ($3 = '' OR o.created_at::date >= $3::date)
-          AND ($4 = '' OR o.created_at::date <= $4::date)
+          AND ($3 = '' OR ${localDate('o.created_at')} >= $3::date)
+          AND ($4 = '' OR ${localDate('o.created_at')} <= $4::date)
           ${assignmentFilter}
         GROUP BY o.order_id ORDER BY o.created_at DESC LIMIT 500`, queryValues);
       const result = [];
       const confirmedItem = deliveryConfirmedExpression('d', hasConfirmationColumn);
       for (const order of orders) {
-        const [items] = await pool.query(`SELECT oi.id::text AS id, oi.product_id, oi.product_name, oi.brand, oi.sku, oi.unit_price, oi.quantity, oi.img_src,
+        // SKU and category come from the catalogue when the order line has none,
+        // so the Shop App can show each product's own picture (order lines only
+        // store the shared placeholder photo name).
+        const [items] = await pool.query(`SELECT oi.id::text AS id, oi.product_id, oi.product_name, oi.brand, COALESCE(NULLIF(oi.sku, ''), p.sku) AS sku, p.category_key, oi.unit_price, oi.quantity, oi.img_src,
             COALESCE(d.delivered, FALSE) AS delivered, ${confirmedItem} AS delivery_confirmed,
             COALESCE(d.delivered_quantity, CASE WHEN d.delivered THEN oi.quantity ELSE 0 END) AS delivered_quantity,
             COALESCE(d.undelivered_quantity, oi.quantity - CASE WHEN d.delivered THEN oi.quantity ELSE 0 END) AS undelivered_quantity, d.delivered_at,
             COALESCE(d.refund_amount, 0) AS refund_amount, COALESCE(d.delivered_amount, 0) AS delivered_amount
-          FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN shop_delivery_items d ON d.order_item_id = oi.id WHERE oi.order_id = ? ORDER BY oi.id`, [order.order_id]);
+          FROM order_items oi JOIN orders o ON o.order_id = oi.order_id LEFT JOIN shop_delivery_items d ON d.order_item_id = oi.id
+          LEFT JOIN products p ON p.id = oi.product_id WHERE oi.order_id = ? ORDER BY oi.id`, [order.order_id]);
         const allocated = allocateDeliveryValues(items, order).allocated;
         const orderedQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
         const confirmedQuantity = items.reduce((sum, item) => sum + (item.delivery_confirmed === true ? Number(item.delivered_quantity || 0) : 0), 0);
-        const deliveryStatus = order.status === 'Cancelled' ? 'Cancelled'
-          : confirmedQuantity <= 0 ? 'Pending'
-            : confirmedQuantity >= orderedQuantity ? 'Delivered' : 'Partially Delivered';
-        result.push({ orderId: order.order_id, vendorName: order.user_name, companyName: order.user_business || '', email: order.user_email, orderDate: order.created_at, paymentMethod: order.payment_method, paymentStatus: order.payment_status, total: Number(order.grand_total || 0), value: Number(order.item_total || 0), status: deliveryStatus, items: items.map((item, index) => ({ id: item.id, productId: item.product_id, name: item.product_name, brand: item.brand || '', sku: item.sku || '', unitPrice: Number(item.unit_price), quantity: Number(item.quantity), image: item.img_src || '', delivered: item.delivery_confirmed === true, deliveryConfirmed: item.delivery_confirmed === true, deliveredQuantity: Number(item.delivered_quantity || 0), undeliveredQuantity: Number(item.quantity) - (item.delivery_confirmed === true ? Number(item.delivered_quantity || 0) : 0), deliveredAt: item.delivered_at, lineValue: allocated[index].allocatedValue, refundAmount: allocated[index].refundValue, deliveredAmount: allocated[index].deliveredValue })) });
+        // Same status the Admin Panel shows: admin status until something is
+        // supplied, then the supplied quantities; Cancelled always wins.
+        const deliveryStatus = effectiveOrderStatus(order.status, confirmedQuantity, orderedQuantity);
+        result.push({ orderId: order.order_id, vendorName: order.user_name, companyName: order.user_business || '', email: order.user_email, orderDate: order.created_at, paymentMethod: order.payment_method, paymentStatus: order.payment_status, total: Number(order.grand_total || 0), value: Number(order.item_total || 0), status: deliveryStatus, items: items.map((item, index) => ({ id: item.id, productId: item.product_id, name: item.product_name, brand: item.brand || '', sku: item.sku || '', categoryKey: item.category_key || '', unitPrice: Number(item.unit_price), quantity: Number(item.quantity), image: item.img_src || '', delivered: item.delivery_confirmed === true, deliveryConfirmed: item.delivery_confirmed === true, deliveredQuantity: Number(item.delivered_quantity || 0), undeliveredQuantity: Number(item.quantity) - (item.delivery_confirmed === true ? Number(item.delivered_quantity || 0) : 0), deliveredAt: item.delivered_at, lineValue: allocated[index].allocatedValue, refundAmount: allocated[index].refundValue, deliveredAmount: allocated[index].deliveredValue })) });
       }
       return res.json({ success: true, orders: result });
     } catch (error) {
@@ -233,6 +272,10 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
           FOR UPDATE OF o`, [req.params.orderId, shopName]);
       }
       if (!orderRows[0]) { await conn.rollback(); return res.status(404).json({ success: false, error: 'Order not found.' }); }
+      if (normalizeOrderStatus(orderRows[0].status) === 'Cancelled') {
+        await conn.rollback();
+        return res.status(409).json({ success: false, error: 'This order was cancelled by the administrator and cannot be supplied.' });
+      }
       const [orderItems] = await conn.query('SELECT id, unit_price, quantity FROM order_items WHERE order_id = ? ORDER BY id', [req.params.orderId]);
       const itemById = new Map(orderItems.map(item => [Number(item.id), item]));
       const submitted = new Map(selections.map((item, index) => {
@@ -312,7 +355,12 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
       const savedTotals = allocateDeliveryValues(deliveryRows.map(item => ({ ...item, deliveredQuantity: item.delivery_confirmed ? Number(item.delivered_quantity) : 0 })), orderRows[0]);
       const deliveredAll = savedTotals.totalQuantity > 0 && savedTotals.totalDeliveredQuantity === savedTotals.totalQuantity;
       const deliveredNone = savedTotals.totalDeliveredQuantity === 0;
-      const status = deliveredAll ? 'Delivered' : deliveredNone ? 'Pending' : 'Partially Delivered';
+      // Save the order status the supplied quantities imply, so the Admin Panel
+      // and the customer's Orders page show the same status as the Shop App.
+      const status = effectiveOrderStatus(orderRows[0].status, savedTotals.totalDeliveredQuantity, savedTotals.totalQuantity);
+      if (status !== normalizeOrderStatus(orderRows[0].status)) {
+        await conn.query('UPDATE orders SET status = ? WHERE order_id = ?', [status, req.params.orderId]);
+      }
       const isCod = ['cod', 'cash on delivery'].includes(String(orderRows[0].payment_method || '').trim().toLowerCase());
       const requestedCashCollection = req.body.cashCollected === true;
       if (requestedCashCollection && (!isCod || !deliveredAll)) {
@@ -347,13 +395,13 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
       const search = `%${String(req.query.search || '').trim()}%`;
       const category = String(req.query.category || '').trim();
       const availability = String(req.query.availability || '').trim();
-      const [rows] = await pool.query(`SELECT p.id, p.name, p.sku, p.brand, p.price, p.mrp, p.category_key, p.img, p.stock_quantity, p.status, c.title AS category_name, c.image_url AS category_image
+      const [rows] = await pool.query(`SELECT p.id, p.name, p.sku, p.brand, p.price, p.mrp, p.moq, p.category_key, p.img, p.stock_quantity, p.status, c.title AS category_name, c.image_url AS category_image
         FROM products p LEFT JOIN categories c ON c.key_name = p.category_key
         WHERE (p.name ILIKE ? OR p.sku ILIKE ? OR COALESCE(p.brand, '') ILIKE ?)
           AND (? = '' OR p.category_key = ? OR c.title = ?)
           AND (? = '' OR (? = 'in_stock' AND p.stock_quantity > 0) OR (? = 'out_of_stock' AND p.stock_quantity <= 0))
           AND lower(COALESCE(p.status, 'active')) <> 'inactive' ORDER BY p.category_key, p.name LIMIT 500`, [search, search, search, category, category, category, availability, availability, availability]);
-      return res.json({ success: true, products: rows.map(row => ({ ...row, price: Number(row.price), mrp: Number(row.mrp), stock: Number(row.stock_quantity), image: row.img || row.category_image || '' })) });
+      return res.json({ success: true, products: rows.map(row => ({ ...row, price: Number(row.price), mrp: Number(row.mrp), stock: Number(row.stock_quantity), moq: row.moq || null, minOrderQuantity: minOrderQuantity(row), maxOrderQuantity: maxOrderQuantity(row), availability: productAvailability(row), image: row.img || row.category_image || '' })) });
     } catch (error) {
       console.error('[SHOP PRODUCTS ERROR]', error.code || error.name);
       return res.status(503).json({ success: false, error: 'Product data is temporarily unavailable.' });
@@ -397,7 +445,9 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
       const requestedPeriod = String(req.query.period || 'daily').toLowerCase();
       if (!['daily', 'monthly', 'product'].includes(requestedPeriod)) return res.status(400).json({ success: false, error: 'Choose daily, monthly, or product report grouping.' });
       if (from && !/^\d{4}-\d{2}-\d{2}$/.test(from) || to && !/^\d{4}-\d{2}-\d{2}$/.test(to)) return res.status(400).json({ success: false, error: 'Use YYYY-MM-DD for report dates.' });
-      const dateExpression = requestedPeriod === 'monthly' ? "date_trunc('month', o.created_at)::date" : 'o.created_at::date';
+      const dateExpression = requestedPeriod === 'monthly' ? `date_trunc('month', ${localDate('o.created_at')})::date` : localDate('o.created_at');
+      // Same shop scope as Current Orders: a shop only reports its own orders.
+      const scope = await shopOrderScope(pool, String(req.shopEmployee.shopName || ''));
       const dateSelection = requestedPeriod === 'product' ? 'NULL::date AS sale_date' : `${dateExpression} AS sale_date`;
       const groupDate = requestedPeriod === 'product' ? '' : `${dateExpression},`;
       const [rows] = await pool.query(`SELECT ${dateSelection}, oi.product_id, oi.product_name, oi.sku,
@@ -406,12 +456,14 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
           SUM(COALESCE(d.refund_amount, oi.unit_price * oi.quantity)) AS pending_amount,
           SUM(COALESCE(d.refund_amount, 0)) AS refund_amount
         FROM orders o JOIN order_items oi ON oi.order_id = o.order_id LEFT JOIN shop_delivery_items d ON d.order_item_id = oi.id
-        WHERE (? = '' OR o.created_at::date >= ?::date) AND (? = '' OR o.created_at::date <= ?::date)
+        WHERE (? = '' OR ${localDate('o.created_at')} >= ?::date) AND (? = '' OR ${localDate('o.created_at')} <= ?::date)
           AND (? = '' OR oi.product_id = ? OR oi.sku = ? OR oi.product_name ILIKE ?)
-        GROUP BY ${groupDate} oi.product_id, oi.product_name, oi.sku ORDER BY sale_date DESC NULLS LAST, oi.product_name`, [from, from || null, to, to || null, product, product, product, `%${product}%`]);
+          ${scope.sql}
+        GROUP BY ${groupDate} oi.product_id, oi.product_name, oi.sku ORDER BY sale_date DESC NULLS LAST, oi.product_name`, [from, from || null, to, to || null, product, product, product, `%${product}%`, ...scope.values]);
       const rowsSafe = rows.map(row => ({ ...row, quantitySold: Number(row.quantity_sold), deliveredAmount: Number(row.delivered_amount || 0), pendingAmount: Number(row.pending_amount || 0), refundAmount: Number(row.refund_amount || 0) }));
       return res.json({ success: true, period: requestedPeriod, rows: rowsSafe, totals: rowsSafe.reduce((sum, row) => ({ quantitySold: sum.quantitySold + row.quantitySold, deliveredAmount: sum.deliveredAmount + row.deliveredAmount, pendingAmount: sum.pendingAmount + row.pendingAmount, refundAmount: sum.refundAmount + row.refundAmount }), { quantitySold: 0, deliveredAmount: 0, pendingAmount: 0, refundAmount: 0 }) });
     } catch (error) {
+      if (error.status) return res.status(error.status).json({ success: false, error: error.message });
       console.error('[SHOP REPORT ERROR]', error.code || error.name);
       return res.status(503).json({ success: false, error: 'Sales report is temporarily unavailable.' });
     }

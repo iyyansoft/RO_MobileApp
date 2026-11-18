@@ -139,11 +139,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const res = await fetch('/api/cart/add', {
           method: 'POST',
           headers,
+          // One unit per add; the server checks the product maximum and stock
+          // (order_rules.js).
           body: JSON.stringify({ productId: prodId, quantity: 1 })
         });
         const data = await res.json();
         if (data && data.success && Array.isArray(data.items)) {
           cartState = data.items;
+        } else if (data && data.error) {
+          // Refused (maximum reached, out of stock, more than in stock): say
+          // why and do not add it locally.
+          if (data.code === 'MAX_ORDER_QTY') showMaxQuantityPopup(data.max);
+          else showCategoryToast(`⚠️ ${data.error}`);
+          if (targetButtonElement) targetButtonElement.disabled = false;
+          return;
         } else {
           const existingIndex = cartState.findIndex(item => (item.id && item.id === prodId) || item.sku === productData.sku || item.name === productData.name);
           if (existingIndex > -1) {
@@ -155,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
               brand: productData.brand || 'AQUACLEAN',
               price: typeof productData.price === 'number' ? `₹${productData.price.toLocaleString('en-IN')}` : (productData.price || '₹850'),
               numericPrice: typeof productData.price === 'number' ? productData.price : parseInt((productData.price || '850').replace(/\D/g, ''), 10) || 850,
-              moq: productData.moq || `MOQ: ${moqQty} Units`,
+              moq: productData.moq || 'MOQ not set',
               moqQty: moqQty,
               imgSrc: productData.imgSrc || productData.img || 'purifier.jpg',
               sku: productData.sku || `SKU-${prodId.toString().toUpperCase()}`,
@@ -346,7 +355,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (isNaN(idx) || !cartState[idx]) return;
 
         const item = cartState[idx];
-        const newQty = (parseInt(item.quantity, 10) || 1) + 1;
+        const oldQty = parseInt(item.quantity, 10) || 1;
+        const newQty = oldQty + 1;
+        // Product maximum (the PDF quantity for the PDF catalogue).
+        const max = Number(item.max_order_quantity) || 0;
+        if (max && newQty > max) {
+          showMaxQuantityPopup(max);
+          return;
+        }
         cartState[idx].quantity = newQty;
 
         const headers = getAuthHeaders();
@@ -360,6 +376,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             if (data && data.success && Array.isArray(data.items)) {
               cartState = data.items;
+            } else if (data && data.error) {
+              cartState[idx].quantity = oldQty;
+              if (data.code === 'MAX_ORDER_QTY') showMaxQuantityPopup(data.max);
+              else showCategoryToast(`⚠️ ${data.error}`);
             }
           } catch (err) {}
         }
@@ -2265,7 +2285,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const formattedImg = formatImgUrl(item.img);
     const ratingObj = formatRatingDisplay(item.rating);
     const badgeText = item.badge || 'FRESH WATER';
-    const mrpPrice = item.mrp && item.mrp > item.price ? item.mrp : Math.round(item.price * 1.38);
+    // Real MRP only (never estimated); hidden when not available.
+    const mrpPrice = item.mrp && item.mrp > item.price ? item.mrp : 0;
 
     return `
       <div class="product-card pearl-product-card popular-product-card" data-product-id="${item.id}">
@@ -2284,7 +2305,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="price-container product-price-row pearl-price-row popular-price-row">
             <div class="price-col pearl-price-col popular-price-col">
               <span class="wholesale-price pearl-dealer-price popular-price">₹${item.price.toLocaleString('en-IN')}</span>
-              <span class="mrp-price pearl-mrp-price">MRP ₹${mrpPrice.toLocaleString('en-IN')}</span>
+              ${mrpPrice ? `<span class="mrp-price pearl-mrp-price">MRP ₹${mrpPrice.toLocaleString('en-IN')}</span>` : ''}
             </div>
             <button class="popular-add-btn pearl-add-btn cart-icon-btn" data-id="${item.id}" data-name="${item.name}" data-price="${item.price}" data-img="${formattedImg}" title="Add to Cart">+</button>
           </div>
@@ -2413,7 +2434,7 @@ document.addEventListener('DOMContentLoaded', () => {
             name: p.name,
             price: typeof p.price === 'number' ? p.price : parseFloat(p.price || 0),
             mrp: typeof p.mrp === 'number' ? p.mrp : parseFloat(p.mrp || 0),
-            moq: p.moq ? (p.moq.toString().startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ: 1 Unit',
+            moq: p.moq ? (p.moq.toString().startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ not set',
             badge: p.badge || '',
             rating: p.rating || '★★★★★ (5.0)',
             img: p.img || 'purifier.jpg',
@@ -2635,7 +2656,7 @@ document.addEventListener('DOMContentLoaded', () => {
         name: item.name,
         brand: item.brand,
         price: typeof item.price === 'number' ? `₹${item.price.toLocaleString('en-IN')}` : item.price,
-        mrp: typeof item.mrp === 'number' ? `MRP ₹${item.mrp.toLocaleString('en-IN')}` : item.mrp,
+        mrp: typeof item.mrp === 'number' ? (item.mrp > 0 ? `MRP ₹${item.mrp.toLocaleString('en-IN')}` : '') : item.mrp,
         moq: item.moq,
         badge: item.badge,
         stock: 'IN STOCK',
@@ -2705,7 +2726,7 @@ document.addEventListener('DOMContentLoaded', () => {
           name: foundItem.name,
           brand: foundItem.brand,
           price: typeof foundItem.price === 'number' ? `₹${foundItem.price.toLocaleString('en-IN')}` : foundItem.price,
-          mrp: typeof foundItem.mrp === 'number' ? `MRP ₹${foundItem.mrp.toLocaleString('en-IN')}` : foundItem.mrp,
+          mrp: typeof foundItem.mrp === 'number' ? (foundItem.mrp > 0 ? `MRP ₹${foundItem.mrp.toLocaleString('en-IN')}` : '') : foundItem.mrp,
           moq: foundItem.moq,
           badge: foundItem.badge,
           stock: 'IN STOCK',
@@ -2750,7 +2771,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (modalSku) modalSku.textContent = `SKU: ${productData.sku || 'RO-PART-2026'}`;
     if (modalPrice) modalPrice.textContent = productData.price;
     if (modalMrp) modalMrp.textContent = productData.mrp || ('MRP ₹' + Math.round(parseInt((productData.price || '850').replace(/\D/g, '')) * 1.35));
-    if (modalMoq) modalMoq.textContent = productData.moq || 'MOQ: 1 Unit';
+    if (modalMoq) modalMoq.textContent = productData.moq || 'MOQ not set';
     if (modalStock) modalStock.textContent = productData.stock || 'IN STOCK';
     if (modalDesc) modalDesc.textContent = productData.desc || 'High-grade commercial & domestic RO water purification component.';
 
@@ -2942,6 +2963,26 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // 9. Interactive Toast Notification
+  // "Maximum Order Quantity Reached" popup (same wording as the app).
+  function showMaxQuantityPopup(max) {
+    document.getElementById('maxQtyPopup')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'maxQtyPopup';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:100000;padding:16px;';
+    overlay.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:360px;width:100%;padding:22px 22px 16px;box-shadow:0 20px 50px rgba(0,0,0,.25);font-family:inherit;">
+      <h3 style="margin:0 0 8px;font-size:1.1rem;color:#0F172A;">Maximum Order Quantity Reached</h3>
+      <p style="margin:0 0 18px;color:#475569;font-size:.95rem;">You can order a maximum of ${Number(max) || 0} units for this product.</p>
+      <div style="text-align:right;"><button type="button" id="maxQtyPopupOk" style="background:#0B63F6;color:#fff;border:0;border-radius:10px;padding:9px 22px;font-weight:700;cursor:pointer;">OK</button></div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    overlay.querySelector('#maxQtyPopupOk').addEventListener('click', close);
+    overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+    overlay.querySelector('#maxQtyPopupOk').focus();
+  }
+
   function showCategoryToast(message, isSuccess = false) {
     window.showCategoryToastRef = showCategoryToast;
     let toast = document.getElementById('categoryToast');
@@ -3712,7 +3753,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <div style="font-size: 12.5px; font-weight: 800; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px;">${p.name}</div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-size: 14px; font-weight: 900; color: #0F62FE;">₹${typeof p.price === 'number' ? p.price.toLocaleString('en-IN') : p.price}</span>
-                <span style="font-size: 10px; color: #64748B; font-weight: 700; background: #E2E8F0; padding: 2px 6px; border-radius: 6px;">${p.moq ? (p.moq.startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ: 1 Unit'}</span>
+                <span style="font-size: 10px; color: #64748B; font-weight: 700; background: #E2E8F0; padding: 2px 6px; border-radius: 6px;">${p.moq ? (p.moq.startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ not set'}</span>
               </div>
             </div>
           </div>
@@ -4266,7 +4307,7 @@ document.addEventListener('DOMContentLoaded', () => {
               <div style="font-size: 12.5px; font-weight: 800; color: #0F172A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px;">${p.name}</div>
               <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-size: 14px; font-weight: 900; color: #0F62FE;">₹${typeof p.price === 'number' ? p.price.toLocaleString('en-IN') : p.price}</span>
-                <span style="font-size: 10px; color: #64748B; font-weight: 700; background: #E2E8F0; padding: 2px 6px; border-radius: 6px;">${p.moq ? (p.moq.startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ: 1 Unit'}</span>
+                <span style="font-size: 10px; color: #64748B; font-weight: 700; background: #E2E8F0; padding: 2px 6px; border-radius: 6px;">${p.moq ? (p.moq.startsWith('MOQ:') ? p.moq : `MOQ: ${p.moq}`) : 'MOQ not set'}</span>
               </div>
             </div>
           </div>

@@ -12,7 +12,9 @@ const ignore = fs.readFileSync(path.join(root, '.gitignore'), 'utf8');
 
 test('Render server binds the assigned port on all interfaces', () => {
   assert.match(server, /const PORT = process\.env\.PORT/);
-  assert.match(server, /app\.listen\(PORT,\s*['"]0\.0\.0\.0['"]/);
+  // All interfaces unless RO_LISTEN_HOST is set (only the local sandbox sets it).
+  assert.match(server, /app\.listen\(PORT,\s*process\.env\.RO_LISTEN_HOST \|\| ['"]0\.0\.0\.0['"]/);
+  assert.doesNotMatch(server, /process\.env\.HOST\b/, 'a platform HOST variable must not change the binding');
 });
 
 test('production startup requires Supabase and non-default authentication secrets', () => {

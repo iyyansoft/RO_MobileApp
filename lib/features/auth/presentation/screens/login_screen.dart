@@ -18,47 +18,56 @@ class _LoginBackgroundPainter extends CustomPainter {
     if (isDark) {
       // Soft dark ambient glow in dark mode
       final glowPaint = Paint()
-        ..shader = RadialGradient(
-          colors: [
-            const Color(0xFF0369A1).withValues(alpha: 0.16),
-            Colors.transparent,
-          ],
-        ).createShader(Rect.fromCircle(
-          center: Offset(w * 0.15, h * 0.20),
-          radius: w * 0.35,
-        ));
+        ..shader =
+            RadialGradient(
+              colors: [
+                const Color(0xFF0369A1).withValues(alpha: 0.16),
+                Colors.transparent,
+              ],
+            ).createShader(
+              Rect.fromCircle(
+                center: Offset(w * 0.15, h * 0.20),
+                radius: w * 0.35,
+              ),
+            );
       canvas.drawCircle(Offset(w * 0.15, h * 0.20), w * 0.35, glowPaint);
       return;
     }
 
     // 1. Top-left soft sky-blue ambient orb
     final orb1 = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          const Color(0xFFBAE6FD).withValues(alpha: 0.50),
-          const Color(0xFFE0F2FE).withValues(alpha: 0.18),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.55, 1.0],
-      ).createShader(Rect.fromCircle(
-        center: Offset(w * 0.12, h * 0.16),
-        radius: w * 0.40,
-      ));
+      ..shader =
+          RadialGradient(
+            colors: [
+              const Color(0xFFBAE6FD).withValues(alpha: 0.50),
+              const Color(0xFFE0F2FE).withValues(alpha: 0.18),
+              Colors.transparent,
+            ],
+            stops: const [0.0, 0.55, 1.0],
+          ).createShader(
+            Rect.fromCircle(
+              center: Offset(w * 0.12, h * 0.16),
+              radius: w * 0.40,
+            ),
+          );
     canvas.drawCircle(Offset(w * 0.12, h * 0.16), w * 0.40, orb1);
 
     // 2. Bottom-right soft teal-blue ambient orb
     final orb2 = Paint()
-      ..shader = RadialGradient(
-        colors: [
-          const Color(0xFFC7F2EE).withValues(alpha: 0.45),
-          const Color(0xFFE0F7FA).withValues(alpha: 0.18),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.60, 1.0],
-      ).createShader(Rect.fromCircle(
-        center: Offset(w * 0.88, h * 0.84),
-        radius: w * 0.44,
-      ));
+      ..shader =
+          RadialGradient(
+            colors: [
+              const Color(0xFFC7F2EE).withValues(alpha: 0.45),
+              const Color(0xFFE0F7FA).withValues(alpha: 0.18),
+              Colors.transparent,
+            ],
+            stops: const [0.0, 0.60, 1.0],
+          ).createShader(
+            Rect.fromCircle(
+              center: Offset(w * 0.88, h * 0.84),
+              radius: w * 0.44,
+            ),
+          );
     canvas.drawCircle(Offset(w * 0.88, h * 0.84), w * 0.44, orb2);
 
     // 3. Center-right delicate water flow curve
@@ -76,7 +85,8 @@ class _LoginBackgroundPainter extends CustomPainter {
       ..color = const Color(0x4438BDF8)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.2;
-    final bubbleHighlight = Paint()..color = Colors.white.withValues(alpha: 0.70);
+    final bubbleHighlight = Paint()
+      ..color = Colors.white.withValues(alpha: 0.70);
 
     final bubbles = [
       (0.16, 0.76, 14.0),
@@ -154,9 +164,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < 600;
 
-    final primaryColor = isDark
-        ? AppColors.accentDark
-        : AppColors.primaryLight;
+    final primaryColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
     final cardBg = isDark ? AppColors.surfaceDark : Colors.white;
     final borderColor = isDark
         ? const Color(0xFF1E2D3D)
@@ -213,9 +221,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       border: Border.all(color: borderColor, width: 1.2),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF0F4C81).withValues(
-                            alpha: isDark ? 0.35 : 0.08,
-                          ),
+                          color: const Color(0xFF0F4C81)
+                              .withValues(alpha: isDark ? 0.35 : 0.08),
                           blurRadius: 36,
                           offset: const Offset(0, 14),
                         ),
@@ -260,11 +267,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         children: [
           // 1. Neero Brand Logo at Top
           const Center(
-            child: BrandLogo(
-              width: 170,
-              height: 50,
-              fit: BoxFit.contain,
-            ),
+            child: BrandLogo(width: 170, height: 50, fit: BoxFit.contain),
           ),
           const SizedBox(height: 24),
 
@@ -296,9 +299,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           Container(
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
-              color: isDark
-                  ? const Color(0xFF1E2D3D)
-                  : const Color(0xFFF1F5F9),
+              color: isDark ? const Color(0xFF1E2D3D) : const Color(0xFFF1F5F9),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
@@ -311,9 +312,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 9),
                       decoration: BoxDecoration(
                         color: _usePassword
-                            ? (isDark
-                                  ? const Color(0xFF2B3E52)
-                                  : Colors.white)
+                            ? (isDark ? const Color(0xFF2B3E52) : Colors.white)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(9),
                         boxShadow: _usePassword
@@ -350,9 +349,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 9),
                       decoration: BoxDecoration(
                         color: !_usePassword
-                            ? (isDark
-                                  ? const Color(0xFF2B3E52)
-                                  : Colors.white)
+                            ? (isDark ? const Color(0xFF2B3E52) : Colors.white)
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(9),
                         boxShadow: !_usePassword
@@ -421,9 +418,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
             ),
             validator: (value) {
               final input = value?.trim() ?? '';
-              final validEmail = RegExp(
-                r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
-              ).hasMatch(input);
+              final validEmail = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                  .hasMatch(input);
               final validMobile = RegExp(r'^\d{10}$').hasMatch(input);
               return validEmail || (_usePassword && validMobile)
                   ? null

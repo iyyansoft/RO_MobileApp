@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { quoteCheckout, verifyDealerToken, razorpayRequest, verifyCapturedPayment } = require('./checkout_service');
+const { reserveOrderStock } = require('./stock_service');
 
 module.exports = function installCheckout(app, pool, secret, findUser) {
   const ALPHANUM = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -175,6 +176,9 @@ module.exports = function installCheckout(app, pool, secret, findUser) {
       await conn.query(`INSERT INTO orders (order_id, user_id, user_email, user_name, user_business, subtotal, discount, gst, delivery_fee, grand_total, payment_method, delivery_address, billing_address, company_name, gstin, pan_number, same_as_delivery, delivery_note, status, invoice_number, with_gst, payment_status, razorpay_payment_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [orderId, user.id, user.email, user.name, user.business || '', payload.subtotal, payload.discount, payload.gst, payload.deliveryFee, payload.grandTotal, payload.paymentMethod, delivery, billing, payload.companyName || '', payload.gstin, payload.panNumber || '', payload.sameAsDelivery !== false, payload.deliveryNote || '', 'Processing & Dispatched', invoiceNumber, Boolean(payload.withGst), paymentStatus, session ? req.body.razorpay_payment_id : null]);
       for (const item of payload.items) await conn.query('INSERT INTO order_items (order_id, product_id, product_name, brand, unit_price, quantity, img_src) VALUES (?, ?, ?, ?, ?, ?, ?)', [orderId, item.id, item.name, item.brand || '', item.numericPrice, item.quantity, item.imgSrc]);
+      // Take the ordered units out of stock in the same transaction (never
+      // below zero; an order that cannot be fulfilled is not saved).
+      await reserveOrderStock(conn, orderId);
       const pointsEarned = Math.floor(payload.grandTotal * .05);
       await conn.query('UPDATE users SET reward_points = reward_points + ? WHERE id = ?', [pointsEarned, user.id]);
       await conn.query('INSERT INTO rewards_history (user_id, order_id, order_amount, points_earned) VALUES (?, ?, ?, ?)', [user.id, orderId, payload.grandTotal, pointsEarned]);

@@ -7,7 +7,10 @@ import '../../../../core/supabase/supabase_dealer_data_repository.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../products/domain/models/product_model.dart';
+import '../../../products/presentation/widgets/max_quantity_dialog.dart'
+    show MaxOrderQuantityExceeded;
 import '../../domain/models/cart_item_model.dart';
+import '../../domain/order_pricing.dart';
 
 class CartState {
   final List<CartItemModel> items;
@@ -32,48 +35,32 @@ class CartState {
     );
   }
 
-  double get subtotal {
-    return _money(items.fold(0.0, (sum, item) => sum + item.totalPrice));
-  }
+  /// Prices this cart with [rules] (see order_pricing.dart). GST is only
+  /// included when [withGst] is true, i.e. at checkout.
+  OrderTotals totals(PricingRules rules, {bool withGst = false}) =>
+      OrderTotals.compute(
+        items.map(
+          (i) => (unitPrice: i.product.dealerPrice, quantity: i.quantity),
+        ),
+        rules: rules,
+        withGst: withGst,
+      );
 
-  static double _money(double value) => (value * 100).round() / 100;
+  // Convenience getters using the default rules. Screens use
+  // [cartTotalsProvider], which applies the server's configured rules.
+  OrderTotals get _defaultTotals => totals(PricingRules.fallback);
 
-  double get dealerDiscount {
-    // 10% Gold Dealer Wholesale Discount
-    return _money(subtotal * 0.10);
-  }
+  double get subtotal => _defaultTotals.subtotal;
+  double get dealerDiscount => _defaultTotals.discount;
+  double get taxableAmount => _defaultTotals.taxableAmount;
+  double get gstAmount => totals(PricingRules.fallback, withGst: true).gst;
+  double get deliveryFee => _defaultTotals.deliveryFee;
 
-  double get taxableAmount {
-    return _money(subtotal - dealerDiscount);
-  }
-
-  double get b2bGstRate => 0.18;
-
-  double get gstAmount {
-    // 18% B2B GST tax rate (calculated at checkout when "With GST" is selected)
-    return _money(taxableAmount * b2bGstRate);
-  }
-
-  double get deliveryFee {
-    if (subtotal == 0 || subtotal > 5000) return 0.0;
-    return 250.0;
-  }
-
-  double get grandTotal {
-    if (items.isEmpty) return 0.0;
-    // GST is not added during shopping or when viewing the cart.
-    return _money(taxableAmount + deliveryFee);
-  }
-
-  double get grandTotalWithGst {
-    if (items.isEmpty) return 0.0;
-    return _money(taxableAmount + gstAmount + deliveryFee);
-  }
-
-  double get grandTotalWithoutGst {
-    if (items.isEmpty) return 0.0;
-    return _money(taxableAmount + deliveryFee);
-  }
+  /// Cart total: no GST is added while shopping.
+  double get grandTotal => _defaultTotals.grandTotal;
+  double get grandTotalWithGst =>
+      totals(PricingRules.fallback, withGst: true).grandTotal;
+  double get grandTotalWithoutGst => _defaultTotals.grandTotal;
 
   int get totalItemCount {
     return items.fold(0, (count, item) => count + item.quantity);
@@ -156,13 +143,21 @@ class CartNotifier extends StateNotifier<CartState> {
   }
 
   Future<void> addToCart(ProductModel product, {int? quantity}) async {
+    // Same rule as the server (order_rules.js): a cart line holds 1 up to the
+    // product maximum (the PDF quantity for the PDF catalogue) and the stock.
+    // The server checks again.
     final qty = quantity ?? 1;
     if (qty < 1) {
       throw StateError('Quantity must be at least 1.');
     }
-    if (product.stockStatus == StockStatus.outOfStock) {
-      throw StateError('This product is out of stock.');
+    final inCart = state.items
+        .where((item) => item.product.id == product.id)
+        .fold<int>(0, (sum, item) => sum + item.quantity);
+    if (product.exceedsMaximum(inCart + qty)) {
+      throw MaxOrderQuantityExceeded(product.maxOrderQuantity!);
     }
+    final problem = product.quantityProblem(inCart + qty);
+    if (problem != null) throw StateError(problem);
     await _sync('cart/add', data: {'productId': product.id, 'quantity': qty});
   }
 
@@ -170,9 +165,17 @@ class CartNotifier extends StateNotifier<CartState> {
     if (!mounted || state.isLoading) return false;
     final items = state.items.where((i) => i.product.id == productId);
     if (items.isEmpty || newQuantity < 0) return false;
-    if (newQuantity == 0) {
+    final product = items.first.product;
+    // Going below the MOQ removes the line (it cannot be ordered smaller).
+    if (newQuantity == 0 || newQuantity < product.minOrderQty) {
       removeItem(productId);
       return true;
+    }
+    final max = product.maxOrderQty;
+    if (max != null &&
+        newQuantity > max &&
+        newQuantity > items.first.quantity) {
+      return false;
     }
     _sync(
       'cart/update',
@@ -249,3 +252,29 @@ final cartProvider = StateNotifierProvider<CartNotifier, CartState>(
     catalog: () => ref.read(allProductsProvider),
   ),
 );
+
+/// Pricing rules configured on the server. Falls back to the default rules
+/// if the server has no rules endpoint (orders are re-priced server-side).
+final pricingRulesProvider = FutureProvider<PricingRules>((ref) async {
+  try {
+    final response = await ref.watch(apiClientProvider).get('pricing-rules');
+    final data = response.data;
+    if (data is Map && data['rules'] is Map) {
+      return PricingRules.fromJson(
+        Map<String, dynamic>.from(data['rules'] as Map),
+      );
+    }
+  } catch (_) {
+    // Older backend without the endpoint, or offline.
+  }
+  return PricingRules.fallback;
+});
+
+/// Live cart totals (recomputed whenever the cart or the rules change).
+/// The family argument is whether GST is included (checkout "With GST").
+final cartTotalsProvider = Provider.family<OrderTotals, bool>((ref, withGst) {
+  final cart = ref.watch(cartProvider);
+  final rules =
+      ref.watch(pricingRulesProvider).valueOrNull ?? PricingRules.fallback;
+  return cart.totals(rules, withGst: withGst);
+});

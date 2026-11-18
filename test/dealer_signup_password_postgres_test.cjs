@@ -106,7 +106,9 @@ test('PostgreSQL: signup, verify email, sign in with saved password, restore and
     assert.equal(afterLogin.status, 'pending');
     assert.equal(afterLogin.is_approved, false, 'login does not silently approve the dealer');
     assert.equal(afterLogin.password_hash, saved.password_hash, 'login compares the saved bcrypt hash without rewriting it');
-    const adminContext = vm.createContext({ activeAdminTokens: new Set() });
+    const { createAdminAuth, adminTokenFrom } = require('../admin_auth');
+    const realAdminAuth = createAdminAuth({ email: 'admin@example.test', password: 'admin-test-password', secret: context.SESSION_SECRET });
+    const adminContext = vm.createContext({ adminTokenFrom, verifyAdminToken: token => realAdminAuth.verify(token) });
     vm.runInContext(source.slice(source.indexOf('function requireAdminAuth('), source.indexOf('// Shop Employee routes')), adminContext);
     const adminResponse = { code: 200, status(code) { this.code = code; return this; }, json() { return this; } };
     let grantedAdminAccess = false;

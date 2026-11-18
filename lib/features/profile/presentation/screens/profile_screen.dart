@@ -9,6 +9,7 @@ import '../../../../core/supabase/supabase_dealer_data_repository.dart';
 import '../../../auth/domain/models/user_model.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../products/presentation/providers/wishlist_provider.dart';
+import '../widgets/profile_sections.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -34,7 +35,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Future<Map<String, dynamic>> _loadData(UserModel? user) async {
     final email = user?.email ?? '';
     if (email.isEmpty) return {};
-    final client = ApiClient();
+    final client = ref.read(apiClientProvider);
     if (SupabaseConfig.dealerDataSessionActive && user != null) {
       final results = await Future.wait<dynamic>([
         const SupabaseDealerDataRepository().loadDealerProfile(user.id),
@@ -62,7 +63,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         'addresses': results[1],
         'rewards': rewards['totalPoints'] ?? 0,
         'rewardHistory': rewards['history'] ?? [],
-        'availableCredit': invoiceData['availableCredit'] ?? 0,
+        'rewardsEarned': rewards['totalPointsEarned'],
+        'creditLimit': invoiceData['creditLimit'],
+        'availableCredit': invoiceData['availableCredit'],
+        'outstandingAmount': invoiceData['outstandingAmount'],
         'invoices': invoiceData['invoices'] ?? [],
       };
     }
@@ -84,7 +88,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       'addresses': responses[0].data?['addresses'] ?? [],
       'rewards': responses[1].data?['totalPoints'] ?? 0,
       'rewardHistory': responses[1].data?['history'] ?? [],
-      'availableCredit': responses[2].data?['availableCredit'] ?? 0,
+      'rewardsEarned': responses[1].data?['totalPointsEarned'],
+      'creditLimit': responses[2].data?['creditLimit'],
+      'availableCredit': responses[2].data?['availableCredit'],
+      'outstandingAmount': responses[2].data?['outstandingAmount'],
       'invoices': responses[2].data?['invoices'] ?? [],
     };
   }
@@ -169,10 +176,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           result,
         );
       } else {
-        final response = await ApiClient().post<Map<String, dynamic>>(
-          'user/update-profile',
-          data: {'email': user.email, ...result},
-        );
+        final response = await ref
+            .read(apiClientProvider)
+            .post<Map<String, dynamic>>(
+              'user/update-profile',
+              data: {'email': user.email, ...result},
+            );
         final data = response.data ?? {};
         if (data['success'] != true) {
           throw ApiException(message: '${data['error'] ?? 'Update failed'}');
@@ -223,10 +232,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             await repository.createSupportTicket(user.id, user.email, body);
           default:
             // Password and other privileged/account operations stay on Express.
-            final response = await ApiClient().post<Map<String, dynamic>>(
-              path,
-              data: body,
-            );
+            final response = await ref
+                .read(apiClientProvider)
+                .post<Map<String, dynamic>>(path, data: body);
             final data = response.data ?? {};
             if (data['success'] != true) {
               throw ApiException(
@@ -240,10 +248,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         }
         return true;
       }
-      final response = await ApiClient().post<Map<String, dynamic>>(
-        path,
-        data: body,
-      );
+      final response = await ref
+          .read(apiClientProvider)
+          .post<Map<String, dynamic>>(path, data: body);
       final data = response.data ?? {};
       if (data['success'] != true) {
         throw ApiException(message: '${data['error'] ?? 'Request failed.'}');
@@ -616,6 +623,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     if (_loadedIdentity != '${user?.id}|${user?.email}') {
       _refresh();
     }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (user == null) {
       return Scaffold(
         appBar: AppBar(title: const Text('My profile')),
@@ -633,190 +641,315 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         ),
       );
     }
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('My profile'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Edit profile',
-            onPressed: () => _edit(user),
-          ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: () async {
-          setState(_refresh);
-          await _accountData;
-        },
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    const CircleAvatar(
-                      radius: 34,
-                      child: Icon(Icons.storefront, size: 32),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      user.name,
-                      style: Theme.of(context).textTheme.titleLarge,
-                      textAlign: TextAlign.center,
-                    ),
-                    if (user.gstNumber.isNotEmpty)
-                      Text('GST: ${user.gstNumber}'),
-                    Text(user.email),
-                    Text(user.phoneNumber),
-                    const SizedBox(height: 8),
-                    Chip(label: Text(user.status.toUpperCase())),
-                  ],
+      backgroundColor: isDark
+          ? const Color(0xFF0A1118)
+          : const Color(0xFFF3F7FC),
+      body: SafeArea(
+        bottom: false,
+        child: RefreshIndicator(
+          onRefresh: () async {
+            setState(_refresh);
+            await _accountData;
+          },
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final width = constraints.maxWidth;
+              final pad = width < 600 ? 16.0 : 32.0;
+              final content = (width - pad * 2).clamp(0.0, 1180.0);
+              final twoColumns = content >= 860;
+              return ListView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: (width - content) / 2,
+                  vertical: width < 600 ? 16 : 28,
                 ),
-              ),
-            ),
-            FutureBuilder<Map<String, dynamic>>(
-              future: _accountData,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (snapshot.hasError) {
-                  return ListTile(
-                    title: const Text('Account details unavailable'),
-                    subtitle: Text('${snapshot.error}'),
-                    trailing: const Icon(Icons.refresh),
-                    onTap: () => setState(_refresh),
-                  );
-                }
-                final data = snapshot.data ?? {};
-                final addresses = (data['addresses'] as List? ?? [])
-                    .whereType<Map>()
-                    .toList();
-                final rewardHistory = (data['rewardHistory'] as List? ?? [])
-                    .whereType<Map>()
-                    .toList();
-                final invoices = (data['invoices'] as List? ?? [])
-                    .whereType<Map>()
-                    .toList();
-                return Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.stars_outlined),
-                      title: const Text('Reward points'),
-                      trailing: Text('${data['rewards'] ?? 0}'),
+                children: [
+                  _pageHeader(isDark),
+                  SizedBox(height: width < 600 ? 14 : 20),
+                  ProfileSummaryCard(
+                    user: user,
+                    isDark: isDark,
+                    onEdit: () => _edit(user),
+                  ),
+                  const SizedBox(height: _gap),
+                  FutureBuilder<Map<String, dynamic>>(
+                    future: _accountData,
+                    builder: (context, snapshot) => _accountSections(
+                      user,
+                      snapshot,
+                      twoColumns: twoColumns,
+                      isDark: isDark,
                     ),
-                    for (final entry in rewardHistory.take(3))
-                      ListTile(
-                        dense: true,
-                        title: Text(
-                          '${entry['description'] ?? entry['reason'] ?? 'Reward activity'}',
-                        ),
-                        trailing: Text('+${entry['pointsEarned'] ?? 0}'),
-                      ),
-                    ListTile(
-                      leading: const Icon(
-                        Icons.account_balance_wallet_outlined,
-                      ),
-                      title: const Text('Available credit'),
-                      trailing: Text('₹${data['availableCredit'] ?? 0}'),
-                    ),
-                    const Divider(),
-                    ListTile(
-                      title: const Text('Delivery addresses'),
-                      trailing: TextButton.icon(
-                        onPressed: () => _addressForm(user),
-                        icon: const Icon(Icons.add),
-                        label: const Text('Add'),
-                      ),
-                    ),
-                    if (addresses.isEmpty)
-                      const ListTile(title: Text('No saved addresses')),
-                    for (final address in addresses)
-                      ListTile(
-                        leading: const Icon(Icons.location_on_outlined),
-                        title: Text(
-                          '${address['label'] ?? address['addressType'] ?? 'Address'}${address['isDefault'] == true ? ' • Default' : ''}',
-                        ),
-                        subtitle: Text(
-                          '${address['street'] ?? ''}, ${address['city'] ?? ''}, ${address['state'] ?? ''} ${address['pincode'] ?? ''}',
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          tooltip: 'Address actions',
-                          onSelected: (action) =>
-                              _addressAction(user, address, action),
-                          itemBuilder: (context) => [
-                            const PopupMenuItem(
-                              value: 'edit',
-                              child: Text('Edit'),
-                            ),
-                            if (address['isDefault'] != true)
-                              const PopupMenuItem(
-                                value: 'default',
-                                child: Text('Set default'),
-                              ),
-                            const PopupMenuItem(
-                              value: 'delete',
-                              child: Text('Delete'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    const Divider(),
-                    ListTile(
-                      title: const Text('GST invoices'),
-                      trailing: Text('${invoices.length}'),
-                    ),
-                    for (final invoice in invoices)
-                      ListTile(
-                        leading: const Icon(Icons.receipt_long_outlined),
-                        title: Text(
-                          '${invoice['invoiceNumber'] ?? invoice['orderId'] ?? 'Invoice'}',
-                        ),
-                        subtitle: Text('${invoice['date'] ?? ''}'),
-                        trailing: Text('₹${invoice['amount'] ?? 0}'),
-                      ),
-                  ],
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.shopping_bag_outlined),
-              title: const Text('My orders'),
-              onTap: () => context.go('/orders'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.favorite_outline_rounded),
-              title: const Text('My wishlist'),
-              trailing: Text('${ref.watch(wishlistProvider).length}'),
-              onTap: () => context.push('/wishlist'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.lock_outline),
-              title: const Text('Change password'),
-              onTap: () => _changePassword(user),
-            ),
-            ListTile(
-              leading: const Icon(Icons.support_agent),
-              title: const Text('Contact support'),
-              onTap: () => _supportTicket(user),
-            ),
-            ListTile(
-              leading: const Icon(Icons.logout),
-              title: const Text('Sign out'),
-              onTap: () async {
-                await ref.read(authProvider.notifier).logout();
-                if (context.mounted) context.go('/login');
-              },
-            ),
-          ],
+                  ),
+                  const SizedBox(height: 90),
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
   }
+
+  static const _gap = 20.0;
+
+  Widget _pageHeader(bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'My Profile',
+          style: TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.4,
+            color: isDark ? Colors.white : const Color(0xFF0F172A),
+          ),
+        ),
+        const SizedBox(height: 2),
+        const Text(
+          'Manage your dealer account, rewards, credit and addresses',
+          style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+        ),
+      ],
+    );
+  }
+
+  /// Rewards, credit, account details, addresses, invoices and options:
+  /// two balanced columns on wide screens, one stacked column otherwise.
+  Widget _accountSections(
+    UserModel user,
+    AsyncSnapshot<Map<String, dynamic>> snapshot, {
+    required bool twoColumns,
+    required bool isDark,
+  }) {
+    final options = _optionsCard(user, isDark);
+    final account = ProfileSectionCard(
+      title: 'Business Information',
+      icon: Icons.storefront_rounded,
+      isDark: isDark,
+      child: InfoRows(
+        isDark: isDark,
+        rows: [
+          if (user.companyName.trim().isNotEmpty)
+            (Icons.business_rounded, 'Business', user.companyName.trim()),
+          if (user.gstNumber.trim().isNotEmpty)
+            (Icons.receipt_rounded, 'GST number', user.gstNumber.trim()),
+          if (user.address.trim().isNotEmpty)
+            (
+              Icons.home_work_outlined,
+              'Registered address',
+              user.address.trim(),
+            ),
+        ],
+      ),
+    );
+
+    List<Widget> dataCards;
+    List<Widget> dataCardsRight;
+    if (snapshot.connectionState != ConnectionState.done) {
+      dataCards = [_loadingCard(isDark)];
+      dataCardsRight = [_loadingCard(isDark)];
+    } else if (snapshot.hasError) {
+      final error = _errorCard(snapshot.error, isDark);
+      dataCards = [error];
+      dataCardsRight = [];
+    } else {
+      final data = snapshot.data ?? {};
+      List<Map> list(String key) =>
+          (data[key] as List? ?? []).whereType<Map>().toList();
+      final addresses = list('addresses');
+      final rewards = RewardsCard(
+        totalPoints: (num.tryParse('${data['rewards'] ?? 0}') ?? 0).toInt(),
+        totalEarned: num.tryParse('${data['rewardsEarned'] ?? ''}')?.toInt(),
+        history: list('rewardHistory'),
+        isDark: isDark,
+      );
+      final credit = CreditCard(
+        availableCredit: num.tryParse('${data['availableCredit'] ?? ''}')
+            ?.toDouble(),
+        creditLimit: num.tryParse('${data['creditLimit'] ?? ''}')?.toDouble(),
+        outstanding: num.tryParse('${data['outstandingAmount'] ?? ''}')
+            ?.toDouble(),
+        isDark: isDark,
+      );
+      final addressCard = ProfileSectionCard(
+        title: 'Delivery Addresses',
+        icon: Icons.local_shipping_rounded,
+        iconColor: const Color(0xFF059669),
+        isDark: isDark,
+        trailing: TextButton.icon(
+          key: const ValueKey('address-add'),
+          onPressed: () => _addressForm(user),
+          icon: const Icon(Icons.add_rounded, size: 18),
+          label: const Text('Add'),
+        ),
+        child: addresses.isEmpty
+            ? const Text(
+                'No saved addresses yet.',
+                style: TextStyle(fontSize: 13.5, color: Color(0xFF64748B)),
+              )
+            : Column(
+                children: [
+                  for (var i = 0; i < addresses.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    AddressTile(
+                      address: addresses[i],
+                      isDark: isDark,
+                      onAction: (action) =>
+                          _addressAction(user, addresses[i], action),
+                    ),
+                  ],
+                ],
+              ),
+      );
+      final invoices = list('invoices');
+      final invoiceCard = ProfileSectionCard(
+        title: 'GST Invoices',
+        icon: Icons.receipt_long_rounded,
+        iconColor: const Color(0xFF7C3AED),
+        isDark: isDark,
+        trailing: Text(
+          '${invoices.length}',
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF7C3AED),
+          ),
+        ),
+        child: InvoiceList(invoices: invoices, isDark: isDark),
+      );
+      dataCards = [rewards, addressCard, invoiceCard];
+      dataCardsRight = [credit];
+    }
+
+    Widget column(List<Widget> cards) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < cards.length; i++) ...[
+          if (i > 0) const SizedBox(height: _gap),
+          cards[i],
+        ],
+      ],
+    );
+
+    if (twoColumns) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(flex: 7, child: column(dataCards)),
+          const SizedBox(width: _gap),
+          Expanded(
+            flex: 5,
+            child: column([...dataCardsRight, account, options]),
+          ),
+        ],
+      );
+    }
+    // Phones / tablets: rewards and credit first, then the rest.
+    return column([
+      if (dataCards.isNotEmpty) dataCards.first,
+      ...dataCardsRight,
+      account,
+      ...dataCards.skip(1),
+      options,
+    ]);
+  }
+
+  Widget _optionsCard(UserModel user, bool isDark) {
+    return ProfileSectionCard(
+      title: 'Account & Settings',
+      icon: Icons.settings_rounded,
+      iconColor: const Color(0xFF475569),
+      isDark: isDark,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ProfileOptionTile(
+            icon: Icons.shopping_bag_outlined,
+            label: 'My orders',
+            subtitle: 'Track orders and delivery status',
+            isDark: isDark,
+            onTap: () => context.go('/orders'),
+          ),
+          ProfileOptionTile(
+            icon: Icons.favorite_outline_rounded,
+            label: 'My wishlist',
+            subtitle: 'Products you saved',
+            trailingText: '${ref.watch(wishlistProvider).length}',
+            color: const Color(0xFFE11D48),
+            isDark: isDark,
+            onTap: () => context.push('/wishlist'),
+          ),
+          ProfileOptionTile(
+            icon: Icons.lock_outline_rounded,
+            label: 'Change password',
+            subtitle: 'Update your sign-in password',
+            color: const Color(0xFF7C3AED),
+            isDark: isDark,
+            onTap: () => _changePassword(user),
+          ),
+          ProfileOptionTile(
+            icon: Icons.support_agent_rounded,
+            label: 'Contact support',
+            subtitle: 'Raise a ticket with our team',
+            color: const Color(0xFF0E7490),
+            isDark: isDark,
+            onTap: () => _supportTicket(user),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            key: const ValueKey('profile-sign-out'),
+            onPressed: () async {
+              await ref.read(authProvider.notifier).logout();
+              if (mounted) context.go('/login');
+            },
+            icon: const Icon(Icons.logout_rounded, size: 18),
+            label: const Text('Sign out'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFFDC2626),
+              side: const BorderSide(color: Color(0xFFFECACA)),
+              minimumSize: const Size.fromHeight(46),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              textStyle: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _loadingCard(bool isDark) => Container(
+    height: 180,
+    decoration: profileCardDecoration(isDark),
+    alignment: Alignment.center,
+    child: const CircularProgressIndicator(),
+  );
+
+  Widget _errorCard(Object? error, bool isDark) => ProfileSectionCard(
+    title: 'Account details unavailable',
+    icon: Icons.cloud_off_rounded,
+    iconColor: const Color(0xFFDC2626),
+    isDark: isDark,
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            '$error',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13, color: Color(0xFF64748B)),
+          ),
+        ),
+        const SizedBox(width: 12),
+        FilledButton.tonalIcon(
+          onPressed: () => setState(_refresh),
+          icon: const Icon(Icons.refresh_rounded, size: 18),
+          label: const Text('Retry'),
+        ),
+      ],
+    ),
+  );
 }

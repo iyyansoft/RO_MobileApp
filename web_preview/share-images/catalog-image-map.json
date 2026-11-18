@@ -1,0 +1,33 @@
+{
+  "_comment": "Mirrors ProductModel.displayImageUrl (lib/features/products/domain/models/product_model.dart). Products whose stored image is a shared placeholder are shown in the app as a tile of assets/images/ro_product_catalog_sprite.png; share pages use the same tile (catalog-<tile>.jpg here). Kept in sync by test/product_share_test.dart.",
+  "placeholders": ["purifier.jpg", "cat_filter.jpg", "cat_pump.jpg", "cat_spares.jpg", "membrane.jpg"],
+  "bySku": {
+    "RO-FLT-CTO": 0,
+    "RO-FLT-INLINE": 1,
+    "RO-FLT-SED": 2,
+    "ABC": 3,
+    "RO-MEM-100": 6,
+    "RO-MEM-4040": 4,
+    "RO-MEM-75": 5,
+    "RO-PIPE-14": 7,
+    "RO-PIPE-38": 8,
+    "RO-PIPE-KIT": 9,
+    "RO-PMP-100": 11,
+    "RO-PMP-300": 12,
+    "RO-PMP-75": 10,
+    "RO-SPR-HOUSING": 13,
+    "RO-SPR-SMPS": 14,
+    "RO-SPR-SV": 15,
+    "RO-SYS-25": 17,
+    "RO-SYS-50": 18,
+    "RO-SYS-10L": 16
+  },
+  "byCategoryText": [
+    { "contains": ["membrane"], "tile": 4 },
+    { "contains": ["filter"], "tile": 0 },
+    { "contains": ["pipe", "tubing"], "tile": 7 },
+    { "contains": ["pump"], "tile": 10 },
+    { "contains": ["spare", "valve"], "tile": 13 }
+  ],
+  "defaultTile": 16
+}

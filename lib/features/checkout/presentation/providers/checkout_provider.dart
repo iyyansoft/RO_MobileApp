@@ -353,6 +353,7 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
     }
     final user = ref.read(authProvider).currentUser;
     final cart = ref.read(cartProvider);
+    final totals = ref.read(cartTotalsProvider(withGst));
     if (cart.isLoading || cart.errorMessage != null) {
       throw StateError(
         'Wait for the cart to sync successfully before checkout.',
@@ -402,14 +403,14 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
               },
             )
             .toList(),
-        'subtotal': cart.subtotal,
-        'discount': cart.dealerDiscount,
+        // Shown to the dealer; the server re-prices from the database and
+        // saves its own amounts with the order.
+        'subtotal': totals.subtotal,
+        'discount': totals.discount,
         'withGst': withGst,
-        'gst': withGst ? cart.gstAmount : 0.0,
-        'deliveryFee': cart.deliveryFee,
-        'grandTotal': withGst
-            ? cart.grandTotalWithGst
-            : cart.grandTotalWithoutGst,
+        'gst': totals.gst,
+        'deliveryFee': totals.deliveryFee,
+        'grandTotal': totals.grandTotal,
         'paymentMethod': state.selectedPaymentMethod.label,
         'deliveryAddress': {
           'name': address.name,

@@ -15,6 +15,56 @@ class AdminProductFields extends StatelessWidget {
     this.showAdvanced = true,
   });
 
+  /// Money fields that may be left empty (sent as '' = not set).
+  static const optionalAmounts = ['purchase_price', 'price', 'mrp'];
+
+  /// The Cabinet category: id/key "CAT_CAB" or "cabinets", or titled "Cabinet".
+  static bool isCabinetCategory(String? value, List<CategoryModel> categories) {
+    final v = (value ?? '').trim().toLowerCase();
+    if (v.isEmpty) return false;
+    if (v == 'cabinets' || v == 'cat_cab') return true;
+    return categories.any(
+      (c) =>
+          c.id.toLowerCase() == v &&
+          ['cabinet', 'cabinets'].contains(c.name.trim().toLowerCase()),
+    );
+  }
+
+  /// "Cabinet Price (₹) *": shown and required only for the Cabinet category.
+  Widget _cabinetPrice() {
+    final category = controllers['category'];
+    final input = controllers['cabinet_price'];
+    if (category == null || input == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: category,
+      builder: (_, value, __) {
+        if (!isCabinetCategory(value.text, categories)) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: TextFormField(
+            key: const ValueKey('cabinet_price'),
+            controller: input,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Cabinet Price (₹) *',
+              prefixText: '₹ ',
+            ),
+            validator: (value) {
+              final amount = num.tryParse((value ?? '').trim());
+              if ((value ?? '').trim().isEmpty) return 'Required';
+              if (amount == null || !amount.isFinite || amount <= 0) {
+                return 'Cabinet Price must be greater than zero';
+              }
+              return null;
+            },
+          ),
+        );
+      },
+    );
+  }
+
   static const labels = {
     'name': 'Name',
     'sku': 'SKU',
@@ -62,7 +112,13 @@ class AdminProductFields extends StatelessWidget {
               ),
             )
             .toList(),
-        onChanged: (value) => controllers[key]!.text = value ?? '',
+        onChanged: (value) {
+          controllers[key]!.text = value ?? '';
+          // Leaving Cabinet hides and clears Cabinet Price.
+          if (!isCabinetCategory(value, categories)) {
+            controllers['cabinet_price']?.clear();
+          }
+        },
         validator: (value) =>
             value == null || value.isEmpty ? 'Choose a category' : null,
       );
@@ -92,10 +148,11 @@ class AdminProductFields extends StatelessWidget {
       ),
       validator: (value) {
         final text = (value ?? '').trim();
-        if (['name', 'sku', 'category', 'price'].contains(key) &&
-            text.isEmpty) {
+        if (['name', 'sku', 'category'].contains(key) && text.isEmpty) {
           return 'Required';
         }
+        // Brand, Purchase Price, Dealer Price and MRP are optional.
+        if (optionalAmounts.contains(key) && text.isEmpty) return null;
         if (numeric) {
           final amount = num.tryParse(text);
           if (amount == null || !amount.isFinite || amount < 0) {
@@ -104,12 +161,16 @@ class AdminProductFields extends StatelessWidget {
           if (key == 'price' && amount <= 0) {
             return 'Dealer Price must be greater than zero';
           }
+          if (key == 'mrp' && amount <= 0) {
+            return 'MRP must be greater than zero';
+          }
           if (['stock_quantity', 'min_stock'].contains(key) &&
               amount != amount.round()) {
             return 'Enter a whole number';
           }
         }
-        if (key == 'moq') {
+        // Blank MOQ is allowed: it means "not set" and is kept blank.
+        if (key == 'moq' && text.isNotEmpty) {
           final amount = int.tryParse(
             RegExp(r'\d+').firstMatch(text)?.group(0) ?? '',
           );
@@ -172,6 +233,7 @@ class AdminProductFields extends StatelessWidget {
         'category',
         'brand',
       ]),
+      _cabinetPrice(),
       _group('Pricing', ['purchase_price', 'price', 'mrp']),
       _group('Inventory', ['moq', 'stock_quantity']),
       _group('Description', ['desc']),

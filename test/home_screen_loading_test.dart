@@ -100,7 +100,8 @@ void main() {
     );
 
     // Header logo + footer logo.
-    expect(_homeLogo(), findsNWidgets(2));
+    // Header logo, footer brand logo and footer wordmark.
+    expect(_homeLogo(), findsNWidgets(3));
     expect(find.byIcon(Icons.person_outline_rounded), findsOneWidget);
     expect(find.byIcon(Icons.shopping_cart_outlined), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
@@ -154,7 +155,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     // Header logo + footer logo.
-    expect(_homeLogo(), findsNWidgets(2));
+    // Header logo, footer brand logo and footer wordmark.
+    expect(_homeLogo(), findsNWidgets(3));
     expect(find.byIcon(Icons.person_outline_rounded), findsOneWidget);
     expect(find.byIcon(Icons.shopping_cart_outlined), findsOneWidget);
     expect(find.text('We couldn’t load the product catalog'), findsOneWidget);

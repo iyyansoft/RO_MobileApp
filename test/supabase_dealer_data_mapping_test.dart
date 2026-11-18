@@ -180,8 +180,9 @@ void main() {
         'created_at': '2026-10-26T10:00:00Z',
       },
     ]);
-    expect(invoices['creditLimit'], 250000);
-    expect(invoices['availableCredit'], 248466);
+    // No invented credit limit (was a fixed ₹2,50,000).
+    expect(invoices['creditLimit'], isNull);
+    expect(invoices['availableCredit'], isNull);
     expect(invoices['invoices'], hasLength(1));
     expect((invoices['invoices'] as List).single['invoiceNumber'], 'INV-1');
     expect((invoices['invoices'] as List).single['amount'], 1534);

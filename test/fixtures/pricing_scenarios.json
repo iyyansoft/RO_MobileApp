@@ -1,0 +1,78 @@
+{
+  "_comment": "Shared by test/pricing_rules_test.cjs (Node backend) and test/order_pricing_test.dart (Flutter) so both must produce identical amounts. Expected values are hand-checked. Rules default to the backend defaults unless a scenario sets them.",
+  "defaultRules": {
+    "dealerDiscountPercent": 10,
+    "dealerTierLabel": "Gold Dealer",
+    "gstPercent": 18,
+    "deliveryCharge": 250,
+    "freeDeliveryAbove": 5000
+  },
+  "scenarios": [
+    {
+      "name": "single filter housing (cart screenshot)",
+      "lines": [{ "unitPrice": 290, "quantity": 1 }],
+      "without": { "subtotal": 290, "discount": 29, "gst": 0, "deliveryFee": 250, "grandTotal": 511 },
+      "with": { "subtotal": 290, "discount": 29, "gst": 46.98, "deliveryFee": 250, "grandTotal": 557.98 }
+    },
+    {
+      "name": "multiple products and quantities, free delivery",
+      "lines": [
+        { "unitPrice": 16500, "quantity": 2 },
+        { "unitPrice": 7500, "quantity": 1 },
+        { "unitPrice": 290, "quantity": 3 }
+      ],
+      "without": { "subtotal": 41370, "discount": 4137, "gst": 0, "deliveryFee": 0, "grandTotal": 37233 },
+      "with": { "subtotal": 41370, "discount": 4137, "gst": 6701.94, "deliveryFee": 0, "grandTotal": 43934.94 }
+    },
+    {
+      "name": "exactly at the free-delivery threshold still pays delivery",
+      "lines": [{ "unitPrice": 2500, "quantity": 2 }],
+      "without": { "subtotal": 5000, "discount": 500, "gst": 0, "deliveryFee": 250, "grandTotal": 4750 },
+      "with": { "subtotal": 5000, "discount": 500, "gst": 810, "deliveryFee": 250, "grandTotal": 5560 }
+    },
+    {
+      "name": "one paisa above the threshold is free delivery",
+      "lines": [{ "unitPrice": 5000.01, "quantity": 1 }],
+      "without": { "subtotal": 5000.01, "discount": 500, "gst": 0, "deliveryFee": 0, "grandTotal": 4500.01 },
+      "with": { "subtotal": 5000.01, "discount": 500, "gst": 810, "deliveryFee": 0, "grandTotal": 5310.01 }
+    },
+    {
+      "name": "half-paisa rounding (100.55)",
+      "lines": [{ "unitPrice": 100.55, "quantity": 1 }],
+      "without": { "subtotal": 100.55, "discount": 10.06, "gst": 0, "deliveryFee": 250, "grandTotal": 340.49 },
+      "with": { "subtotal": 100.55, "discount": 10.06, "gst": 16.29, "deliveryFee": 250, "grandTotal": 356.78 }
+    },
+    {
+      "name": "no floating-point drift (0.10 x 3)",
+      "lines": [{ "unitPrice": 0.1, "quantity": 3 }],
+      "without": { "subtotal": 0.3, "discount": 0.03, "gst": 0, "deliveryFee": 250, "grandTotal": 250.27 },
+      "with": { "subtotal": 0.3, "discount": 0.03, "gst": 0.05, "deliveryFee": 250, "grandTotal": 250.32 }
+    },
+    {
+      "name": "custom configured rules (12.5% discount, 12% GST, 99 delivery under 1000)",
+      "rules": {
+        "dealerDiscountPercent": 12.5,
+        "dealerTierLabel": "Silver Dealer",
+        "gstPercent": 12,
+        "deliveryCharge": 99,
+        "freeDeliveryAbove": 1000
+      },
+      "lines": [{ "unitPrice": 999.99, "quantity": 1 }],
+      "without": { "subtotal": 999.99, "discount": 125, "gst": 0, "deliveryFee": 99, "grandTotal": 973.99 },
+      "with": { "subtotal": 999.99, "discount": 125, "gst": 105, "deliveryFee": 99, "grandTotal": 1078.99 }
+    },
+    {
+      "name": "no dealer discount configured",
+      "rules": {
+        "dealerDiscountPercent": 0,
+        "dealerTierLabel": "Dealer",
+        "gstPercent": 18,
+        "deliveryCharge": 250,
+        "freeDeliveryAbove": 5000
+      },
+      "lines": [{ "unitPrice": 1000, "quantity": 2 }],
+      "without": { "subtotal": 2000, "discount": 0, "gst": 0, "deliveryFee": 250, "grandTotal": 2250 },
+      "with": { "subtotal": 2000, "discount": 0, "gst": 360, "deliveryFee": 250, "grandTotal": 2610 }
+    }
+  ]
+}

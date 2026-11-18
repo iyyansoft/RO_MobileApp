@@ -15,7 +15,8 @@ function backend({ missing = false, failure = false } = {}) {
   const calls = [], logs = [];
   const dealer = { id: 'dealer-1', status: 'pending', is_approved: false };
   const context = vm.createContext({
-    activeAdminTokens: new Set([testToken]),
+    adminTokenFrom: require('../admin_auth').adminTokenFrom,
+    verifyAdminToken: token => (token === testToken ? { sub: 'admin' } : null),
     console: { error: (...args) => logs.push(args) },
     app: { post(path, auth, handler) { route = { auth, handler }; } },
     pool: { async query(sql, values) {
@@ -65,7 +66,9 @@ test('green tick sends the authenticated canonical payload and updates PostgreSQ
   });
   await ui.approve();
   assert.deepEqual(api.dealer, { id: 'dealer-1', status: 'approved', is_approved: true });
-  assert.equal(api.calls[0].sql, 'UPDATE users SET status = $1, is_approved = $2 WHERE email = $3 OR id = $4 OR mobile = $5');
+  // Email matches case-insensitively; id and mobile match exactly as sent
+  // (ids are case-sensitive, so they are no longer lowercased).
+  assert.equal(api.calls[0].sql, 'UPDATE users SET status = $1, is_approved = $2 WHERE lower(email) = $3 OR id = $4 OR mobile = $5');
   assert.deepEqual(api.calls[0].values, ['approved', true, 'dealer-1', 'dealer-1', 'dealer-1']);
   assert.deepEqual(ui.refreshes, ['users', 'stats']);
   assert.equal(ui.toasts[0].color, '#10B981');

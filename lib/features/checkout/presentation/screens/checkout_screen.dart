@@ -6,9 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
+import '../../../cart/domain/order_pricing.dart';
 import '../../../cart/presentation/providers/cart_provider.dart';
 import '../../domain/models/address_model.dart';
 import '../providers/checkout_provider.dart';
+import '../../../products/presentation/widgets/max_quantity_dialog.dart';
 import 'order_success_screen.dart';
 import '../../../../core/utils/gstin.dart';
 import '../../../../core/widgets/responsive_layout.dart';
@@ -32,9 +34,6 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   };
   bool _sameAsDelivery = true;
   bool _withGst = false;
-  double _total(dynamic cart) => double.parse(
-    (cart.grandTotal - (_withGst ? 0 : cart.gstAmount)).toStringAsFixed(2),
-  );
   bool _submitting = false;
 
   @override
@@ -339,7 +338,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   },
           );
     } catch (e) {
-      if (mounted) {
+      // Checkout re-validates the product maximum: the same popup.
+      if (mounted && !showMaxQuantityDialogFor(context, e)) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('$e')));
       }
@@ -374,6 +374,8 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final primaryColor = isDark ? AppColors.accentDark : AppColors.primaryLight;
 
     final cartState = ref.watch(cartProvider);
+    // Live totals for the selected GST option (same rules the server uses).
+    final totals = ref.watch(cartTotalsProvider(_withGst));
     final checkoutState = ref.watch(checkoutProvider);
     final selectedAddress = checkoutState.selectedAddress;
 
@@ -443,7 +445,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                         isDark,
                       ),
                       const SizedBox(height: 10),
-                      _buildPriceBreakdown(cartState, isDark, primaryColor),
+                      _buildPriceBreakdown(totals, isDark, primaryColor),
 
                       const SizedBox(height: 24),
 
@@ -467,7 +469,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               // 5. STICKY BOTTOM BAR (Grand Total & Place Order Button)
               _buildStickyBottomBar(
                 context,
-                _total(cartState),
+                totals.grandTotal,
                 checkoutState.isPlacingOrder || _submitting,
                 isDark,
                 primaryColor,
@@ -645,7 +647,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Qty: ${item.quantity} Pcs • ₹${product.dealerPrice.toStringAsFixed(2)} / Unit',
+                        'Qty: ${item.quantity} Pcs • ${formatInr(product.dealerPrice)} / Unit',
                         style: const TextStyle(
                           fontSize: 11,
                           color: Colors.grey,
@@ -655,7 +657,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                   ),
                 ),
                 Text(
-                  '₹${item.totalPrice.toStringAsFixed(2)}',
+                  formatInr(item.totalPrice),
                   style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w900,
@@ -672,7 +674,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
   // Price Breakdown Card
   Widget _buildPriceBreakdown(
-    dynamic cartState,
+    OrderTotals totals,
     bool isDark,
     Color primaryColor,
   ) {
@@ -688,31 +690,31 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       child: Column(
         children: [
           _buildSummaryRow(
-            'Subtotal',
-            '₹${cartState.subtotal.toStringAsFixed(2)}',
+            'Subtotal (${totals.itemCount} Pcs)',
+            formatInr(totals.subtotal),
             isDark,
           ),
           const SizedBox(height: 6),
           _buildSummaryRow(
-            'Gold Dealer Discount (10%)',
-            '- ₹${cartState.dealerDiscount.toStringAsFixed(2)}',
+            discountLabel(totals.rules),
+            '- ${formatInr(totals.discount)}',
             isDark,
             isDiscount: true,
           ),
           const SizedBox(height: 6),
           _buildSummaryRow(
-            'GST Input Tax (18%)',
-            '+ ₹${(_withGst ? cartState.gstAmount : 0.0).toStringAsFixed(2)}',
+            _withGst
+                ? 'GST (${formatPercent(totals.rules.gstPercent)}% on ${formatInr(totals.taxableAmount)})'
+                : 'GST (Without GST)',
+            '+ ${formatInr(totals.gst)}',
             isDark,
           ),
           const SizedBox(height: 6),
           _buildSummaryRow(
             'Delivery / Freight',
-            cartState.deliveryFee == 0
-                ? 'FREE'
-                : '₹${cartState.deliveryFee.toStringAsFixed(2)}',
+            totals.freeDelivery ? 'FREE' : formatInr(totals.deliveryFee),
             isDark,
-            isHighlight: cartState.deliveryFee == 0,
+            isHighlight: totals.freeDelivery,
           ),
           const Divider(height: 20),
           Row(
@@ -732,7 +734,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
               ),
               const SizedBox(width: 12),
               Text(
-                '₹${_total(cartState).toStringAsFixed(2)}',
+                formatInr(totals.grandTotal),
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w900,
@@ -911,7 +913,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
                     fit: BoxFit.scaleDown,
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      '₹${grandTotal.toStringAsFixed(2)}',
+                      formatInr(grandTotal),
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w900,

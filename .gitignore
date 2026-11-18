@@ -33,3 +33,6 @@ android/.gradle/
 *.iml
 inst_user_settings.tmp
 ios/Flutter/ephemeral/
+
+# Database backups (customer data)
+backups/

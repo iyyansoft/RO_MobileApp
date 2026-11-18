@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/widgets/app_image.dart';
+import '../../../../core/utils/rupee_format.dart';
 import '../../../products/domain/models/product_model.dart';
+import '../../../products/presentation/widgets/cabinet_price_text.dart';
 
 /// Product card for the Home page grids (Best Sellers etc.).
 ///
@@ -218,7 +220,11 @@ class _HomeProductCardState extends State<HomeProductCard> {
                             ),
                           ),
                           const SizedBox(height: 6),
-                          _MoqChip(moq: p.moq, isDark: isDark),
+                          _MoqChip(
+                            moq: p.moqSet ? p.moq : null,
+                            unit: p.moqUnit,
+                            isDark: isDark,
+                          ),
                           SizedBox(height: compact ? 10 : 12),
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.end,
@@ -230,7 +236,7 @@ class _HomeProductCardState extends State<HomeProductCard> {
                                   children: [
                                     if (saving > 0)
                                       Text(
-                                        'Save ₹${saving.toStringAsFixed(0)}',
+                                        'Save ${rupee(saving.toDouble())}',
                                         style: const TextStyle(
                                           color: Color(0xFF059669),
                                           fontSize: 10,
@@ -243,7 +249,7 @@ class _HomeProductCardState extends State<HomeProductCard> {
                                       spacing: 6,
                                       children: [
                                         Text(
-                                          '₹${p.dealerPrice.toStringAsFixed(0)}',
+                                          rupee(p.dealerPrice),
                                           style: TextStyle(
                                             color: titleColor,
                                             fontSize: compact ? 17 : 20,
@@ -257,7 +263,7 @@ class _HomeProductCardState extends State<HomeProductCard> {
                                               bottom: 3,
                                             ),
                                             child: Text(
-                                              '₹${p.mrp.toStringAsFixed(0)}',
+                                              rupee(p.mrp),
                                               style: TextStyle(
                                                 color: muted,
                                                 fontSize: 11,
@@ -268,6 +274,10 @@ class _HomeProductCardState extends State<HomeProductCard> {
                                           ),
                                       ],
                                     ),
+                                    CabinetPriceText(
+                                      p,
+                                      fontSize: compact ? 11 : 12,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -275,7 +285,10 @@ class _HomeProductCardState extends State<HomeProductCard> {
                               _AddButton(
                                 compact: compact,
                                 highlighted: _hovered,
-                                onPressed: widget.onAddToCart,
+                                // Stock 0: the add button is disabled.
+                                onPressed: !widget.product.canOrder
+                                    ? null
+                                    : widget.onAddToCart,
                               ),
                             ],
                           ),
@@ -370,8 +383,9 @@ class _StockPill extends StatelessWidget {
 }
 
 class _MoqChip extends StatelessWidget {
-  const _MoqChip({required this.moq, required this.isDark});
-  final int moq;
+  const _MoqChip({required this.moq, this.unit, required this.isDark});
+  final int? moq; // null: not set in the catalogue
+  final String? unit; // as saved, e.g. "nos"
   final bool isDark;
 
   @override
@@ -391,7 +405,9 @@ class _MoqChip extends StatelessWidget {
           Icon(Icons.inventory_2_outlined, size: 11, color: fg),
           const SizedBox(width: 4),
           Text(
-            'MOQ $moq ${moq == 1 ? 'pc' : 'pcs'}',
+            moq == null
+                ? 'MOQ not set'
+                : 'MOQ $moq ${unit ?? (moq == 1 ? 'pc' : 'pcs')}',
             style: TextStyle(
               color: fg,
               fontSize: 10,
@@ -413,7 +429,7 @@ class _AddButton extends StatelessWidget {
 
   final bool compact;
   final bool highlighted;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -422,10 +438,13 @@ class _AddButton extends StatelessWidget {
       color: Colors.transparent,
       child: Ink(
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF3B82F6), blue],
+            // Grey when disabled (stock 0).
+            colors: onPressed == null
+                ? const [Color(0xFFCBD5E1), Color(0xFF94A3B8)]
+                : const [Color(0xFF3B82F6), blue],
           ),
           borderRadius: BorderRadius.circular(12),
           boxShadow: [

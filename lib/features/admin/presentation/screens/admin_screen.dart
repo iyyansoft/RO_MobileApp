@@ -1689,7 +1689,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
     final name = '${product['name'] ?? 'Untitled product'}';
     final price = product['price'] ?? product['dealer_price'] ?? 0;
     final mrp = product['mrp'] ?? price;
-    final moq = product['moq'] ?? '1';
+    final moq = _adminMoq(product['moq']);
     final stock = product['stock_quantity'] ?? product['stock'] ?? 0;
     final image = '${product['img'] ?? product['image'] ?? ''}'.trim();
     final category = '${product['category'] ?? 'Uncategorized'}';
@@ -1759,7 +1759,14 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  Expanded(child: _productListValue('MRP', _adminMoney(mrp))),
+                  Expanded(
+                    child: _productListValue(
+                      'MRP',
+                      ((num.tryParse('${mrp}') ?? 0) > 0
+                          ? _adminMoney(mrp)
+                          : 'Not available'),
+                    ),
+                  ),
                   const SizedBox(width: 6),
                   Expanded(child: _productListValue('MOQ', '$moq')),
                   const SizedBox(width: 6),
@@ -1996,11 +2003,15 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
                               ),
                               _productMetric(
                                 'MRP',
-                                _adminMoney(product['mrp'] ?? price),
+                                ((num.tryParse('${product['mrp'] ?? price}') ??
+                                            0) >
+                                        0
+                                    ? _adminMoney(product['mrp'] ?? price)
+                                    : 'Not available'),
                               ),
                               _productMetric(
                                 'Minimum order',
-                                '${product['moq'] ?? '1'}',
+                                _adminMoq(product['moq']),
                               ),
                               _productMetric(
                                 'Stock',
@@ -2189,6 +2200,7 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
             'purchase_price',
             'price',
             'mrp',
+            'cabinet_price',
             'moq',
             'stock_quantity',
             'min_stock',
@@ -2206,9 +2218,8 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       'moq': '1 Piece',
       'stock_quantity': 50,
       'min_stock': 10,
-      'purchase_price': 0,
+      // Purchase Price, Dealer Price and MRP start empty (optional).
       'rating': 0,
-      'mrp': item['price'] ?? 0,
       'specs': <String, dynamic>{},
       'features': <String>[],
       'key': item['key_name'] ?? '',
@@ -2219,6 +2230,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
         field: TextEditingController(
           text: ['specs', 'features'].contains(field)
               ? jsonEncode(item[field] ?? defaults[field])
+              // A Dealer Price or MRP of 0 means "not set": show it empty.
+              : ['price', 'mrp', 'cabinet_price'].contains(field) &&
+                    (num.tryParse('${item[field]}') ?? 0) <= 0
+              ? ''
               : '${item[field] ?? (field == 'name' ? item['title'] : null) ?? defaults[field] ?? ''}',
         ),
     };
@@ -2389,9 +2404,14 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
                 final value = controllers[field]!.text.trim();
                 result[field] = ['specs', 'features'].contains(field)
                     ? jsonDecode(value)
+                    : (AdminProductFields.optionalAmounts.contains(field) ||
+                              field == 'cabinet_price') &&
+                          value.isEmpty
+                    ? '' // optional / not a Cabinet product: not set
                     : [
                         'price',
                         'mrp',
+                        'cabinet_price',
                         'purchase_price',
                         'stock_quantity',
                         'min_stock',
@@ -2422,4 +2442,10 @@ class _AdminScreenState extends ConsumerState<AdminScreen> {
       );
     }
   }
+}
+
+/// MOQ text for admin lists: blank in the catalogue shows "Not set", never 1.
+String _adminMoq(dynamic value) {
+  final text = '${value ?? ''}'.trim();
+  return text.isEmpty ? 'Not set' : text;
 }

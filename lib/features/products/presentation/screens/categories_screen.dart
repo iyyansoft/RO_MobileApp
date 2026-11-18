@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../../core/utils/rupee_format.dart';
+
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/theme/app_colors.dart';
@@ -13,6 +16,8 @@ import '../../domain/models/product_model.dart';
 import '../providers/product_provider.dart';
 import 'product_details_screen.dart';
 import 'product_listing_screen.dart';
+import '../widgets/cabinet_price_text.dart';
+import '../../domain/cabinet_display_order.dart';
 
 class CategoriesScreen extends ConsumerStatefulWidget {
   const CategoriesScreen({super.key});
@@ -106,14 +111,16 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     final cartState = ref.watch(cartProvider);
     final cartCount = cartState.totalItemCount;
 
-    if (catalog.isLoading || productCatalog.isLoading) {
+    if ((catalog.isLoading && !catalog.hasValue) ||
+        (productCatalog.isLoading && !productCatalog.hasValue)) {
       return Scaffold(
         backgroundColor: surfaceColor,
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
-    if (catalog.hasError || productCatalog.hasError) {
+    if ((catalog.hasError && !catalog.hasValue) ||
+        (productCatalog.hasError && !productCatalog.hasValue)) {
       return Scaffold(
         backgroundColor: surfaceColor,
         appBar: AppBar(title: const Text('Categories'), elevation: 0),
@@ -177,6 +184,10 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
       body: SafeArea(
         top: false,
         child: Row(
+          // Sidebar and content both fill the full height, so short content
+          // (e.g. a category with one product) starts at the top instead of
+          // being centred vertically.
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // Left sidebar: width scales with screen size
             Container(
@@ -187,7 +198,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
               ),
               child: ListView(
                 controller: _sidebarScrollController,
-                padding: const EdgeInsets.symmetric(vertical: 4),
+                padding: const EdgeInsets.only(bottom: 16),
                 children: [
                   // "For You" item
                   _buildSidebarItem(
@@ -205,7 +216,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                         boxShadow: [
                           BoxShadow(
                             color: const Color(0xFF5B86E5)
@@ -252,7 +263,9 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                     final availableWidth = constraints.maxWidth;
                     final int crossAxisCount = availableWidth > 1000
                         ? 5
-                        : (availableWidth > 650 ? 4 : 3);
+                        : (availableWidth > 650
+                              ? 4
+                              : (availableWidth >= 360 ? 3 : 2));
                     const hPadding = 10.0;
                     const spacing = 8.0;
                     final cardWidth =
@@ -260,11 +273,12 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                             (hPadding * 2) -
                             ((crossAxisCount - 1) * spacing)) /
                         crossAxisCount;
-                    // Bounded card height: square image (cardWidth) + 50px for title + price + gaps
-                    final cardHeight = cardWidth + 50.0;
+                    // Square image (cardWidth) + room for title, price and
+                    // gaps, so cards never overflow on narrow screens.
+                    final cardHeight = cardWidth + 56.0;
                     final childAspectRatio = (cardWidth / cardHeight).clamp(
-                      0.60,
-                      0.75,
+                      0.45,
+                      0.80,
                     );
 
                     if (_searchQuery.isNotEmpty) {
@@ -457,149 +471,123 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     IconData? fallbackIcon,
     Widget? customIcon,
   }) {
-    final tileBg = isSelected
-        ? (isDark ? AppColors.surfaceDark : Colors.white)
-        : Colors.transparent;
+    final thumbSize = _sidebarThumbSize(context);
+    final labelSize = _sidebarLabelSize(context);
+    final muted = isDark
+        ? AppColors.textSecondaryDark
+        : const Color(0xFF475569);
+    final fallback = Center(
+      child: Icon(
+        fallbackIcon ?? Icons.water_drop_rounded,
+        size: thumbSize * 0.42,
+        color: isSelected ? primaryColor : muted,
+      ),
+    );
 
     Widget buildThumb() {
       if (customIcon != null) return customIcon;
-
-      // Build inner content: local asset > network > icon
-      Widget inner;
-      if (localImagePath != null) {
-        inner = Padding(
-          padding: const EdgeInsets.all(3),
-          child: CategoryImage(
-            url: localImagePath,
-            fallback: Icon(
-              fallbackIcon ?? Icons.water_drop_rounded,
-              size: 20,
-              color: isSelected
-                  ? primaryColor
-                  : (isDark
-                        ? AppColors.textSecondaryDark
-                        : const Color(0xFF64748B)),
-            ),
-          ),
-        );
-      } else if (imagePath != null && imagePath.isNotEmpty) {
-        inner = AppImage(
-          imagePath,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stack) => Icon(
-            fallbackIcon ?? Icons.water_drop_rounded,
-            size: 20,
-            color: isSelected
-                ? primaryColor
-                : (isDark
-                      ? AppColors.textSecondaryDark
-                      : const Color(0xFF64748B)),
-          ),
-        );
-      } else {
-        inner = Center(
-          child: Icon(
-            fallbackIcon ?? Icons.water_drop_rounded,
-            size: 20,
-            color: isSelected
-                ? primaryColor
-                : (isDark
-                      ? AppColors.textSecondaryDark
-                      : const Color(0xFF64748B)),
-          ),
-        );
-      }
-
-      final thumbSize = _sidebarThumbSize(context);
-      return Container(
+      // Actual category photo, shown whole (contain) and centred.
+      final Widget inner = localImagePath != null
+          ? CategoryImage(url: localImagePath, fallback: fallback)
+          : (imagePath != null && imagePath.isNotEmpty)
+          ? AppImage(
+              imagePath,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stack) => fallback,
+            )
+          : fallback;
+      return AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
         width: thumbSize,
         height: thumbSize,
+        padding: const EdgeInsets.all(4),
         decoration: BoxDecoration(
-          color: localImagePath != null
-              ? Colors.white
-              : isSelected
-              ? (isDark
-                    ? primaryColor.withValues(alpha: 0.18)
-                    : const Color(0xFFEEF4FF))
-              : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white),
-          borderRadius: BorderRadius.circular(12),
+          color: isDark ? const Color(0xFF162334) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isSelected
-                ? primaryColor.withValues(alpha: 0.3)
+                ? primaryColor
                 : (isDark ? const Color(0xFF243242) : const Color(0xFFE2E8F0)),
-            width: 1,
+            width: isSelected ? 1.6 : 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: (isSelected ? primaryColor : const Color(0xFF0F2850))
+                  .withValues(alpha: isSelected ? 0.20 : 0.06),
+              blurRadius: isSelected ? 12 : 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
         ),
-        clipBehavior: Clip.antiAlias,
-        child: ClipRRect(borderRadius: BorderRadius.circular(11), child: inner),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Center(child: inner),
+        ),
       );
     }
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => _selectCategory(id),
-        child: Container(
-          decoration: BoxDecoration(
-            color: tileBg,
-            border: Border(
-              bottom: BorderSide(
-                color: isDark
-                    ? const Color(0xFF1E2D3D).withValues(alpha: 0.4)
-                    : const Color(0xFFE5E9F0).withValues(alpha: 0.4),
-                width: 0.5,
-              ),
-            ),
-          ),
-          child: Stack(
-            children: [
-              // Left blue indicator bar
-              if (isSelected)
-                Positioned(
-                  left: 0,
-                  top: 8,
-                  bottom: 8,
-                  child: Container(
-                    width: 3.5,
-                    decoration: BoxDecoration(
-                      color: primaryColor,
-                      borderRadius: const BorderRadius.horizontal(
-                        right: Radius.circular(3),
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: title,
+      child: Material(
+        color: isSelected
+            ? (isDark ? AppColors.surfaceDark : Colors.white)
+            : Colors.transparent,
+        child: InkWell(
+          key: ValueKey('category-sidebar-$id'),
+          onTap: () => _selectCategory(id),
+          child: SizedBox(
+            // Every item has the same width (the sidebar) and height.
+            width: double.infinity,
+            height: _sidebarItemHeight(context),
+            child: Stack(
+              children: [
+                if (isSelected)
+                  Positioned(
+                    left: 0,
+                    top: 14,
+                    bottom: 14,
+                    child: Container(
+                      width: 4,
+                      decoration: BoxDecoration(
+                        color: primaryColor,
+                        borderRadius: const BorderRadius.horizontal(
+                          right: Radius.circular(4),
+                        ),
                       ),
                     ),
                   ),
-                ),
-
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 9),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    buildThumb(),
-                    const SizedBox(height: 6),
-                    // Label
-                    Text(
-                      title,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: _sidebarLabelSize(context),
-                        fontWeight: isSelected
-                            ? FontWeight.w800
-                            : FontWeight.w600,
-                        color: isSelected
-                            ? primaryColor
-                            : (isDark
-                                  ? AppColors.textSecondaryDark
-                                  : const Color(0xFF64748B)),
-                        height: 1.15,
-                      ),
+                Positioned.fill(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 12, 6, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        buildThumb(),
+                        const SizedBox(height: 8),
+                        Expanded(
+                          child: Text(
+                            title,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: labelSize,
+                              fontWeight: isSelected
+                                  ? FontWeight.w700
+                                  : FontWeight.w600,
+                              color: isSelected ? primaryColor : muted,
+                              height: 1.2,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -641,11 +629,14 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
           LayoutBuilder(
             builder: (context, constraints) {
               final width = constraints.maxWidth;
-              final columns = width >= 700 ? 4 : (width >= 420 ? 3 : 2);
+              final columns = width >= 700
+                  ? 4
+                  : (width >= 420 ? 3 : (width >= 260 ? 2 : 1));
               const spacing = 14.0;
               final tileWidth = (width - spacing * (columns - 1)) / columns;
               // Near-square image card + room for the label underneath.
-              final tileHeight = tileWidth * 0.92 + 30;
+              // Square-ish image area + card padding + two-line label.
+              final tileHeight = tileWidth * 0.86 + 68;
               return GridView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
@@ -734,9 +725,11 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
       orElse: () => categories.first,
     );
 
-    final categoryProducts = products
-        .where((p) => currentCategory.matchesProduct(p))
-        .toList();
+    final matching = products.where((p) => currentCategory.matchesProduct(p));
+    // Cabinet: the six 20" housings are shown last (display order only).
+    final categoryProducts = isCabinetCategory(currentCategory)
+        ? cabinetDisplayOrder(matching)
+        : matching.toList();
 
     return SingleChildScrollView(
       controller: _contentScrollController,
@@ -1031,166 +1024,90 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     required bool isDark,
     required Color primaryColor,
   }) {
-    final pastelGradients = [
-      const LinearGradient(
-        colors: [Color(0xFFDCEEFF), Color(0xFFEBF5FF)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFFFF0D6), Color(0xFFFFF8EC)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFEEDEFF), Color(0xFFF5EDFF)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFFEEFBB), Color(0xFFFEF8DC)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFCFE9FF), Color(0xFFE0F4FF)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-      const LinearGradient(
-        colors: [Color(0xFFBDF5D6), Color(0xFFDCFCEE)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-    ];
-    final darkCardColor = const Color(0xFF162334);
-
     final localImage = _getCategoryLocalImage(cat.name, cat.id);
+    final fallback = Center(
+      child: Icon(
+        _getCategoryFallbackIcon(cat.name, cat.id),
+        color: primaryColor,
+        size: 36,
+      ),
+    );
+    // Actual category photo, whole (contain) and centred.
+    final Widget image = localImage != null
+        ? CategoryImage(url: localImage, fallback: fallback)
+        : cat.imagePath.isNotEmpty
+        ? AppImage(
+            cat.imagePath,
+            fit: BoxFit.contain,
+            errorBuilder: (context, error, stack) => fallback,
+          )
+        : fallback;
 
-    Widget buildCardImage() {
-      if (localImage != null) {
-        // Product photos have white backgrounds: show them whole (no crop)
-        // on a white panel inset within the pastel card.
-        return Padding(
-          padding: const EdgeInsets.all(10),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: CategoryImage(
-                  url: localImage,
-                  fallback: Center(
-                    child: Icon(
-                      _getCategoryFallbackIcon(cat.name, cat.id),
-                      color: primaryColor,
-                      size: 32,
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF162334) : Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isDark ? const Color(0xFF23354A) : const Color(0xFFE3EAF3),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F2850)
+                .withValues(alpha: isDark ? 0.2 : 0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey('popular-store-${cat.id}'),
+          onTap: () => _selectCategory(cat.id),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+            child: Column(
+              children: [
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF1B2D42)
+                          : const Color(0xFFF8FAFD),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Center(child: image),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-        );
-      }
-      if (cat.imagePath.isNotEmpty) {
-        return AppImage(
-          cat.imagePath,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stack) => Center(
-            child: Icon(
-              _getCategoryFallbackIcon(cat.name, cat.id),
-              color: primaryColor,
-              size: 32,
-            ),
-          ),
-        );
-      }
-      return Center(
-        child: Icon(
-          _getCategoryFallbackIcon(cat.name, cat.id),
-          color: primaryColor,
-          size: 32,
-        ),
-      );
-    }
-
-    return GestureDetector(
-      onTap: () => _selectCategory(cat.id),
-      child: Column(
-        children: [
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              decoration: BoxDecoration(
-                gradient: isDark
-                    ? null
-                    : pastelGradients[index % pastelGradients.length],
-                color: isDark ? darkCardColor : null,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: isDark
-                      ? const Color(0xFF23354A)
-                      : Colors.black.withValues(alpha: 0.05),
-                  width: 1,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: isDark ? 0.12 : 0.05),
-                    blurRadius: 10,
-                    spreadRadius: 0,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  // Full-bleed product image
-                  buildCardImage(),
-                  // Subtle bottom scrim for label readability
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: 42,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.bottomCenter,
-                          end: Alignment.topCenter,
-                          colors: [
-                            Colors.black.withValues(
-                              alpha: isDark ? 0.45 : 0.22,
-                            ),
-                            Colors.transparent,
-                          ],
-                        ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 34,
+                  child: Center(
+                    child: Text(
+                      cat.name,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        height: 1.2,
+                        color: isDark ? Colors.white : const Color(0xFF1E293B),
                       ),
                     ),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            cat.name,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w700,
-              color: isDark ? Colors.white : const Color(0xFF1E293B),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -1319,7 +1236,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    '₹${product.dealerPrice.toInt()}',
+                    rupee(product.dealerPrice),
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
@@ -1329,7 +1246,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                   if (product.mrp > product.dealerPrice) ...[
                     const SizedBox(width: 3),
                     Text(
-                      '₹${product.mrp.toInt()}',
+                      rupee(product.mrp),
                       style: const TextStyle(
                         fontSize: 9,
                         color: Color(0xFF94A3B8),
@@ -1341,6 +1258,14 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
               ),
             ),
           ),
+          if (product.hasCabinetPrice)
+            SizedBox(
+              height: 14,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: CabinetPriceText(product, fontSize: 9.5),
+              ),
+            ),
         ],
       ),
     );
@@ -1430,17 +1355,28 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
   // --- HELPER: Responsive sidebar sizing (phone / tablet / desktop) ---
   double _sidebarWidth(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
-    return w >= 1024 ? 112 : (w >= 600 ? 96 : 84);
+    return w >= 1024 ? 124 : (w >= 600 ? 108 : (w >= 340 ? 92 : 80));
   }
 
   double _sidebarThumbSize(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
-    return w >= 1024 ? 62 : (w >= 600 ? 56 : 50);
+    return w >= 1024 ? 78 : (w >= 600 ? 70 : (w >= 340 ? 62 : 54));
   }
 
   double _sidebarLabelSize(BuildContext context) {
     final w = MediaQuery.sizeOf(context).width;
-    return w >= 1024 ? 12 : (w >= 600 ? 11.5 : 10.5);
+    return w >= 1024 ? 12.5 : (w >= 600 ? 12 : (w >= 340 ? 11 : 10.5));
+  }
+
+  /// Fixed item height: image + gap + two label lines + padding, so every
+  /// category takes the same space whether its name is one or two lines.
+  double _sidebarItemHeight(BuildContext context) {
+    final scale = MediaQuery.textScalerOf(context).scale(1);
+    return 12 +
+        _sidebarThumbSize(context) +
+        8 +
+        _sidebarLabelSize(context) * 1.2 * 2 * scale +
+        12;
   }
 
   // --- HELPER: Category fallback icons ---

@@ -181,10 +181,7 @@ class MainNavigationScreen extends ConsumerWidget {
             ),
             // Centered responsive page body
             Expanded(
-              child: ResponsiveContentWrapper(
-                maxWidth: 1360,
-                child: child,
-              ),
+              child: ResponsiveContentWrapper(maxWidth: 1360, child: child),
             ),
           ],
         ),
@@ -202,9 +199,7 @@ class MainNavigationScreen extends ConsumerWidget {
       body: Stack(
         children: [
           Padding(
-            padding: EdgeInsets.only(
-              bottom: barHeight + bottomPadding,
-            ),
+            padding: EdgeInsets.only(bottom: barHeight + bottomPadding),
             child: child,
           ),
           Positioned(
@@ -216,9 +211,7 @@ class MainNavigationScreen extends ConsumerWidget {
               padding: EdgeInsets.only(bottom: bottomPadding),
               decoration: BoxDecoration(
                 color: barBackground,
-                border: Border(
-                  top: BorderSide(color: borderColor, width: 0.8),
-                ),
+                border: Border(top: BorderSide(color: borderColor, width: 0.8)),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
@@ -319,9 +312,7 @@ class MainNavigationScreen extends ConsumerWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFFDCEEFE)
-              : Colors.transparent,
+          color: isSelected ? const Color(0xFFDCEEFE) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -336,7 +327,9 @@ class MainNavigationScreen extends ConsumerWidget {
             Text(
               label,
               style: TextStyle(
-                color: isSelected ? effectiveActiveColor : effectiveInactiveColor,
+                color: isSelected
+                    ? effectiveActiveColor
+                    : effectiveInactiveColor,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 fontSize: 14,
               ),
@@ -365,9 +358,7 @@ class MainNavigationScreen extends ConsumerWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFFDCEEFE)
-              : Colors.transparent,
+          color: isSelected ? const Color(0xFFDCEEFE) : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
@@ -380,7 +371,9 @@ class MainNavigationScreen extends ConsumerWidget {
                   isSelected
                       ? Icons.shopping_cart_rounded
                       : Icons.shopping_cart_outlined,
-                  color: isSelected ? effectiveActiveColor : effectiveInactiveColor,
+                  color: isSelected
+                      ? effectiveActiveColor
+                      : effectiveInactiveColor,
                   size: 20,
                 ),
                 if (cartCount > 0)
@@ -422,7 +415,9 @@ class MainNavigationScreen extends ConsumerWidget {
             Text(
               'Cart',
               style: TextStyle(
-                color: isSelected ? effectiveActiveColor : effectiveInactiveColor,
+                color: isSelected
+                    ? effectiveActiveColor
+                    : effectiveInactiveColor,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w600,
                 fontSize: 14,
               ),

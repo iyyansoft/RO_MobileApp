@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/theme/app_theme.dart';
 import '../core/widgets/app_scroll_behavior.dart';
+import '../features/products/presentation/widgets/catalog_auto_refresh.dart';
 import 'config/router/app_router.dart';
 
 class RoWholesaleApp extends ConsumerWidget {
@@ -19,6 +20,9 @@ class RoWholesaleApp extends ConsumerWidget {
           ThemeMode.system, // Dynamically supports user theme mode preference
       routerConfig: AppRouter.router,
       debugShowCheckedModeBanner: false,
+      // Products added in the admin panel appear without a manual reload.
+      builder: (context, child) =>
+          CatalogAutoRefresh(child: child ?? const SizedBox.shrink()),
     );
   }
 }

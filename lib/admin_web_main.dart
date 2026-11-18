@@ -419,16 +419,23 @@ class _AdminDashboardState extends State<AdminDashboard> {
     final fields = {
       'name': TextEditingController(text: '${product?['name'] ?? ''}'),
       'sku': TextEditingController(text: '${product?['sku'] ?? ''}'),
-      'brand': TextEditingController(
-        text: '${product?['brand'] ?? 'RO Wholesale'}',
-      ),
+      // Brand, Purchase Price, Dealer Price and MRP are optional and start
+      // empty; a saved Dealer Price/MRP of 0 means "not set" and shows empty.
+      'brand': TextEditingController(text: '${product?['brand'] ?? ''}'),
       'purchase': TextEditingController(
-        text: '${product?['purchase_price'] ?? product?['purchasePrice'] ?? 0}',
+        text: '${product?['purchase_price'] ?? product?['purchasePrice'] ?? ''}',
       ),
-      'dealer': TextEditingController(text: '${product?['price'] ?? ''}'),
-      'mrp': TextEditingController(text: '${product?['mrp'] ?? ''}'),
+      'dealer': TextEditingController(text: _amountText(product?['price'])),
+      'mrp': TextEditingController(text: _amountText(product?['mrp'])),
+      // Cabinet category only (see _isCabinetCategory).
+      'cabinet': TextEditingController(
+        text: _amountText(product?['cabinet_price']),
+      ),
       'moq': TextEditingController(
-        text: '${product?['moq'] ?? '1'}'.replaceFirst('MOQ:', '').trim(),
+        // New products start at 1; an existing product with no MOQ stays blank.
+        text: '${product == null ? '1' : product['moq'] ?? ''}'
+            .replaceFirst('MOQ:', '')
+            .trim(),
       ),
       'stock': TextEditingController(
         text: '${product?['stock_quantity'] ?? product?['stock'] ?? 50}',
@@ -510,11 +517,28 @@ class _AdminDashboardState extends State<AdminDashboard> {
                                   ),
                                 )
                                 .toList(),
-                            onChanged: (value) => category = value,
+                            onChanged: (value) => setDialogState(() {
+                              category = value;
+                              // Leaving Cabinet hides and clears Cabinet Price.
+                              if (!_isCabinetCategory(value, categories)) {
+                                fields['cabinet']!.clear();
+                              }
+                            }),
                             validator: (value) =>
                                 value == null ? 'Choose a category' : null,
                           ),
                         ]),
+                        if (_isCabinetCategory(category, categories)) ...[
+                          const SizedBox(height: 16),
+                          input(
+                            'cabinet',
+                            'Cabinet Price (₹) *',
+                            required: true,
+                            keyboard: const TextInputType.numberWithOptions(
+                              decimal: true,
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 16),
                         input('brand', 'Brand'),
                         const SizedBox(height: 16),
@@ -535,7 +559,6 @@ class _AdminDashboardState extends State<AdminDashboard> {
                           input(
                             'dealer',
                             'Dealer price',
-                            required: true,
                             keyboard: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
@@ -581,16 +604,36 @@ class _AdminDashboardState extends State<AdminDashboard> {
                   ? null
                   : () async {
                       if (!formKey.currentState!.validate()) return;
-                      final price = _number(fields['dealer']!.text);
+                      // Optional amounts: empty = not set; a value must be valid.
+                      String amount(String key) => fields[key]!.text.trim();
+                      final price = _number(amount('dealer'));
+                      final purchase = _number(amount('purchase'));
+                      final mrp = _number(amount('mrp'));
+                      final cabinetProduct = _isCabinetCategory(
+                        category,
+                        categories,
+                      );
+                      final cabinetPrice = _number(amount('cabinet'));
                       final stock = int.tryParse(fields['stock']!.text.trim());
-                      if (price == null ||
-                          price <= 0 ||
-                          stock == null ||
-                          stock < 0) {
-                        _notice(
-                          'Enter a valid dealer price and nonnegative stock.',
-                          isError: true,
-                        );
+                      final problem =
+                          cabinetProduct &&
+                              (cabinetPrice == null || cabinetPrice <= 0)
+                          ? 'Cabinet Price must be greater than zero.'
+                          : amount('purchase').isNotEmpty &&
+                              (purchase == null || purchase < 0)
+                          ? 'Purchase price must be zero or more.'
+                          : amount('dealer').isNotEmpty &&
+                                (price == null || price <= 0)
+                          ? 'Dealer price must be greater than zero.'
+                          : amount('mrp').isNotEmpty && (mrp == null || mrp <= 0)
+                          ? 'MRP must be greater than zero.'
+                          : mrp != null && price != null && mrp < price
+                          ? 'MRP cannot be lower than the dealer price.'
+                          : stock == null || stock < 0
+                          ? 'Enter a nonnegative stock.'
+                          : null;
+                      if (problem != null) {
+                        _notice(problem, isError: true);
                         return;
                       }
                       setDialogState(() => busy = true);
@@ -606,12 +649,17 @@ class _AdminDashboardState extends State<AdminDashboard> {
                             'category': category,
                             'brand': fields['brand']!.text.trim(),
                             'img': imageValue,
-                            'purchase_price':
-                                _number(fields['purchase']!.text) ?? 0,
-                            'price': price,
-                            'mrp': _number(fields['mrp']!.text) ?? price * 1.25,
+                            // '' = not set (on edit: keep the saved value).
+                            'purchase_price': purchase ?? '',
+                            'price': price ?? '',
+                            'mrp': mrp ?? '',
+                            // Saved in its own column; never the Dealer Price.
+                            'cabinet_price': cabinetProduct
+                                ? cabinetPrice
+                                : '',
+                            // Blank on an existing product keeps it blank.
                             'moq': fields['moq']!.text.trim().isEmpty
-                                ? '1'
+                                ? (product == null ? '1' : '')
                                 : fields['moq']!.text.trim(),
                             'stock_quantity': stock,
                             'desc': fields['description']!.text.trim(),
@@ -3447,6 +3495,26 @@ String _categoryKey(Map<String, dynamic> category) =>
 
 String? _required(String? value) =>
     value == null || value.trim().isEmpty ? 'Required' : null;
+
+/// The Cabinet category (key "cabinets", or titled "Cabinet").
+bool _isCabinetCategory(String? key, List<dynamic> categories) {
+  final k = (key ?? '').trim().toLowerCase();
+  if (k.isEmpty) return false;
+  if (k == 'cabinets') return true;
+  for (final c in categories) {
+    if (c is! Map) continue;
+    final ck = '${c['key'] ?? c['key_name'] ?? c['id'] ?? ''}'.toLowerCase();
+    final title = '${c['title'] ?? c['name'] ?? ''}'.trim().toLowerCase();
+    if (ck == k && (title == 'cabinet' || title == 'cabinets')) return true;
+  }
+  return false;
+}
+
+/// Form text for an optional Dealer Price/MRP: empty when missing or 0 (not set).
+String _amountText(dynamic value) {
+  final n = num.tryParse('${value ?? ''}');
+  return n == null || n <= 0 ? '' : '$value';
+}
 
 double? _number(String value) {
   final cleaned = value
