@@ -36,3 +36,6 @@ ios/Flutter/ephemeral/
 
 # Database backups (customer data)
 backups/
+
+# Supplier price lists and data extracted from them (private; kept locally)
+assets/product_pdfs/
