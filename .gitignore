@@ -39,3 +39,7 @@ backups/
 
 # Supplier price lists and data extracted from them (private; kept locally)
 assets/product_pdfs/
+
+# Android release signing (never commit)
+key.properties
+android/key.properties
