@@ -1,7 +1,28 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// Company release signing (docs/ANDROID_RELEASE_SIGNING.md). The keystore and its
+// passwords are never in the repository: key.properties is read from the path in
+// NEEROPLUS_KEY_PROPERTIES (recommended: outside the repo) or android/key.properties
+// (git-ignored).
+val keyPropertiesFile: File = System.getenv("NEEROPLUS_KEY_PROPERTIES")?.let { file(it) }
+    ?: rootProject.file("key.properties")
+val keyProperties = Properties().apply {
+    if (keyPropertiesFile.exists()) FileInputStream(keyPropertiesFile).use { load(it) }
+}
+val hasReleaseKey = keyPropertiesFile.exists()
+// A Play Store bundle must never be signed with the debug key.
+if (!hasReleaseKey && gradle.startParameter.taskNames.any { it.contains("bundleRelease", ignoreCase = true) }) {
+    throw GradleException(
+        "Release App Bundle needs the company signing key: set NEEROPLUS_KEY_PROPERTIES " +
+            "(see docs/ANDROID_RELEASE_SIGNING.md). Refusing to build a debug-signed AAB."
+    )
 }
 
 android {
@@ -29,11 +50,27 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                keyAlias = keyProperties.getProperty("keyAlias")
+                keyPassword = keyProperties.getProperty("keyPassword")
+                storeFile = file(keyProperties.getProperty("storeFile"))
+                storePassword = keyProperties.getProperty("storePassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseKey) {
+                signingConfigs.getByName("release")
+            } else {
+                // Test APKs only (emulator / internal testing). Not installable over a
+                // company-signed app and not accepted by Google Play.
+                logger.warn("WARNING: no company signing key found; this release APK is signed with the DEBUG key (testing only).")
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

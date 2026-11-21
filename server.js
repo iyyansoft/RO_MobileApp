@@ -2811,9 +2811,16 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
         ? parseFloat(mrp)
         : Number(existing.mrp || 0),
       // A blank MOQ field keeps the saved value, including "not set" (never 1).
-      moq: moq ? (moq.toString().startsWith('MOQ:') ? moq : `MOQ: ${moq}`) : (existing.moq || null),
+      // An unchanged MOQ is saved exactly as it was (no "MOQ: " prefix added).
+      moq: moq
+        ? (String(moq).trim() === String(existing.moq ?? '').trim() || moq.toString().startsWith('MOQ:') ? moq : `MOQ: ${moq}`)
+        : (existing.moq || null),
       badge: String(badge !== undefined ? badge : existing.badge || '').trim(),
-      rating: String(rating !== undefined ? rating : existing.rating || '★★★★★ (5.0)').trim(),
+      // Editing never invents a rating: no rating sent keeps the saved one,
+      // including none.
+      rating: rating !== undefined && rating !== null && String(rating).trim() !== ''
+        ? String(rating).trim()
+        : (existing.rating ?? null),
       img: cleanImg,
       desc: (desc || short_desc || full_desc || existing.desc || '').trim(),
       specs: cleanSpecs,

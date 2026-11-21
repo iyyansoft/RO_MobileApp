@@ -2,6 +2,8 @@
 //
 //   node scripts/pdf_catalog_import.cjs                 dry run (default): reads only, writes nothing
 //   APPLY_PDF_CATALOG_IMPORT=YES node scripts/pdf_catalog_import.cjs --apply
+//   ... --keep-samples (with or without --apply): ONLY add the PDF products; SAMPLE_
+//     products, their cart lines and all order lines stay exactly as they are
 //   ROLLBACK_PDF_CATALOG_IMPORT=YES node scripts/pdf_catalog_import.cjs --rollback backups/<folder>
 //     (undo: PDF_ products out, SAMPLE_ products, their cart lines and the
 //      order-line SKUs back exactly as in that backup)
@@ -154,7 +156,8 @@ async function tableCounts(q) {
  * (pg client or PGlite: query(text, params) with $1.. placeholders).
  * Throws (after ROLLBACK) if anything does not match the plan.
  */
-async function applyDatabaseChanges(client, { rows, expectedSampleIds, expectedGenuineIds }) {
+async function applyDatabaseChanges(client, { rows, expectedSampleIds, expectedGenuineIds, keepSamples = false }) {
+  if (keepSamples) return addOnlyDatabaseChanges(client, { rows, expectedSampleIds, expectedGenuineIds });
   const q = async (sql, params = []) => (await client.query(sql, params)).rows;
   await client.query('BEGIN');
   try {
@@ -226,6 +229,44 @@ async function applyDatabaseChanges(client, { rows, expectedSampleIds, expectedG
   }
 }
 
+/**
+ * --keep-samples: ONLY inserts the PDF products, in one transaction. SAMPLE_
+ * products, their cart lines and every order line stay exactly as they are
+ * (nothing is deleted, no SKU is copied). Verified before COMMIT.
+ */
+async function addOnlyDatabaseChanges(client, { rows, expectedSampleIds, expectedGenuineIds }) {
+  const q = async (sql, params = []) => (await client.query(sql, params)).rows;
+  await client.query('BEGIN');
+  try {
+    const existingIds = (await q('SELECT id FROM products FOR UPDATE')).map(r => r.id).sort();
+    if (JSON.stringify(existingIds) !== JSON.stringify([...expectedSampleIds, ...expectedGenuineIds].sort())) {
+      throw new Error('the product list changed since the check');
+    }
+    const digest = async () => ({
+      products: (await q(`SELECT md5(string_agg(to_jsonb(p)::text, '|' ORDER BY p.id)) h FROM products p WHERE NOT (id = ANY($1))`, [rows.map(r => r.id)]))[0].h,
+      order_items: (await q(`SELECT count(*)::int n, md5(string_agg(to_jsonb(x)::text, '|' ORDER BY x.id)) h FROM order_items x`))[0],
+      cart_items: (await q(`SELECT count(*)::int n, md5(string_agg(to_jsonb(x)::text, '|' ORDER BY x.id)) h FROM cart_items x`))[0],
+      counts: await tableCounts(q),
+    });
+    const before = await digest();
+    for (const r of rows) {
+      await client.query(
+        `INSERT INTO products (id, category_id, category_key, sku, name, brand, price, mrp, moq, img, status, stock_quantity)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+        [r.id, r.category_id, r.category_key, r.sku, r.name, r.brand, r.price, r.mrp, r.moq, r.img, r.status, r.stock_quantity]);
+    }
+    const after = await digest();
+    if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('an existing product, order line or cart line changed; rolled back');
+    const inserted = (await q(`SELECT count(*)::int n FROM products WHERE id = ANY($1) AND stock_quantity = 0 AND status = 'active'`, [rows.map(r => r.id)]))[0].n;
+    if (inserted !== rows.length) throw new Error(`${inserted} PDF products saved, expected ${rows.length}`);
+    await client.query('COMMIT');
+    return { mode: 'keep-samples', inserted, deleted: 0, skuFilled: 0, cartLinesRemoved: 0, samplesKept: expectedSampleIds.length, counts: after.counts };
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  }
+}
+
 /** Rows of one table from a backup folder (bytea restored from { $base64 }). */
 function backupRows(dir, table) {
   const file = path.join(dir, `${table}.json`);
@@ -258,8 +299,12 @@ async function rollbackFromBackup(client, backupDir) {
     // backup (e.g. the PDF_CAB_ Cabinet products) is never removed.
     const backedUpIds = backupRows(backupDir, 'products').map(p => String(p.id));
     const removed = affected(await client.query("DELETE FROM products WHERE id LIKE 'PDF\\_%' AND NOT (id = ANY($1))", [backedUpIds]));
-    for (const p of products) await insertRow(client, 'products', p);
-    for (const c of carts) await insertRow(client, 'cart_items', c);
+    // After a --keep-samples import the SAMPLE_ rows are still there: only
+    // re-insert what is actually missing.
+    const haveProducts = new Set((await client.query(`SELECT id FROM products WHERE id LIKE '${SAMPLE_LIKE}'`)).rows.map(r => r.id));
+    const haveCarts = new Set((await client.query('SELECT id FROM cart_items')).rows.map(r => String(r.id)));
+    for (const p of products) if (!haveProducts.has(p.id)) await insertRow(client, 'products', p);
+    for (const c of carts) if (!haveCarts.has(String(c.id))) await insertRow(client, 'cart_items', c);
     let skuReset = 0;
     for (const l of lines) {
       skuReset += affected(await client.query('UPDATE order_items SET sku = $1 WHERE id = $2 AND sku IS DISTINCT FROM $1', [l.sku, l.id]));
@@ -341,6 +386,8 @@ async function main() {
   require('dotenv').config({ path: path.join(ROOT, '.env') });
   const { pool } = require('../db');
   const apply = process.argv.includes('--apply');
+  // --keep-samples: add the PDF products only; delete nothing, change no order line.
+  const keepSamples = process.argv.includes('--keep-samples');
   const rollbackAt = process.argv.indexOf('--rollback');
   if (rollbackAt !== -1) {
     const dir = path.resolve(ROOT, process.argv[rollbackAt + 1] || '');
@@ -360,7 +407,7 @@ async function main() {
   const supabaseUrl = process.env.SUPABASE_URL || '';
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
   const plan = loadPlanData();
-  const report = { mode: apply ? 'APPLY' : 'DRY RUN', errors: [], warnings: [] };
+  const report = { mode: (apply ? 'APPLY' : 'DRY RUN') + (keepSamples ? ' (keep samples)' : ''), errors: [], warnings: [] };
 
   const data = checkData(plan);
   report.errors.push(...data.errors); report.warnings.push(...data.warnings);
@@ -402,15 +449,16 @@ async function main() {
     importByCategory: Object.fromEntries(CATEGORY_KEYS.map(k => [k, rows.filter(r => r.category_key === k).length])),
     moqBlank: rows.filter(r => r.moq == null).length,
     pendingReview: plan.pending.map(p => `${p.sku} | ${p.name} | dealer ${p.dealer_price} | MRP ${p.mrp}`),
-    productCountAfter: db.genuine.length + rows.length,
+    productCountAfter: (keepSamples ? db.samples.length : 0) + db.genuine.length + rows.length,
   });
   fs.mkdirSync(path.join(ROOT, 'backups'), { recursive: true });
   const reportFile = path.join(ROOT, 'backups', `pdf_catalog_import_${apply ? 'apply' : 'dryrun'}_${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   fs.writeFileSync(reportFile, JSON.stringify({ ...report, rows }, null, 1));
 
   console.log(`PDF catalogue import: ${report.mode}`);
-  console.log(`  delete ${db.samples.length} SAMPLE_ products; keep ${db.genuine.length} genuine products`);
-  console.log(`  ${db.emptySkuLines} of ${db.orderLines} order lines (${db.orders} orders) get their SKU copied; ${db.cartLines} cart lines removed with the products`);
+  if (keepSamples) console.log(`  keep all ${db.samples.length} SAMPLE_ products, their ${db.cartLines} cart lines and all order lines (nothing deleted or changed)`);
+  else console.log(`  delete ${db.samples.length} SAMPLE_ products; keep ${db.genuine.length} genuine products`);
+  if (!keepSamples) console.log(`  ${db.emptySkuLines} of ${db.orderLines} order lines (${db.orders} orders) get their SKU copied; ${db.cartLines} cart lines removed with the products`);
   console.log(`  import ${rows.length} products (stock 0, ${report.moqBlank} with Min qty not set); ${plan.pending.length} pending review`);
   console.log(`  products after: ${report.productCountAfter}`);
   for (const w of report.warnings) console.log('  WARNING', w);
@@ -429,7 +477,7 @@ async function main() {
   console.log(`Pictures: ${up.uploaded} uploaded, ${up.alreadyThere} already there; all ${plan.toImport.length} public URLs verified`);
   const tx = await pool.raw.connect();
   try {
-    const result = await applyDatabaseChanges(tx, { rows, ...expected });
+    const result = await applyDatabaseChanges(tx, { rows, ...expected, keepSamples });
     console.log('Committed:', JSON.stringify(result));
   } finally { tx.release(); }
 }

@@ -4082,6 +4082,16 @@
 
       const featuresArr = document.getElementById('prodFeatures').value.split('\n').map(f => f.trim()).filter(Boolean);
 
+      // Stock is never filled in automatically: a blank or invalid value is refused.
+      const stockInput = document.getElementById('prodStockQuantity');
+      const stockText = stockInput.value.trim();
+      if (!/^\d+$/.test(stockText)) {
+        stockInput.setCustomValidity('Enter the actual stock quantity (a whole number, 0 or more).');
+        stockInput.reportValidity();
+        stockInput.addEventListener('input', () => stockInput.setCustomValidity(''), { once: true });
+        return;
+      }
+
       const payload = {
         name: document.getElementById('prodName').value.trim(),
         sku: document.getElementById('prodSku').value.trim(),
@@ -4095,7 +4105,7 @@
         // Only sent for Cabinet products (the field is hidden and empty otherwise).
         cabinet_price: isCabinetCategorySelected() ? document.getElementById('prodCabinetPrice').value.trim() : '',
         moq: document.getElementById('prodMoq').value.trim(),
-        stock_quantity: parseInt(document.getElementById('prodStockQuantity').value || 50, 10),
+        stock_quantity: parseInt(stockText, 10),
         min_stock: parseInt(document.getElementById('prodMinStock').value || 10, 10),
         img: pendingProductImage || document.getElementById('prodImg').value.trim(),
         desc: document.getElementById('prodDesc').value.trim(),

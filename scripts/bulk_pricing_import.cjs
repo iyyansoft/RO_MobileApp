@@ -42,8 +42,9 @@ async function inspect(q, offers) {
   const cols = (await q(`SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='products' AND column_name = ANY($1)`, [BULK_COLUMNS])).map(r => r.column_name);
   if (cols.length !== BULK_COLUMNS.length) { errors.push('migration 011 is not applied (products bulk columns missing)'); return { errors, warnings, rows: [] }; }
   const ids = offers.map(o => o.product_id);
-  const rows = await q(`SELECT id, sku, name, price, mrp, cabinet_price, bulk_price, bulk_min_qty, bulk_step, bulk_pack_label FROM products WHERE id = ANY($1)`, [ids]);
+  const rows = await q(`SELECT id, sku, name, price, mrp, cabinet_price, stock_quantity, bulk_price, bulk_min_qty, bulk_step, bulk_pack_label FROM products WHERE id = ANY($1)`, [ids]);
   const byId = new Map(rows.map(r => [r.id, r]));
+  const ready = [], waitingForStock = [];
   for (const o of offers) {
     for (const p of offerProblems(o)) errors.push(`${o.sku}: ${p}`);
     const row = byId.get(o.product_id);
@@ -51,9 +52,11 @@ async function inspect(q, offers) {
     if (row.sku !== o.sku) errors.push(`${o.sku}: product ${o.product_id} has SKU ${row.sku}`);
     if (BULK_COLUMNS.some(c => row[c] != null)) warnings.push(`${o.sku}: already has a bulk offer (will be left unchanged)`);
     if (Number(o.box_price) > Number(row.price)) warnings.push(`${o.sku}: bulk price ${o.box_price} is above Dealer Price ${row.price}`);
+    // Bulk Orders open only after the actual stock has been entered.
+    (Number(row.stock_quantity) > 0 ? ready : waitingForStock).push(o);
   }
   const already = (await q(`SELECT count(*)::int n FROM products WHERE bulk_price IS NOT NULL`))[0].n;
-  return { errors, warnings, rows, productsWithBulkNow: already };
+  return { errors, warnings, rows, ready, waitingForStock, productsWithBulkNow: already };
 }
 
 /** Untouched-columns fingerprint of every product (everything except the bulk columns). */
@@ -69,9 +72,11 @@ async function applyOffers(tx, offers) {
     const before = { other: await otherColumnsDigest(q), counts: await tableCounts(q) };
     let updated = 0;
     for (const o of offers) {
-      // Only products without an offer; never overwrites an existing one.
+      // Only products without an offer (never overwrites one) and with stock
+      // entered (stock 0 = waiting for the stock count; offered on a later run).
       const r = await tx.query(`UPDATE products SET bulk_price = $2, bulk_min_qty = $3, bulk_step = $4, bulk_pack_label = $5
-        WHERE id = $1 AND sku = $6 AND bulk_price IS NULL AND bulk_min_qty IS NULL AND bulk_step IS NULL AND bulk_pack_label IS NULL`,
+        WHERE id = $1 AND sku = $6 AND stock_quantity > 0
+          AND bulk_price IS NULL AND bulk_min_qty IS NULL AND bulk_step IS NULL AND bulk_pack_label IS NULL`,
         [o.product_id, o.box_price, o.min_qty, o.step, o.pack_label, o.sku]);
       updated += r.rowCount;
     }
@@ -126,7 +131,8 @@ async function main() {
     await client.query('ROLLBACK');
   } finally { client.release(); }
   console.log(`Bulk pricing import: ${apply ? 'APPLY' : 'DRY RUN'}`);
-  console.log(`  ${offers.length} offers to set; ${held.length} held for review (not offered); products with an offer now: ${report.productsWithBulkNow ?? '-'}`);
+  console.log(`  ${offers.length} offers in the PDFs; ${held.length} held for review (not offered); products with an offer now: ${report.productsWithBulkNow ?? '-'}`);
+  if (report.ready) console.log(`  ${report.ready.length} have stock and will be offered; ${report.waitingForStock.length} wait for their stock count (stock 0, not offered yet)`);
   for (const w of report.warnings) console.log('  WARNING', w);
   for (const e of report.errors) console.log('  ERROR', e);
   if (report.errors.length) { process.exitCode = 1; return; }
