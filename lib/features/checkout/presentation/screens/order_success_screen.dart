@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/order_id.dart';
 import '../providers/checkout_provider.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 class OrderSuccessScreen extends StatelessWidget {
   final String orderId;
@@ -374,13 +375,7 @@ class _OrderIdChip extends StatelessWidget {
             color: color,
             onPressed: () {
               Clipboard.setData(ClipboardData(text: displayId));
-              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                const SnackBar(
-                  content: Text('Order ID copied'),
-                  behavior: SnackBarBehavior.floating,
-                  duration: Duration(seconds: 2),
-                ),
-              );
+              AppToast.success(context, 'Order ID copied');
             },
             icon: const Icon(Icons.copy_rounded),
           ),

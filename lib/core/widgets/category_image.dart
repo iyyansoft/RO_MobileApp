@@ -12,7 +12,12 @@ class CategoryImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final assetPath = 'assets/images/${Uri.parse(url).pathSegments.last}';
+    // Same file bundled at assets/images/<path under /images/>, keeping any
+    // sub-folder (e.g. products_image/...).
+    final segments = Uri.parse(url).pathSegments;
+    final at = segments.indexOf('images');
+    final assetPath =
+        'assets/images/${(at >= 0 ? segments.sublist(at + 1) : [segments.last]).join('/')}';
     return Image.network(
       url,
       fit: BoxFit.contain,

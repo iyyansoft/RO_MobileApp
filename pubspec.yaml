@@ -38,3 +38,5 @@ flutter:
     - assets/images/
     - assets/images/banners_hd/
     - assets/images/banners_cutout/
+    # Cabinet category card photo (Home page)
+    - assets/images/products_image/Aqua grid blue.jpg

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
@@ -76,12 +77,91 @@ class AppImage extends StatelessWidget {
     }
     final base = Uri.parse(ApiClient.defaultBaseUrl).resolve('/');
     final url = base.resolve(source).toString();
-    return Image.network(
-      url,
+    return _RetryingNetworkImage(
+      url: url,
       fit: fit,
       width: width,
       height: height,
       errorBuilder: fallback,
+    );
+  }
+}
+
+/// Network image that retries a failed load a few times. On phones a short
+/// network drop (or a backend waking up) would otherwise leave the
+/// placeholder in place until the screen is rebuilt.
+class _RetryingNetworkImage extends StatefulWidget {
+  final String url;
+  final BoxFit? fit;
+  final double? width, height;
+  final ImageErrorWidgetBuilder errorBuilder;
+
+  const _RetryingNetworkImage({
+    required this.url,
+    required this.fit,
+    required this.width,
+    required this.height,
+    required this.errorBuilder,
+  });
+
+  static const retryDelays = [
+    Duration(seconds: 2),
+    Duration(seconds: 5),
+    Duration(seconds: 10),
+  ];
+
+  @override
+  State<_RetryingNetworkImage> createState() => _RetryingNetworkImageState();
+}
+
+class _RetryingNetworkImageState extends State<_RetryingNetworkImage> {
+  int _attempt = 0;
+  Timer? _retry;
+
+  @override
+  void didUpdateWidget(covariant _RetryingNetworkImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.url != widget.url) {
+      _retry?.cancel();
+      _retry = null;
+      _attempt = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _retry?.cancel();
+    super.dispose();
+  }
+
+  void _scheduleRetry() {
+    if (_retry != null ||
+        _attempt >= _RetryingNetworkImage.retryDelays.length) {
+      return;
+    }
+    _retry = Timer(_RetryingNetworkImage.retryDelays[_attempt], () {
+      if (!mounted) return;
+      // Failed loads are not kept in Flutter's image cache, so a new
+      // Image.network for the same URL fetches it again.
+      setState(() {
+        _attempt++;
+        _retry = null;
+      });
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.network(
+      widget.url,
+      key: ValueKey('${widget.url}#$_attempt'),
+      fit: widget.fit,
+      width: widget.width,
+      height: widget.height,
+      errorBuilder: (context, error, stack) {
+        _scheduleRetry();
+        return widget.errorBuilder(context, error, stack);
+      },
     );
   }
 }

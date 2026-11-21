@@ -11,7 +11,9 @@ import '../../../products/domain/models/product_model.dart';
 import '../../../products/presentation/widgets/max_quantity_dialog.dart';
 import '../../domain/order_pricing.dart';
 import '../providers/cart_provider.dart';
+import '../../domain/models/cart_item_model.dart';
 import '../../../products/presentation/widgets/cabinet_price_text.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 class CartScreen extends ConsumerWidget {
   const CartScreen({super.key});
@@ -26,8 +28,7 @@ class CartScreen extends ConsumerWidget {
     ref.listen<CartState>(cartProvider, (previous, next) {
       if (next.errorMessage != null &&
           next.errorMessage != previous?.errorMessage) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(next.errorMessage!)));
+        AppToast.error(context, next.errorMessage!);
       }
     });
 
@@ -112,6 +113,10 @@ class CartScreen extends ConsumerWidget {
                               totals,
                               isDark,
                               primaryColor,
+                              hasBulk: ref
+                                  .watch(cartProvider)
+                                  .items
+                                  .any((i) => i.isBulk),
                             ),
                           ],
                         ),
@@ -171,6 +176,12 @@ class CartScreen extends ConsumerWidget {
     final product = item.product as ProductModel;
     final quantity = item.quantity as int;
     final itemTotal = item.totalPrice as double;
+    // Bulk lines: bulk price per piece, minimum + whole steps (never mixed
+    // with the Dealer Price).
+    final line = item as CartItemModel;
+    final bulk = line.isBulk;
+    final step = bulk ? (product.bulkStep ?? 1) : 1;
+    final atBulkMin = bulk && quantity <= (product.bulkMinQty ?? quantity);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -233,11 +244,9 @@ class CartScreen extends ConsumerWidget {
                       ),
                       onPressed: () {
                         ref.read(cartProvider.notifier).removeItem(product.id);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Removed ${product.name} from cart.'),
-                            duration: const Duration(seconds: 1),
-                          ),
+                        AppToast.success(
+                          context,
+                          'Removed ${product.name} from cart.',
                         );
                       },
                       padding: EdgeInsets.zero,
@@ -245,6 +254,28 @@ class CartScreen extends ConsumerWidget {
                     ),
                   ],
                 ),
+                if (bulk)
+                  Container(
+                    key: ValueKey('cart-bulk-badge-${product.id}'),
+                    margin: const EdgeInsets.only(bottom: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0B5FC4).withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'BULK ORDER',
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                        color: Color(0xFF0B5FC4),
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                  ),
                 Text(
                   product.name,
                   maxLines: 2,
@@ -257,14 +288,29 @@ class CartScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'SKU: ${product.sku} • ${formatInr(product.dealerPrice)} / Unit',
+                  bulk
+                      ? 'SKU: ${product.sku} • Bulk ${formatInr(line.unitPrice)} / piece'
+                      : 'SKU: ${product.sku} • ${formatInr(product.dealerPrice)} / Unit',
+                  key: ValueKey('cart-unit-price-${product.id}'),
                   style: const TextStyle(fontSize: 10.5, color: Colors.grey),
                 ),
-                CabinetPriceText(
-                  product,
-                  fontSize: 10.5,
-                  padding: const EdgeInsets.only(top: 2),
-                ),
+                if (bulk)
+                  Text(
+                    'Minimum ${product.bulkMinQty} • '
+                    '${step > 1 ? 'packs of $step' : 'then +1'} '
+                    '(${product.bulkPackLabel})',
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      color: Color(0xFF0B5FC4),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                else
+                  CabinetPriceText(
+                    product,
+                    fontSize: 10.5,
+                    padding: const EdgeInsets.only(top: 2),
+                  ),
                 const SizedBox(height: 8),
 
                 // Quantity Row & Total Price
@@ -285,17 +331,29 @@ class CartScreen extends ConsumerWidget {
                       child: Row(
                         children: [
                           GestureDetector(
-                            onTap: () {
-                              ref
-                                  .read(cartProvider.notifier)
-                                  .updateQuantity(product.id, quantity - 1);
-                            },
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(
+                            key: ValueKey('cart-minus-${product.id}'),
+                            // Bulk: disabled at the minimum (use the bin to
+                            // remove the line).
+                            onTap: atBulkMin
+                                ? null
+                                : () {
+                                    ref
+                                        .read(cartProvider.notifier)
+                                        .updateQuantity(
+                                          product.id,
+                                          quantity - step,
+                                        );
+                                  },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
                                 horizontal: 8,
                                 vertical: 4,
                               ),
-                              child: Icon(Icons.remove_rounded, size: 16),
+                              child: Icon(
+                                Icons.remove_rounded,
+                                size: 16,
+                                color: atBulkMin ? Colors.grey.shade400 : null,
+                              ),
                             ),
                           ),
                           Padding(
@@ -312,7 +370,17 @@ class CartScreen extends ConsumerWidget {
                             ),
                           ),
                           GestureDetector(
+                            key: ValueKey('cart-plus-${product.id}'),
                             onTap: () {
+                              if (bulk) {
+                                ref
+                                    .read(cartProvider.notifier)
+                                    .updateQuantity(
+                                      product.id,
+                                      quantity + step,
+                                    );
+                                return;
+                              }
                               // Product maximum (PDF quantity): the popup.
                               if (product.exceedsMaximum(quantity + 1)) {
                                 showMaxQuantityDialog(
@@ -337,13 +405,22 @@ class CartScreen extends ConsumerWidget {
                       ),
                     ),
 
-                    // Total Item Price
-                    Text(
-                      formatInr(itemTotal),
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w900,
-                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    const SizedBox(width: 8),
+                    // Total Item Price (shrinks on narrow phones).
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          formatInr(itemTotal),
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
+                            color: isDark
+                                ? Colors.white
+                                : const Color(0xFF0F172A),
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -360,8 +437,9 @@ class CartScreen extends ConsumerWidget {
     BuildContext context,
     OrderTotals totals,
     bool isDark,
-    Color primaryColor,
-  ) {
+    Color primaryColor, {
+    bool hasBulk = false,
+  }) {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -390,7 +468,7 @@ class CartScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           _buildSummaryRow(
-            discountLabel(totals.rules),
+            discountLabel(totals.rules, hasBulk: hasBulk),
             '- ${formatInr(totals.discount)}',
             isDark,
             isDiscount: true,
@@ -416,12 +494,20 @@ class CartScreen extends ConsumerWidget {
                   color: isDark ? Colors.white : const Color(0xFF0F172A),
                 ),
               ),
-              Text(
-                formatInr(totals.grandTotal),
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w900,
-                  color: primaryColor,
+              const SizedBox(width: 10),
+              // Large totals shrink to fit narrow phones.
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: Text(
+                    formatInr(totals.grandTotal),
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: primaryColor,
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -465,14 +551,18 @@ class CartScreen extends ConsumerWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Colors.grey,
-            fontWeight: FontWeight.w600,
+        // Long labels wrap instead of pushing the amount off screen.
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Colors.grey,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
+        const SizedBox(width: 10),
         Text(
           value,
           style: TextStyle(
@@ -545,6 +635,13 @@ class CartScreen extends ConsumerWidget {
                   for (final item in cartState.items as List) {
                     final product = item.product as ProductModel;
                     final quantity = item.quantity as int;
+                    // Bulk lines follow the bulk rule (minimum + steps,
+                    // stock); the normal maximum does not apply to them.
+                    if ((item as CartItemModel).isBulk) {
+                      final problem = product.bulkQuantityProblem(quantity);
+                      if (problem != null) problems.add(problem);
+                      continue;
+                    }
                     // Above the product maximum: the same popup.
                     if (product.exceedsMaximum(quantity)) {
                       showMaxQuantityDialog(context, product.maxOrderQuantity!);
@@ -554,12 +651,9 @@ class CartScreen extends ConsumerWidget {
                     if (problem != null) problems.add(problem);
                   }
                   if (problems.isNotEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          '${problems.join(' ')} Update or remove ${problems.length == 1 ? 'it' : 'them'} to check out.',
-                        ),
-                      ),
+                    AppToast.error(
+                      context,
+                      '${problems.join(' ')} Update or remove ${problems.length == 1 ? 'it' : 'them'} to check out.',
                     );
                     return;
                   }

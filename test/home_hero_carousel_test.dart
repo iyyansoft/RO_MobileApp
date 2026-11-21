@@ -60,9 +60,8 @@ List<int> _visible(WidgetTester tester) {
   final width = tester.view.physicalSize.width;
   final shown = <(double, int)>[];
   for (var i = 0; i < kHeroSlides.length; i++) {
-    for (final el in find
-        .text(kHeroSlides[i].title, findRichText: true)
-        .evaluate()) {
+    for (final el
+        in find.text(kHeroSlides[i].title, findRichText: true).evaluate()) {
       final box = el.renderObject! as RenderBox;
       if (!box.attached || !box.hasSize) continue;
       final x = box.localToGlobal(box.size.center(Offset.zero)).dx;
@@ -77,6 +76,15 @@ Future<void> _settle(WidgetTester tester) async {
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 800));
   await tester.pump();
+}
+
+/// The selected pagination dot (the current slide).
+Finder _dot(int i) => find.byKey(ValueKey('hero-dot-$i'));
+bool _dotSelected(WidgetTester tester, int i) {
+  final container = tester.widget<AnimatedContainer>(
+    find.descendant(of: _dot(i), matching: find.byType(AnimatedContainer)),
+  );
+  return container.constraints?.maxWidth == 28;
 }
 
 Finder _inHero(Finder f) =>
@@ -133,7 +141,9 @@ void main() {
     if (previewFont != null && File(previewFont).existsSync()) {
       final loader = FontLoader('Roboto')
         ..addFont(
-          Future.value(ByteData.sublistView(File(previewFont).readAsBytesSync())),
+          Future.value(
+            ByteData.sublistView(File(previewFont).readAsBytesSync()),
+          ),
         );
       await loader.load();
     }
@@ -142,10 +152,12 @@ void main() {
   Future<void> shot(WidgetTester tester, GlobalKey key, String name) async {
     if (previewDir == null) return;
     await tester.runAsync(() async {
-      final b = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final b =
+          key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
       final img = await b.toImage();
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-      File('$previewDir/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+      File('$previewDir/$name.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   }
 
@@ -165,11 +177,12 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(HeroLayout.forWidth(width - 32).visibleSlides, perView);
 
-      List<int> expected(int first) =>
-          [for (var i = 0; i < perView; i++) (first + i) % 6];
+      List<int> expected(int first) => [
+        for (var i = 0; i < perView; i++) (first + i) % 6,
+      ];
 
       expect(_visible(tester), expected(0));
-      expect(_inHero(find.text('01 / 06')), findsOneWidget);
+      expect(_dotSelected(tester, 0), isTrue);
       expect(find.byKey(const ValueKey('hero-dot-5')), findsOneWidget);
       expect(find.byKey(const ValueKey('hero-dot-6')), findsNothing);
 
@@ -191,28 +204,28 @@ void main() {
         );
       }
 
-      // Autoplay: nothing before 5 s, next slide right at 5 s.
-      await tester.pump(const Duration(milliseconds: 4900));
+      // Autoplay starts by itself: nothing before 4 s, next slide at 4 s.
+      await tester.pump(const Duration(milliseconds: 3900));
       await tester.pump();
-      expect(_visible(tester), expected(0), reason: 'not before 5 s');
+      expect(_visible(tester), expected(0), reason: 'not before 4 s');
       await tester.pump(const Duration(milliseconds: 100));
       await _settle(tester);
-      expect(_visible(tester), expected(1), reason: 'autoplay at 5 s');
-      expect(_inHero(find.text('02 / 06')), findsOneWidget);
+      expect(_visible(tester), expected(1), reason: 'autoplay at 4 s');
+      expect(_dotSelected(tester, 1), isTrue);
 
       if (perView == 2 || width >= 600) {
-        // Arrows: manual navigation resets the 5 s interval.
+        // Arrows: manual navigation restarts (never stops) the 4 s interval.
         await tester.pump(const Duration(milliseconds: 3000));
         await tester.tap(_inHero(find.byTooltip('Next slide')));
         await _settle(tester);
         expect(_visible(tester), expected(2), reason: 'next arrow');
-        await tester.pump(const Duration(milliseconds: 3500)); // ~4.3 s
+        await tester.pump(const Duration(milliseconds: 2800)); // ~3.6 s
         await tester.pump();
         expect(_visible(tester), expected(2), reason: 'interval was reset');
-        await tester.pump(const Duration(milliseconds: 800)); // > 5 s
+        await tester.pump(const Duration(milliseconds: 800)); // > 4 s
         await _settle(tester);
         await _settle(tester);
-        expect(_visible(tester), expected(3), reason: 'autoplay resumes');
+        expect(_visible(tester), expected(3), reason: 'autoplay continues');
 
         await tester.tap(_inHero(find.byTooltip('Previous slide')));
         await _settle(tester);
@@ -225,11 +238,7 @@ void main() {
         await shot(tester, key, 'hero2_${label}_wrap');
       } else {
         expect(_inHero(find.byTooltip('Next slide')), findsNothing);
-        await tester.fling(
-          find.byType(PageView),
-          const Offset(-250, 0),
-          1500,
-        );
+        await tester.fling(find.byType(PageView), const Offset(-250, 0), 1500);
         await _settle(tester);
         expect(_visible(tester), expected(2), reason: 'swipe next');
         await tester.fling(find.byType(PageView), const Offset(250, 0), 1500);
@@ -242,7 +251,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('hero-dot-4')));
       await _settle(tester);
       expect(_visible(tester), expected(4), reason: 'dot');
-      expect(_inHero(find.text('05 / 06')), findsOneWidget);
+      expect(_dotSelected(tester, 4), isTrue);
       await shot(tester, key, 'hero2_${label}_dot4');
 
       // Shop Now on the green filters slide (index 5) opens products.
@@ -255,7 +264,7 @@ void main() {
     });
   }
 
-  testWidgets('autoplay pauses on hover and resumes when the pointer leaves', (
+  testWidgets('autoplay keeps sliding while the pointer is over the slider', (
     tester,
   ) async {
     await _pumpHome(tester, 1280);
@@ -264,15 +273,55 @@ void main() {
     await mouse.addPointer(location: const Offset(5, 1090));
     await mouse.moveTo(tester.getCenter(find.byType(PageView)));
     await tester.pump();
-
-    await tester.pump(const Duration(seconds: 12));
+    await tester.pump(const Duration(milliseconds: 4000));
     await _settle(tester);
-    expect(_visible(tester), [0, 1], reason: 'paused while hovered');
-
-    await mouse.moveTo(const Offset(5, 1090));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 5000));
+    expect(_visible(tester), [1, 2], reason: 'no pause on hover');
+    await tester.pump(const Duration(milliseconds: 3200));
     await _settle(tester);
-    expect(_visible(tester), [1, 2], reason: 'resumes 5 s after leaving');
+    expect(_visible(tester), [2, 3], reason: 'still sliding');
   });
+
+  testWidgets('rapid manual navigation leaves one timer: one slide per 4 s', (
+    tester,
+  ) async {
+    await _pumpHome(tester, 1280);
+    for (var i = 0; i < 3; i++) {
+      await tester.tap(_inHero(find.byTooltip('Next slide')));
+      await _settle(tester);
+    }
+    expect(_visible(tester), [3, 4]);
+    // Exactly one advance per interval afterwards (no stacked timers).
+    for (final expected in [
+      [4, 5],
+      [5, 0],
+      [0, 1],
+    ]) {
+      await tester.pump(const Duration(milliseconds: 3200));
+      await _settle(tester);
+      expect(_visible(tester), expected);
+    }
+  });
+
+  testWidgets(
+    'autoplay rotates through all 6 slides every 4 s and loops back to the 1st',
+    (tester) async {
+      await _pumpHome(tester, 390); // phone: one slide at a time
+      expect(_visible(tester), [0]);
+      expect(_dotSelected(tester, 0), isTrue);
+      // Check 1 s after each change (the slide animation takes 650 ms).
+      await tester.pump(const Duration(seconds: 1));
+      for (var step = 1; step <= 7; step++) {
+        await tester.pump(const Duration(milliseconds: 3200));
+        await _settle(tester);
+        final slide = step % 6;
+        expect(_visible(tester), [slide], reason: 'after step $step');
+        expect(
+          _dotSelected(tester, slide),
+          isTrue,
+          reason: 'dot after step $step',
+        );
+      }
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

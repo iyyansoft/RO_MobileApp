@@ -9,6 +9,7 @@ export '../../../../core/utils/rupee_format.dart';
 import '../../../../core/utils/rupee_format.dart';
 import 'max_quantity_dialog.dart';
 import 'cabinet_price_text.dart';
+import '../../domain/category_price_view.dart';
 
 const _brandBlue = Color(0xFF0B5FC4);
 const _buttonBlue = Color(0xFF0B4FB8);
@@ -40,9 +41,13 @@ class ListingProductCard extends StatefulWidget {
     required this.onAddToCart,
     this.layout = ListingCardLayout.tile,
     this.isDark = false,
+    this.priceView = ProductPriceView.standard,
   });
 
   final ProductModel product;
+
+  /// Price format of the category page showing the card.
+  final ProductPriceView priceView;
   final VoidCallback onTap;
 
   /// Adds [quantity] of the product; resolves to whether it succeeded.
@@ -63,9 +68,11 @@ class ListingProductCard extends StatefulWidget {
   /// when the page shows a product with one, so other listings are unchanged.
   static const cabinetPriceExtra = 22.0;
 
-  static double rowExtentFor(Iterable<ProductModel> products) =>
-      rowExtent +
-      (products.any((p) => p.hasCabinetPrice) ? cabinetPriceExtra : 0);
+  static double rowExtentFor(
+    Iterable<ProductModel> products, [
+    ProductPriceView view = ProductPriceView.standard,
+  ]) =>
+      rowExtent + (products.any(view.showsCabinetLine) ? cabinetPriceExtra : 0);
 
   @override
   State<ListingProductCard> createState() => _ListingProductCardState();
@@ -149,7 +156,11 @@ class _ListingProductCardState extends State<ListingProductCard> {
               _ImageBox(product: widget.product, size: image),
               const SizedBox(width: 16),
               Expanded(
-                child: _Details(product: widget.product, isDark: widget.isDark),
+                child: _Details(
+                  product: widget.product,
+                  isDark: widget.isDark,
+                  view: widget.priceView,
+                ),
               ),
             ],
           ),
@@ -167,7 +178,11 @@ class _ListingProductCardState extends State<ListingProductCard> {
         _ImageBox(product: widget.product, size: 136),
         const SizedBox(width: 20),
         Expanded(
-          child: _Details(product: widget.product, isDark: widget.isDark),
+          child: _Details(
+            product: widget.product,
+            isDark: widget.isDark,
+            view: widget.priceView,
+          ),
         ),
         if (wide) ...[
           const SizedBox(width: 20),
@@ -280,16 +295,23 @@ class _ImageBox extends StatelessWidget {
 }
 
 class _Details extends StatelessWidget {
-  const _Details({required this.product, required this.isDark});
+  const _Details({
+    required this.product,
+    required this.isDark,
+    required this.view,
+  });
 
   final ProductModel product;
   final bool isDark;
+  final ProductPriceView view;
 
   @override
   Widget build(BuildContext context) {
     final ink = isDark ? Colors.white : _ink;
-    final discount = product.discountPercentage;
-    final showMrp = product.mrp > product.dealerPrice;
+    // Cabinets page: the Cabinet Price only (no Dealer Price, MRP, discount).
+    final cabinetOnly = view.cabinetOnly(product);
+    final discount = cabinetOnly ? 0 : product.discountPercentage;
+    final showMrp = !cabinetOnly && product.mrp > product.dealerPrice;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
@@ -356,13 +378,25 @@ class _Details extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '₹${formatRupees(product.dealerPrice)}',
+                '₹${formatRupees(cabinetOnly ? product.cabinetPrice! : product.dealerPrice)}',
+                key: ValueKey('listing-price-${product.id}'),
                 style: TextStyle(
                   color: ink,
                   fontSize: 21,
                   fontWeight: FontWeight.w800,
                 ),
               ),
+              if (cabinetOnly) ...[
+                const SizedBox(width: 10),
+                const Text(
+                  'Cabinet Price',
+                  style: TextStyle(
+                    color: _brandBlue,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
               if (showMrp) ...[
                 const SizedBox(width: 10),
                 Text(
@@ -398,11 +432,12 @@ class _Details extends StatelessWidget {
             ],
           ),
         ),
-        CabinetPriceText(
-          product,
-          fontSize: 12.5,
-          padding: const EdgeInsets.only(top: 4),
-        ),
+        if (view.showsCabinetLine(product))
+          CabinetPriceText(
+            product,
+            fontSize: 12.5,
+            padding: const EdgeInsets.only(top: 4),
+          ),
       ],
     );
   }

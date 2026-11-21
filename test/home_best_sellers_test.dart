@@ -1,7 +1,9 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ro_wholesale_dealer_app/features/home/domain/home_best_sellers.dart';
+import 'package:ro_wholesale_dealer_app/features/home/presentation/widgets/home_product_card.dart';
 import 'package:ro_wholesale_dealer_app/features/home/presentation/widgets/home_product_carousel.dart';
 import 'package:ro_wholesale_dealer_app/features/products/domain/models/category_model.dart';
 import 'package:ro_wholesale_dealer_app/features/products/domain/models/product_model.dart';
@@ -93,9 +95,14 @@ void main() {
       expect(skus(home), skus(page));
       expect(home.length, 41);
       expect(home.map((x) => x.id).toSet().length, 41, reason: 'no duplicates');
-      expect(
-      skus(home.skip(35)).toSet(),
-      {'CAB-36', 'CAB-37', 'CAB-38', 'CAB-39', 'CAB-40', 'CAB-41'}, reason: 'same Cabinet-page rule: the six 20" housings last');
+      expect(skus(home.skip(35)).toSet(), {
+        'CAB-36',
+        'CAB-37',
+        'CAB-38',
+        'CAB-39',
+        'CAB-40',
+        'CAB-41',
+      }, reason: 'same Cabinet-page rule: the six 20" housings last');
       expect(
         home.every((x) => x.categoryId == 'cabinets'),
         isTrue,
@@ -137,8 +144,9 @@ void main() {
   Future<void> pumpCarousel(
     WidgetTester tester,
     double width,
-    int visible,
-  ) async {
+    int visible, {
+    bool autoScroll = false,
+  }) async {
     tester.view.physicalSize = Size(width, 1200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -151,6 +159,7 @@ void main() {
               visibleCount: visible,
               sectionKey: 'best_sellers',
               spacing: 20,
+              autoScroll: autoScroll,
               onTap: (_, __) {},
               onAddToCart: (_) {},
             ),
@@ -158,90 +167,144 @@ void main() {
         ),
       ),
     );
+    if (autoScroll) {
+      await tester.pump();
+      await tester.pump();
+    } else {
+      await tester.pumpAndSettle();
+    }
+  }
+
+  /// SKUs of the cards fully on screen, left to right (any copy of the loop).
+  List<String> visibleSkus(WidgetTester tester, double width) {
+    final shown = <(double, String)>[];
+    for (final e in find.byType(HomeProductCard).evaluate()) {
+      final key = (e.widget.key! as ValueKey<String>).value;
+      final sku = RegExp(r'card-id-(CAB-\d+)').firstMatch(key)!.group(1)!;
+      final box = e.renderObject! as RenderBox;
+      final left = box.localToGlobal(Offset.zero).dx;
+      if (left >= -0.5 && left + box.size.width <= width + 0.5) {
+        shown.add((left, sku));
+      }
+    }
+    shown.sort((a, b) => a.$1.compareTo(b.$1));
+    return [for (final s in shown) s.$2];
+  }
+
+  double leftOf(WidgetTester tester, String sku) => tester
+      .getRect(find.byKey(ValueKey('home-best_sellers-card-id-$sku')))
+      .left;
+
+  final prev = find.byKey(const ValueKey('home-carousel-best_sellers-prev'));
+  final next = find.byKey(const ValueKey('home-carousel-best_sellers-next'));
+
+  testWidgets('desktop: 4 cards visible; arrows loop endlessly both ways', (
+    tester,
+  ) async {
+    const w = 1300.0;
+    await pumpCarousel(tester, w, 4);
+    expect(visibleSkus(tester, w), ['CAB-39', 'CAB-41', 'CAB-40', 'CAB-38']);
+    expect(prev, findsOneWidget, reason: 'endless: back works from the start');
+    expect(next, findsOneWidget);
+
+    await tester.tap(next);
     await tester.pumpAndSettle();
-  }
+    expect(visibleSkus(tester, w), ['CAB-37', 'CAB-36', 'CAB-01', 'CAB-02']);
+    await tester.tap(prev);
+    await tester.pumpAndSettle();
+    expect(visibleSkus(tester, w), ['CAB-39', 'CAB-41', 'CAB-40', 'CAB-38']);
+    // Before the first product come the last ones (seamless loop).
+    await tester.tap(prev);
+    await tester.pumpAndSettle();
+    expect(visibleSkus(tester, w), ['CAB-32', 'CAB-33', 'CAB-34', 'CAB-35']);
 
-  bool fullyVisible(WidgetTester tester, String sku, double width) {
-    final f = find.byKey(ValueKey('home-best_sellers-card-id-$sku'));
-    if (f.evaluate().isEmpty) return false;
-    final r = tester.getRect(f);
-    return r.left >= -0.5 && r.right <= width + 0.5;
-  }
-
-  testWidgets(
-    'desktop: exactly 4 cards visible; arrows move to the rest and back',
-    (tester) async {
-      const w = 1300.0;
-      await pumpCarousel(tester, w, 4);
-      final all = skus(slider);
-      expect(
-        [
-          for (final s in all)
-            if (fullyVisible(tester, s, w)) s,
-        ],
-        ['CAB-39', 'CAB-41', 'CAB-40', 'CAB-38'],
-      );
-      expect(
-        find.byKey(const ValueKey('home-carousel-best_sellers-prev')),
-        findsNothing,
-      );
-      final next = find.byKey(
-        const ValueKey('home-carousel-best_sellers-next'),
-      );
-      expect(next, findsOneWidget);
-
+    // Forward through everything: all 41 seen, then it continues from the start.
+    await tester.tap(next);
+    await tester.pumpAndSettle();
+    final seen = <String>{};
+    for (var i = 0; i < 11; i++) {
+      seen.addAll(visibleSkus(tester, w));
       await tester.tap(next);
       await tester.pumpAndSettle();
-      expect(
-        [
-          for (final s in all)
-            if (fullyVisible(tester, s, w)) s,
-        ],
-        ['CAB-37', 'CAB-36', 'CAB-01', 'CAB-02'],
-      );
-      expect(
-        find.byKey(const ValueKey('home-carousel-best_sellers-prev')),
-        findsOneWidget,
-      );
+    }
+    expect(seen.length, 41, reason: 'every product reachable');
+    expect(visibleSkus(tester, w), [
+      'CAB-38',
+      'CAB-37',
+      'CAB-36',
+      'CAB-01',
+    ], reason: 'after the last product the first ones follow');
+    expect(tester.takeException(), isNull);
+  });
 
-      // Every product is reachable: page to the end.
-      final reached = <String>{};
-      for (var i = 0; i < 20 && next.evaluate().isNotEmpty; i++) {
-        reached.addAll([
-          for (final s in all)
-            if (fullyVisible(tester, s, w)) s,
-        ]);
-        await tester.tap(next);
-        await tester.pumpAndSettle();
-      }
-      reached.addAll([
-        for (final s in all)
-          if (fullyVisible(tester, s, w)) s,
-      ]);
-      expect(reached.length, 37, reason: 'every product after the first page');
-      expect(
-        {...reached, 'CAB-39', 'CAB-41', 'CAB-40', 'CAB-38'}.length,
-        41,
-        reason: 'all 41 reachable',
-      );
-      expect(fullyVisible(tester, all.last, w), isTrue);
-      expect(next, findsNothing, reason: 'no next arrow at the end');
+  testWidgets('auto-scroll: slow, smooth, continuous, not paused by hover', (
+    tester,
+  ) async {
+    const w = 1300.0;
+    await pumpCarousel(tester, w, 4, autoScroll: true);
+    final start = leftOf(tester, 'CAB-41');
+    // 5 s at 60 fps: about 28 px/s, at most ~1.4 px per frame (no jumps).
+    var last = start;
+    var maxStep = 0.0;
+    for (var i = 0; i < 300; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+      final now = leftOf(tester, 'CAB-41');
+      maxStep = maxStep > last - now ? maxStep : last - now;
+      expect(now, lessThanOrEqualTo(last), reason: 'only right to left');
+      last = now;
+    }
+    final moved = start - last;
+    expect(moved, closeTo(28 * 300 * 0.016, 12));
+    expect(maxStep, lessThan(1.5));
 
-      await tester.tap(
-        find.byKey(const ValueKey('home-carousel-best_sellers-prev')),
-      );
-      await tester.pumpAndSettle();
-      expect(fullyVisible(tester, all.last, w), isFalse);
-    },
-  );
+    // Hovering does not stop it.
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    addTearDown(mouse.removePointer);
+    await mouse.addPointer(location: Offset.zero);
+    await mouse.moveTo(tester.getCenter(find.byType(ListView)));
+    final before = leftOf(tester, 'CAB-41');
+    for (var i = 0; i < 60; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(leftOf(tester, 'CAB-41'), lessThan(before - 20));
+
+    // Removing the carousel disposes its single ticker cleanly.
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('auto-scroll is off in tests by default (no endless frames)', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1300, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: HomeProductCarousel(
+              products: slider,
+              visibleCount: 4,
+              sectionKey: 'best_sellers',
+              onTap: (_, __) {},
+              onAddToCart: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle(); // would time out if it kept scrolling
+    expect(visibleSkus(tester, 1300), ['CAB-39', 'CAB-41', 'CAB-40', 'CAB-38']);
+  });
 
   testWidgets('drag/swipe scrolls sideways', (tester) async {
     const w = 400.0;
     await pumpCarousel(tester, w, 2);
     final list = find.byKey(const ValueKey('home-carousel-best_sellers'));
-    expect(fullyVisible(tester, 'CAB-39', w), isTrue);
+    expect(visibleSkus(tester, w).first, 'CAB-39');
     await tester.drag(list, const Offset(-600, 0));
     await tester.pumpAndSettle();
-    expect(fullyVisible(tester, 'CAB-39', w), isFalse);
+    expect(visibleSkus(tester, w), isNot(contains('CAB-39')));
   });
 }

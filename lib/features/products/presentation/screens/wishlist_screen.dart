@@ -99,15 +99,14 @@ class WishlistScreen extends ConsumerWidget {
                         return HomeProductCard(
                           product: product,
                           heroTag: heroTag,
-                          onTap: () =>
-                              Navigator.of(context, rootNavigator: true).push(
-                                MaterialPageRoute(
-                                  builder: (_) => ProductDetailsScreen(
-                                    product: product,
-                                    heroTag: heroTag,
-                                  ),
-                                ),
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => ProductDetailsScreen(
+                                product: product,
+                                heroTag: heroTag,
                               ),
+                            ),
+                          ),
                           onAddToCart: () =>
                               addProductToCart(context, ref, product),
                         );

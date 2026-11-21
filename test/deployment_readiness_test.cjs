@@ -74,7 +74,7 @@ async function backend({ migrated }) {
   const server = read('server.js');
   vm.runInNewContext(
     server.slice(server.indexOf('async function orderSupplyTotals('), server.indexOf("app.get('/api/admin/dashboard-stats'")),
-    { app, pool, requireAdminAuth: (req, res, next) => next(), console: { error() {} }, ...orderStatus, ...stockService },
+    { app, pool, requireAdminAuth: (req, res, next) => next(), console: { error() {} }, ...orderStatus, ...stockService, ...require('../rewards') },
   );
   console.error = quiet;
 

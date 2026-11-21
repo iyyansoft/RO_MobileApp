@@ -12,6 +12,13 @@ class MainNavigationScreen extends ConsumerWidget {
 
   const MainNavigationScreen({super.key, required this.child});
 
+  /// Navigator of every customer page (Home, Categories, product details,
+  /// Bulk Orders, cart, checkout, orders, profile ...), so they all show the
+  /// navbar drawn here.
+  static final shellNavigatorKey = GlobalKey<NavigatorState>(
+    debugLabel: 'shell',
+  );
+
   int _calculateSelectedIndex(BuildContext context) {
     try {
       final String location = GoRouterState.of(context).uri.path;
@@ -19,14 +26,32 @@ class MainNavigationScreen extends ConsumerWidget {
           location.startsWith('/categories')) {
         return 1;
       }
-      if (location.startsWith('/orders')) return 2;
-      if (location.startsWith('/profile')) return 3;
-      if (location.startsWith('/cart')) return 4;
+      if (location.startsWith('/orders') ||
+          location.startsWith('/order-success')) {
+        return 2;
+      }
+      if (location.startsWith('/profile') || location.startsWith('/wishlist')) {
+        return 3;
+      }
+      if (location.startsWith('/cart') || location.startsWith('/checkout')) {
+        return 4;
+      }
     } catch (_) {}
     return 0; // default is /home
   }
 
+  bool _isHome(BuildContext context) {
+    try {
+      return GoRouterState.of(context).uri.path.startsWith('/home');
+    } catch (_) {
+      return false;
+    }
+  }
+
   void _onItemTapped(int index, BuildContext context) {
+    // Close pages opened on top of a tab (e.g. product details from Home),
+    // so the tab itself shows even when its address is already current.
+    shellNavigatorKey.currentState?.popUntil((route) => route.settings is Page);
     try {
       switch (index) {
         case 0:
@@ -179,9 +204,13 @@ class MainNavigationScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            // Centered responsive page body
+            // Centered responsive page body. Home gets the full width so its
+            // hero background can reach the window edges; it keeps its own
+            // content centred (and its page background at 1360 px).
             Expanded(
-              child: ResponsiveContentWrapper(maxWidth: 1360, child: child),
+              child: _isHome(context)
+                  ? child
+                  : ResponsiveContentWrapper(maxWidth: 1360, child: child),
             ),
           ],
         ),

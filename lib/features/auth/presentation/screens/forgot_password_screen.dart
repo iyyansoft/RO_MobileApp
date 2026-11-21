@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../providers/auth_provider.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
   const ForgotPasswordScreen({super.key});
@@ -44,10 +45,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
           confirmPassword: _confirm.text,
         );
     if (reset && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Password updated. Sign in with your new password.'),
-        ),
+      AppToast.success(
+        context,
+        'Password updated. Sign in with your new password.',
       );
       context.go('/login');
     }

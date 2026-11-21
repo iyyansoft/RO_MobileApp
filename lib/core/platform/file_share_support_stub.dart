@@ -10,20 +10,25 @@ typedef FileShareOutcome = String;
 bool canShareImageFile(Uint8List bytes, String fileName, String mimeType) =>
     Platform.isAndroid || Platform.isIOS;
 
+/// Android / iOS: WhatsApp keeps the shared text as the image caption.
+bool whatsAppKeepsSharedText() => Platform.isAndroid || Platform.isIOS;
+
 /// Opens the system share sheet with the image file and its caption.
 Future<FileShareOutcome> shareImageFile(
   Uint8List bytes,
   String fileName,
   String mimeType,
-  String text,
-) async {
+  String text, {
+  String? title,
+}) async {
   try {
     final result = await SharePlus.instance.share(
       ShareParams(
         files: [XFile.fromData(bytes, mimeType: mimeType, name: fileName)],
         fileNameOverrides: [fileName],
-        // No caption when there is none: only the image is sent.
+        // ONE share: the image with the details as its caption.
         text: text.isEmpty ? null : text,
+        subject: title,
       ),
     );
     switch (result.status) {

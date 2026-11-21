@@ -14,10 +14,11 @@ export 'hero_slides.dart' show HeroSlide, kHeroSlides;
 /// Home banner carousel.
 ///
 /// * Desktop: two slides side by side; tablet and phone: one slide.
-/// * Autoplay advances one slide every [autoplayInterval] (5 s). One timer
-///   only: it restarts after every slide change (autoplay, arrows, swipe or
-///   dots), stops while the pointer is over the carousel and resumes when it
-///   leaves.
+/// * Autoplay starts as soon as the carousel is shown (every page load or
+///   refresh) and advances one slide every [autoplayInterval] (4 s), forever.
+///   One timer only: it restarts after every slide change (autoplay, arrows,
+///   swipe or dots), so manual navigation never stops it, and it is
+///   cancelled when the carousel is disposed. It does not pause on hover.
 /// * Loops endlessly in both directions.
 /// * Each slide can show live figures for its category from the
 ///   already-loaded catalogue (no extra API calls).
@@ -26,7 +27,7 @@ class HeroBannerCarousel extends ConsumerStatefulWidget {
     super.key,
     required this.onNavigate,
     this.slides = kHeroSlides,
-    this.autoplayInterval = const Duration(milliseconds: 5000),
+    this.autoplayInterval = const Duration(milliseconds: 4000),
   });
 
   /// Called with the slide's route when its CTA is tapped.
@@ -50,7 +51,6 @@ class _HeroBannerCarouselState extends ConsumerState<HeroBannerCarousel>
   PageController? _pageCtrl;
   HeroLayout? _layout;
   Timer? _autoplay;
-  bool _hovering = false;
 
   /// > 0 while an animation started by [_goTo] is running.
   int _programmatic = 0;
@@ -113,7 +113,7 @@ class _HeroBannerCarouselState extends ConsumerState<HeroBannerCarousel>
   void _scheduleAutoplay() {
     _autoplay?.cancel();
     _autoplay = null;
-    if (_hovering) return;
+    if (!mounted) return;
     _autoplay = Timer(widget.autoplayInterval, () => _goTo(_page + 1));
   }
 
@@ -123,7 +123,7 @@ class _HeroBannerCarouselState extends ConsumerState<HeroBannerCarousel>
       _scheduleAutoplay();
       return;
     }
-    // Autoplay, arrows and dots: the 5 s interval restarts now, so slides
+    // Autoplay, arrows and dots: the 4 s interval restarts now, so slides
     // change exactly every [autoplayInterval].
     _scheduleAutoplay();
     _programmatic++;
@@ -142,16 +142,6 @@ class _HeroBannerCarouselState extends ConsumerState<HeroBannerCarousel>
     if (diff > _count / 2) diff -= _count;
     if (diff < -_count / 2) diff += _count;
     if (diff != 0) _goTo(_page + diff);
-  }
-
-  void _setHovering(bool value) {
-    _hovering = value;
-    if (value) {
-      _autoplay?.cancel();
-      _autoplay = null;
-    } else {
-      _scheduleAutoplay();
-    }
   }
 
   /// Product count and lowest dealer price per slide, from the live catalogue.
@@ -186,9 +176,7 @@ class _HeroBannerCarouselState extends ConsumerState<HeroBannerCarousel>
         final gap = compact ? 8.0 : 12.0; // half the space between cards
         final radius = BorderRadius.circular(compact ? 24 : 28);
 
-        return MouseRegion(
-          onEnter: (_) => _setHovering(true),
-          onExit: (_) => _setHovering(false),
+        return RepaintBoundary(
           child: Column(
             children: [
               SizedBox(

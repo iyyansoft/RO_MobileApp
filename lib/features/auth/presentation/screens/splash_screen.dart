@@ -1,6 +1,9 @@
-﻿import 'dart:math' as math;
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+
+import '../../../../core/widgets/brand_logo.dart' show kBrandLogoAsset;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -133,7 +136,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                           SizedBox(
                             width: logoWidth,
                             child: Image.asset(
-                              'assets/images/RO_LOGO.png',
+                              kBrandLogoAsset,
                               fit: BoxFit.contain,
                               filterQuality: FilterQuality.high,
                               semanticLabel: 'Neero water logo',

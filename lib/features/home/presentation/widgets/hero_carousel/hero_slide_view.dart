@@ -24,9 +24,9 @@ enum HeroLayout {
 
   /// Card height (equal for every slide).
   double get height => switch (this) {
-    large => 470,
-    medium => 400,
-    compact => 380,
+    large => 320,
+    medium => 280,
+    compact => 240,
   };
 
   /// Horizontal padding inside a card.
@@ -117,8 +117,8 @@ class HeroSlideView extends StatelessWidget {
             // Copy.
             Positioned(
               left: layout.padding,
-              top: compact ? 18 : 24,
-              bottom: compact ? 18 : 24,
+              top: compact ? 12 : 16,
+              bottom: compact ? 12 : 16,
               width: w * (compact ? 0.54 : 0.53) - layout.padding,
               child: Align(
                 alignment: Alignment.centerLeft,
@@ -211,7 +211,7 @@ class _Copy extends StatelessWidget {
             ],
           ),
         ),
-        SizedBox(height: compact ? 12 : 18),
+        SizedBox(height: compact ? 6 : 8),
         // Title: scales as one block so both lines keep the same size.
         FittedBox(
           fit: BoxFit.scaleDown,
@@ -237,7 +237,7 @@ class _Copy extends StatelessWidget {
             ),
           ),
         ),
-        SizedBox(height: compact ? 8 : 14),
+        SizedBox(height: compact ? 4 : 6),
         Text(
           slide.subtitle,
           maxLines: 2,
@@ -250,10 +250,10 @@ class _Copy extends StatelessWidget {
           ),
         ),
         if (slide.features.isNotEmpty) ...[
-          SizedBox(height: compact ? 12 : 20),
+          SizedBox(height: compact ? 6 : 10),
           Wrap(
             spacing: compact ? 10 : 18,
-            runSpacing: 8,
+            runSpacing: compact ? 4 : 6,
             children: [
               for (final f in slide.features)
                 _Feature(feature: f, slide: slide, compact: compact),
@@ -261,10 +261,10 @@ class _Copy extends StatelessWidget {
           ),
         ],
         if (s != null && s.count > 0 && !compact) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           _StatsLine(stats: s, slide: slide),
         ],
-        SizedBox(height: compact ? 16 : 26),
+        SizedBox(height: compact ? 10 : 12),
         _HeroCta(slide: slide, compact: compact, onTap: onCta),
       ],
     );
@@ -409,8 +409,8 @@ class _HeroCtaState extends State<_HeroCta> {
             borderRadius: BorderRadius.circular(40),
             child: Padding(
               padding: EdgeInsets.symmetric(
-                horizontal: compact ? 20 : 32,
-                vertical: compact ? 11 : 16,
+                horizontal: compact ? 18 : 28,
+                vertical: compact ? 9 : 12,
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,

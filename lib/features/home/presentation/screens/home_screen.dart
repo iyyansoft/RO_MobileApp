@@ -1,6 +1,8 @@
+import 'dart:math' as math;
+
 import '../../../products/presentation/widgets/cart_actions.dart';
 import '../../../../core/widgets/app_image.dart';
-import '../../../../core/widgets/category_image.dart';
+import '../../../bulk_orders/presentation/screens/bulk_orders_screen.dart';
 import '../widgets/hero_carousel/hero_banner_carousel.dart';
 import '../widgets/home_search_bar.dart';
 import '../../../products/presentation/widgets/filter_bottom_sheet.dart';
@@ -28,13 +30,15 @@ import '../../../products/presentation/screens/product_listing_screen.dart';
 import '../../domain/home_best_sellers.dart';
 import '../widgets/home_product_carousel.dart';
 import '../../../products/domain/cabinet_display_order.dart';
+import '../widgets/home_category_card.dart';
 
 const _homeBlue = AppColors.primaryLight;
 
+/// Opens [page] inside the main shell, so the navbar stays visible.
 void _pushHomeRoute(
   BuildContext context,
   Widget page, {
-  bool useRootNavigator = true,
+  bool useRootNavigator = false,
 }) {
   Navigator.of(
     context,
@@ -282,14 +286,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final wholesaleDeals = allProducts.where((p) => p.moq >= 10).toList();
 
     final catalog = ref.watch(catalogProductsProvider);
+    // Desktop: the app shell gives Home the full window width (for the
+    // full-width hero background); the page background stays 1360 px wide
+    // and centred, as before, with the shell's colour at the sides.
+    final pageInset = context.isDesktop
+        ? math.max(0.0, (MediaQuery.sizeOf(context).width - 1360) / 2)
+        : 0.0;
     return Scaffold(
-      backgroundColor: isDark
-          ? const Color(0xFF0A1118)
-          : const Color(0xFFF7FBFC),
+      backgroundColor: context.isDesktop
+          ? Colors.transparent
+          : (isDark ? const Color(0xFF0A1118) : const Color(0xFFF7FBFC)),
       body: Stack(
         children: [
           // Background Gradient & Water Wave Effects
-          Positioned.fill(
+          Positioned(
+            left: pageInset,
+            right: pageInset,
+            top: 0,
+            bottom: 0,
             child: DecoratedBox(
               decoration: BoxDecoration(
                 gradient: LinearGradient(
@@ -333,19 +347,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           // 1. PREMIUM REDESIGNED APP HEADER (Branding & Action Buttons)
                           _buildHeader(context),
 
-                          // Search + quick actions (always available, even
-                          // while the catalogue is still loading).
-                          _buildTopSection(context, isDark),
+                          // Hero section: search + quick actions (always
+                          // available, even while the catalogue is still
+                          // loading) and the banner slider, on hero_bg.png.
+                          _HeroSectionBackground(
+                            isDark: isDark,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                _buildTopSection(context, isDark),
+                                if (catalog.hasValue)
+                                  HeroBannerCarousel(
+                                    onNavigate: (route) => context.go(route),
+                                  ),
+                              ],
+                            ),
+                          ),
 
                           if (catalog.isLoading && !catalog.hasValue)
                             _buildSkeletonDashboard()
                           else if (catalog.hasError && !catalog.hasValue)
                             _buildCatalogError(catalog.error)
                           else ...[
-                            HeroBannerCarousel(
-                              onNavigate: (route) => context.go(route),
-                            ),
-
                             // 1. Categories Section
                             _buildSectionHeader(
                               context,
@@ -915,6 +938,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         context.go('/orders');
       } else if (label == 'Credit Limit') {
         context.go('/profile');
+      } else if (label == 'Bulk Order') {
+        // The Bulk Orders page (not the normal Categories page).
+        context.go(BulkOrdersScreen.path);
       } else {
         context.go('/products');
       }
@@ -1084,11 +1110,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     } else if (lower.contains('pip') || lower.contains('tube')) {
       return (
         Icons.alt_route_rounded,
-        const Color(0xFF0284C7),
+        const Color(0xFF0D9488),
         const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFE0F2FE), Color(0xFFCFFAFE)],
+          colors: [Color(0xFFCCFBF1), Color(0xFFA5F3FC)],
+        ),
+      );
+    } else if (lower.contains('spare') ||
+        lower.contains('valve') ||
+        lower.contains('part')) {
+      return (
+        Icons.build_rounded,
+        const Color(0xFFE11D48),
+        const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFFFE4E6), Color(0xFFFECDD3)],
+        ),
+      );
+    } else if (lower.contains('cab')) {
+      return (
+        Icons.water_drop_rounded,
+        const Color(0xFF2563EB),
+        const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFDBEAFE), Color(0xFFC7D2FE)],
         ),
       );
     } else {
@@ -1152,7 +1200,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final itemWidth = (constraints.maxWidth - 24) / 3;
+            final itemWidth = (constraints.maxWidth - 36) / 4;
             return Wrap(
               spacing: 12,
               runSpacing: 14,
@@ -1184,7 +1232,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     // Mobile: Horizontal scroll with large image cards
     return SizedBox(
-      height: 168,
+      height: HomeCategoryCard.heightFor(compact: true) + 8,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -1194,8 +1242,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           final visuals = _getCategoryVisuals(category.id, category.name);
           final localImage = _getCategoryLocalImage(category.id, category.name);
           return Container(
-            width: 136,
-            margin: const EdgeInsets.only(right: 12),
+            width: 140,
+            margin: const EdgeInsets.only(right: 12, bottom: 8),
             child: _buildCategoryImageCard(
               context,
               category: category,
@@ -1212,7 +1260,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  /// Large image-first category card with product photo, name label, and item count badge.
+  /// Bundled photo for categories without a server image: the Cabinet
+  /// category shows a blue RO cabinet (product CAB-04's photo).
+  static const _cabinetCategoryImage =
+      'assets/images/products_image/Aqua grid blue.jpg';
+
+  /// Category card: pastel gradient, product photo, item-count badge and a
+  /// footer with icon, name and arrow (see [HomeCategoryCard]).
   Widget _buildCategoryImageCard(
     BuildContext context, {
     required CategoryModel category,
@@ -1223,209 +1277,28 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required bool isDark,
     required bool isDesktop,
   }) {
-    final double imageHeight = isDesktop ? 140 : 108;
-
-    // Resolve display image: prefer mapped URL, then DB image path via AppImage, else null
-    final String? networkImage = category.imagePath.isNotEmpty
-        ? category.imagePath
-        : null;
-
-    Widget buildImage() {
-      if (localImagePath != null) {
-        // Product photos have white backgrounds: show them whole (no crop)
-        // on a white panel inset within the tinted image area.
-        return Padding(
-          padding: const EdgeInsets.all(6),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: CategoryImage(
-                  url: localImagePath,
-                  fallback: _buildCategoryIconFallback(
-                    fallbackIcon,
-                    iconColor,
-                    gradient,
-                    isDesktop,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      }
-      if (networkImage != null) {
-        return AppImage(
-          networkImage,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _buildCategoryIconFallback(
-            fallbackIcon,
-            iconColor,
-            gradient,
-            isDesktop,
-          ),
-        );
-      }
-      return _buildCategoryIconFallback(
-        fallbackIcon,
-        iconColor,
-        gradient,
-        isDesktop,
-      );
-    }
-
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
-        key: ValueKey('home-category-${category.id}'),
-        onTap: () => _pushHomeRoute(
-          context,
-          ProductListingScreen(
-            initialCategoryId: category.id,
-            initialCategoryName: category.name,
-          ),
-          useRootNavigator: false,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF142436) : Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: isDark ? Colors.white12 : const Color(0xFFE8EEF5),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F2850)
-                    .withValues(alpha: isDark ? 0.22 : 0.07),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Image Section ──────────────────────────────────────
-              ClipRRect(
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(17),
-                ),
-                child: SizedBox(
-                  height: imageHeight,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      // Gradient tinted background behind image
-                      DecoratedBox(
-                        decoration: BoxDecoration(gradient: gradient),
-                      ),
-                      // Product image
-                      buildImage(),
-                      // Subtle bottom-to-top scrim so text reads cleanly
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        height: 36,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [
-                                Colors.black.withValues(alpha: 0.28),
-                                Colors.transparent,
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                      // Item-count badge (top-right)
-                      if (category.productCount > 0)
-                        Positioned(
-                          top: 8,
-                          right: 8,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.55),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              '${category.productCount} Items',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              // ── Label Section ──────────────────────────────────────
-              Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: isDesktop ? 12 : 8,
-                  vertical: isDesktop ? 12 : 8,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        category.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: isDesktop ? 13.5 : 11.5,
-                          fontWeight: FontWeight.w800,
-                          color: isDark
-                              ? Colors.white
-                              : const Color(0xFF0F2850),
-                          letterSpacing: -0.1,
-                        ),
-                      ),
-                    ),
-                    Icon(
-                      Icons.chevron_right_rounded,
-                      size: isDesktop ? 18 : 15,
-                      color: iconColor,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    final isCabinet = '${category.id} ${category.name}'.toLowerCase().contains(
+      'cab',
     );
-  }
-
-  Widget _buildCategoryIconFallback(
-    IconData icon,
-    Color iconColor,
-    LinearGradient gradient,
-    bool isDesktop,
-  ) {
-    return DecoratedBox(
-      decoration: BoxDecoration(gradient: gradient),
-      child: Center(
-        child: Icon(icon, size: isDesktop ? 48 : 36, color: iconColor),
+    return HomeCategoryCard(
+      key: ValueKey('home-category-${category.id}'),
+      name: category.name,
+      itemCount: category.productCount,
+      icon: fallbackIcon,
+      accent: iconColor,
+      gradient: gradient,
+      compact: !isDesktop,
+      imageUrl: localImagePath,
+      assetImage: localImagePath == null && isCabinet
+          ? _cabinetCategoryImage
+          : null,
+      onTap: () => _pushHomeRoute(
+        context,
+        ProductListingScreen(
+          initialCategoryId: category.id,
+          initialCategoryName: category.name,
+        ),
+        useRootNavigator: false,
       ),
     );
   }
@@ -1700,5 +1573,56 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   void _showCartDrawerModal(BuildContext context) {
     context.go('/cart');
+  }
+}
+
+/// Background of the Home hero section (search, quick actions and banner
+/// slider): assets/images/hero_bg.png across the full window width (the
+/// content itself stays in the centred page column), covering the area and
+/// centred (CSS background-size: cover; background-position: center), drawn
+/// at [opacity] so it stays subtle.
+class _HeroSectionBackground extends StatelessWidget {
+  const _HeroSectionBackground({required this.isDark, required this.child});
+
+  static const image = 'assets/images/hero_bg.png';
+  static const opacity = 0.62;
+
+  final bool isDark;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    return LayoutBuilder(
+      builder: (context, box) {
+        // The page column is centred: extend the background by the gap on
+        // each side so it reaches both edges of the window.
+        final bleed = math.max(0.0, (screenWidth - box.maxWidth) / 2);
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned(
+              key: const ValueKey('home-hero-background'),
+              left: -bleed,
+              right: -bleed,
+              top: 0,
+              bottom: 0,
+              child: IgnorePointer(
+                child: Opacity(
+                  opacity: opacity,
+                  child: Image.asset(
+                    image,
+                    fit: BoxFit.cover,
+                    alignment: Alignment.center,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
+              ),
+            ),
+            child,
+          ],
+        );
+      },
+    );
   }
 }

@@ -18,7 +18,8 @@ import 'package:ro_wholesale_dealer_app/features/profile/presentation/screens/pr
 import 'package:ro_wholesale_dealer_app/features/profile/presentation/widgets/profile_sections.dart';
 
 const _longName = 'Priya Venkatakrishnan Subramaniam Rajagopalan';
-const _longEmail = 'priya.venkatakrishnan.subramaniam.dealer.account@example-wholesale.test';
+const _longEmail =
+    'priya.venkatakrishnan.subramaniam.dealer.account@example-wholesale.test';
 
 class _SignedIn extends AuthNotifier {
   _SignedIn(super.api) {
@@ -38,6 +39,81 @@ class _SignedIn extends AuthNotifier {
     );
   }
 }
+
+/// GET /api/user/rewards in the server's shape (rewards.js rewardSummary).
+Map<String, dynamic> _lockedRewards() => {
+  'success': true,
+  'totalPoints': 2345.5,
+  'availablePoints': 2345.5,
+  'availableValue': 2345.5,
+  'totalPointsEarned': 2446,
+  'totalPointsRedeemed': 0,
+  'pendingRedemption': 100.5,
+  'eligiblePurchaseAmount': 71338,
+  'freeClaimThreshold': 100000,
+  'remainingForFreeClaim': 28662,
+  'freeClaimUnlocked': false,
+  'pointValueInr': 1,
+  'history': [
+    {
+      'id': 9,
+      'type': 'redeemed',
+      'orderId': null,
+      'orderAmount': 0,
+      'pointsEarned': 0,
+      'pointsRedeemed': 100.5,
+      'status': 'pending',
+      'createdAt': '2026-10-25T10:00:00.000Z',
+    },
+    {
+      'id': 8,
+      'type': 'earned',
+      'orderId': 'K7Q2ZP',
+      'orderDate': '2026-10-21T10:00:00.000Z',
+      'orderAmount': 14850.5,
+      'pointsEarned': 371.26,
+      'pointsRedeemed': 0,
+      'status': 'credited',
+      'createdAt': '2026-10-21T10:00:00.000Z',
+    },
+    {
+      'id': 7,
+      'type': 'reversed',
+      'orderId': 'R9D3LS',
+      'orderDate': '2026-10-01T10:00:00.000Z',
+      'orderAmount': -900,
+      'pointsEarned': -22.5,
+      'pointsRedeemed': 0,
+      'status': 'reversed',
+      'createdAt': '2026-10-03T10:00:00.000Z',
+    },
+    {
+      'id': 6,
+      'type': 'earned',
+      'orderId': 'R9D3LS',
+      'orderDate': '2026-10-01T10:00:00.000Z',
+      'orderAmount': 900,
+      'pointsEarned': 22.5,
+      'pointsRedeemed': 0,
+      'status': 'reversed',
+      'createdAt': '2026-10-01T10:00:00.000Z',
+    },
+    {
+      'id': 5,
+      'type': 'earned',
+      'orderId': 'T2F6HV',
+      'orderDate': '2026-08-20T10:00:00.000Z',
+      'orderAmount': 500,
+      'pointsEarned': 12.5,
+      'pointsRedeemed': 0,
+      'status': 'credited',
+      'createdAt': '2026-08-20T10:00:00.000Z',
+    },
+  ],
+};
+
+Map<String, dynamic> _rewards = _lockedRewards();
+final _posts = <(String, Object?)>[];
 
 /// Backend responses in the real API shape.
 Map<String, dynamic> _respond(String path) {
@@ -66,27 +142,23 @@ Map<String, dynamic> _respond(String path) {
       ],
     };
   }
-  if (path.contains('user/rewards')) {
-    return {
-      'success': true,
-      'totalPoints': 2345,
-      'totalPointsEarned': 1118,
-      'history': [
-        {'orderId': 'K7Q2ZP', 'orderAmount': 14850.5, 'pointsEarned': 742, 'date': '2026-10-21T10:00:00.000Z'},
-        {'orderId': 'B4N8XW', 'orderAmount': 6200, 'pointsEarned': 310, 'date': '2026-10-02T10:00:00.000Z'},
-        {'orderId': 'M1C5RT', 'orderAmount': 1320, 'pointsEarned': 66, 'date': '2026-09-15T10:00:00.000Z'},
-        {'orderId': 'R9D3LS', 'orderAmount': 900, 'pointsEarned': -50, 'date': '2026-09-01T10:00:00.000Z'},
-        {'orderId': 'T2F6HV', 'orderAmount': 500, 'pointsEarned': 25, 'date': '2026-08-20T10:00:00.000Z'},
-      ],
-    };
+  if (path.contains('user/rewards/claim')) {
+    return {'success': true, 'message': 'Claim for 50 points sent.'};
   }
+  if (path.contains('user/rewards')) return _rewards;
   if (path.contains('user/gst-invoices')) {
     return {
       'success': true,
       'creditLimit': 250000,
       'availableCredit': 212500,
       'invoices': [
-        {'invoiceNumber': 'INV-1', 'orderId': 'K7Q2ZP', 'date': 'Oct 21, 2026', 'amount': 14850.5, 'gstAmount': 2265.33},
+        {
+          'invoiceNumber': 'INV-1',
+          'orderId': 'K7Q2ZP',
+          'date': 'Oct 21, 2026',
+          'amount': 14850.5,
+          'gstAmount': 2265.33,
+        },
       ],
     };
   }
@@ -101,9 +173,13 @@ Future<GlobalKey> _pump(WidgetTester tester, double width) async {
   final api = ApiClient(
     interceptors: [
       InterceptorsWrapper(
-        onRequest: (request, handler) => handler.resolve(
-          Response(requestOptions: request, data: _respond(request.path)),
-        ),
+        onRequest: (request, handler) {
+          if (request.method == 'POST')
+            _posts.add((request.path, request.data));
+          handler.resolve(
+            Response(requestOptions: request, data: _respond(request.path)),
+          );
+        },
       ),
     ],
   );
@@ -115,7 +191,8 @@ Future<GlobalKey> _pump(WidgetTester tester, double width) async {
       for (final page in ['orders', 'login', 'wishlist'])
         GoRoute(
           path: '/$page',
-          builder: (_, __) => Scaffold(body: Text('${page.toUpperCase()} PAGE')),
+          builder: (_, __) =>
+              Scaffold(body: Text('${page.toUpperCase()} PAGE')),
         ),
     ],
   );
@@ -156,7 +233,9 @@ void main() {
       for (final family in ['Roboto', 'Outfit']) {
         final loader = FontLoader(family)
           ..addFont(
-            Future.value(ByteData.sublistView(File(previewFont).readAsBytesSync())),
+            Future.value(
+              ByteData.sublistView(File(previewFont).readAsBytesSync()),
+            ),
           );
         await loader.load();
       }
@@ -186,18 +265,46 @@ void main() {
         expect(r.right, lessThanOrEqualTo(width), reason: 'text fits');
       }
 
-      // Rewards: total, earned, structured history (4 shown, more on tap).
-      expect(find.text('2,345'), findsOneWidget);
-      expect(find.text('1118 earned from orders'), findsOneWidget);
+      // Rewards: balance + ₹ value, totals, Free Claim progress, history.
+      expect(find.text('2,345.50'), findsOneWidget);
+      expect(find.text('Worth ₹2,345.50'), findsOneWidget);
+      expect(find.text('2,446 pts'), findsOneWidget, reason: 'total earned');
+      expect(find.text('0 pts'), findsOneWidget, reason: 'total redeemed');
+      expect(find.text('100.50 pts awaiting claim approval'), findsOneWidget);
+      expect(find.text('Not yet eligible'), findsOneWidget);
+      expect(find.text('Free Claim progress'), findsOneWidget);
+      expect(find.text('71%'), findsOneWidget);
+      expect(find.text('₹71,338.00 of ₹1,00,000 in purchases'), findsOneWidget);
+      expect(
+        find.text(
+          'Purchase ₹28,662.00 more to unlock Free Claim.',
+          findRichText: true,
+        ),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<LinearProgressIndicator>(
+              find.byKey(const ValueKey('reward-progress')),
+            )
+            .value,
+        closeTo(0.71338, 1e-9),
+      );
+      expect(find.byKey(const ValueKey('reward-claim')), findsNothing);
+      expect(find.text('Free Claim request'), findsOneWidget);
+      expect(find.text('−100.50 pts'), findsOneWidget);
+      expect(find.text('Pending'), findsOneWidget);
       expect(find.text('Earned on order #K7Q2ZP'), findsOneWidget);
-      expect(find.text('+742 pts'), findsOneWidget);
+      expect(find.text('+371.26 pts'), findsOneWidget);
       expect(find.text('21 Oct 2026  •  Order ₹14,850.50'), findsOneWidget);
-      expect(find.text('Redeemed on order #R9D3LS'), findsOneWidget);
-      expect(find.text('−50 pts'), findsOneWidget);
-      expect(find.text('+25 pts'), findsNothing);
-      await tester.tap(find.text('View all 5 activities'));
+      expect(find.text('Reversed: order #R9D3LS cancelled'), findsOneWidget);
+      expect(find.text('−22.50 pts'), findsOneWidget);
+      expect(find.text('+12.50 pts'), findsNothing, reason: '4 shown');
+      await tester.tap(find.text('View all 5 reward activities'));
       await tester.pumpAndSettle();
-      expect(find.text('+25 pts'), findsOneWidget);
+      expect(find.text('+12.50 pts'), findsOneWidget);
+      expect(find.text('Reversed'), findsNWidgets(2));
+      expect(find.text('Credited'), findsNWidgets(2));
 
       // Credit: available, limit, used and progress from the backend.
       expect(find.byKey(const ValueKey('credit-available')), findsOneWidget);
@@ -222,8 +329,12 @@ void main() {
 
       // Layout: desktop = two columns (rewards left, credit right);
       // tablet/phone = stacked (credit below rewards).
-      final rewards = tester.getRect(find.widgetWithText(ProfileSectionCard, 'Reward Points'));
-      final credit = tester.getRect(find.widgetWithText(ProfileSectionCard, 'Available Credit'));
+      final rewards = tester.getRect(
+        find.widgetWithText(ProfileSectionCard, 'Reward Points'),
+      );
+      final credit = tester.getRect(
+        find.widgetWithText(ProfileSectionCard, 'Available Credit'),
+      );
       if (width >= 900) {
         expect(credit.left, greaterThan(rewards.right));
         expect((credit.top - rewards.top).abs(), lessThan(1));
@@ -241,10 +352,12 @@ void main() {
 
       if (previewDir != null) {
         await tester.runAsync(() async {
-          final b = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+          final b =
+              key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
           final img = await b.toImage();
           final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-          File('$previewDir/profile_$label.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+          File('$previewDir/profile_$label.png')
+              .writeAsBytesSync(bytes!.buffer.asUint8List());
         });
       }
     });
@@ -284,4 +397,88 @@ void main() {
     expect(find.text('ORDERS PAGE'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('1 paisa short of ₹1,00,000: still locked, no claim', (tester) async {
+    _rewards = {
+      ..._lockedRewards(),
+      'eligiblePurchaseAmount': 99999.99,
+      'remainingForFreeClaim': 0.01,
+    };
+    addTearDown(() => _rewards = _lockedRewards());
+    await _pump(tester, 390);
+    expect(find.text('Free Claim progress'), findsOneWidget);
+    expect(
+      find.text(
+        'Purchase ₹0.01 more to unlock Free Claim.',
+        findRichText: true,
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('reward-claim')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final width in [1440.0, 390.0]) {
+    testWidgets('Free Claim unlocked at ₹1,00,000: claim points ($width)', (
+      tester,
+    ) async {
+      _rewards = {
+        ..._lockedRewards(),
+        'eligiblePurchaseAmount': 100000,
+        'remainingForFreeClaim': 0,
+        'freeClaimUnlocked': true,
+        'pendingRedemption': 0,
+      };
+      _posts.clear();
+      addTearDown(() => _rewards = _lockedRewards());
+      await _pump(tester, width);
+      expect(find.text('Free Claim Unlocked'), findsOneWidget);
+      expect(find.text('Eligible'), findsOneWidget);
+      expect(find.text('100%'), findsOneWidget);
+      expect(
+        find.text('Redeem up to 2,345.50 pts (₹2,345.50).'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('more to unlock', findRichText: true),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+
+      final claim = find.byKey(const ValueKey('reward-claim'));
+      await tester.ensureVisible(claim);
+      await tester.tap(claim);
+      await tester.pumpAndSettle();
+      final field = find.byKey(const ValueKey('reward-claim-points'));
+      expect(
+        tester
+            .widget<EditableText>(
+              find.descendant(of: field, matching: find.byType(EditableText)),
+            )
+            .controller
+            .text,
+        '2345.50',
+      );
+      final send = find.byKey(const ValueKey('reward-claim-submit'));
+      for (final (input, error) in [
+        ('5000', 'You have 2,345.50 pts.'),
+        ('1.234', 'Enter points, up to 2 decimals.'),
+        ('0', 'Enter more than 0 points.'),
+      ]) {
+        await tester.enterText(field, input);
+        await tester.tap(send);
+        await tester.pumpAndSettle();
+        expect(find.text(error), findsOneWidget, reason: input);
+      }
+      expect(_posts, isEmpty, reason: 'invalid claims are not sent');
+      await tester.enterText(field, '50');
+      await tester.tap(send);
+      await tester.pumpAndSettle();
+      expect(_posts.single.$1, contains('user/rewards/claim'));
+      expect(_posts.single.$2, {'points': 50.0});
+      expect(find.byType(AlertDialog), findsNothing);
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
+    });
+  }
 }

@@ -822,6 +822,9 @@ class _OrderCardState extends ConsumerState<_OrderCard> {
                             'Qty ${item['quantity'] ?? 1}',
                             if ('${item['sku'] ?? ''}'.isNotEmpty)
                               '${item['sku']}',
+                            // Lines bought in Bulk Orders (bulk price/piece).
+                            if ('${item['purchaseMode']}' == 'bulk')
+                              'Bulk Order${item['bulkPackLabel'] == null ? '' : ' (${item['bulkPackLabel']})'}',
                           ].join('  ·  '),
                           style: const TextStyle(fontSize: 12, color: _muted),
                         ),

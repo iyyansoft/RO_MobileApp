@@ -14,7 +14,7 @@ void main() {
             widget is Image &&
             widget.image is AssetImage &&
             (widget.image as AssetImage).assetName ==
-                'assets/images/RO_LOGO.png',
+                'assets/images/neero_logo1.png',
       ),
       findsOneWidget,
     );

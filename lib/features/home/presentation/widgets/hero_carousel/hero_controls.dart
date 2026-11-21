@@ -2,9 +2,8 @@ import 'package:flutter/material.dart';
 
 const _active = Color(0xFF0B5FC4);
 const _idle = Color(0xFFC8D3E1);
-const _ink = Color(0xFF0F172A);
 
-/// Dots + "01 / 06" counter shown under the carousel.
+/// Slide dots shown under the carousel (the current slide's dot is long).
 class HeroPagination extends StatelessWidget {
   const HeroPagination({
     super.key,
@@ -21,7 +20,6 @@ class HeroPagination extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String two(int n) => n.toString().padLeft(2, '0');
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -54,31 +52,6 @@ class HeroPagination extends StatelessWidget {
               ),
             ),
           ),
-        const SizedBox(width: 18),
-        Container(
-          key: const ValueKey('hero-counter'),
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF132233) : Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F2850).withValues(alpha: 0.08),
-                blurRadius: 14,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Text(
-            '${two(index + 1)} / ${two(count)}',
-            style: TextStyle(
-              color: isDark ? Colors.white : _ink,
-              fontSize: 15,
-              fontWeight: FontWeight.w700,
-              fontFeatures: const [FontFeature.tabularFigures()],
-            ),
-          ),
-        ),
       ],
     );
   }

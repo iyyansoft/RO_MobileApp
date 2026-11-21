@@ -1907,6 +1907,11 @@
         <span>Orders</span>
         <span class="nav-badge" id="sidebarOrderBadge">0</span>
       </a>
+      <a class="nav-item" onclick="switchSection('rewards', this)">
+        <i class="fa-solid fa-gift"></i>
+        <span>Reward Claims</span>
+        <span class="nav-badge" id="sidebarRewardBadge">0</span>
+      </a>
       <a class="nav-item" onclick="switchSection('settings', this)">
         <i class="fa-solid fa-sliders"></i>
         <span>Settings</span>
@@ -2430,6 +2435,52 @@
               </thead>
               <tbody id="ordersTableBody">
                 <tr><td colspan="9" style="text-align:center; padding: 24px;">Loading order records...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- =====================================================================
+           SECTION: REWARD CLAIMS (Free Claim requests, approved or rejected here)
+           ===================================================================== -->
+      <section id="section-rewards" class="admin-section">
+        <div class="stats-grid">
+          <div class="stat-card blue">
+            <div class="stat-meta">
+              <div class="label">Pending Claims</div>
+              <div class="value" id="rewardPendingCard">0</div>
+            </div>
+            <div class="stat-icon-wrap"><i class="fa-solid fa-hourglass-half"></i></div>
+          </div>
+          <div class="stat-card green">
+            <div class="stat-meta">
+              <div class="label">Pending Value</div>
+              <div class="value" id="rewardPendingValueCard">&#8377;0</div>
+            </div>
+            <div class="stat-icon-wrap"><i class="fa-solid fa-indian-rupee-sign"></i></div>
+          </div>
+        </div>
+        <div class="panel-card">
+          <div class="panel-header">
+            <div class="panel-title"><i class="fa-solid fa-gift"></i> Free Claim requests (1 point = &#8377;1)</div>
+          </div>
+          <p style="margin: 0; padding: 0 20px 12px; color: var(--text-muted); font-size: 0.85rem;">Dealers can claim after &#8377;1,00,000 of cumulative purchases. Points are held while a claim is pending; rejecting returns them to the dealer.</p>
+          <div class="table-wrapper">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>Requested</th>
+                  <th>Dealer</th>
+                  <th>Points</th>
+                  <th>Value</th>
+                  <th>Dealer balance</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="rewardClaimsTableBody">
+                <tr><td colspan="7" style="text-align:center; padding: 24px;">Loading claims...</td></tr>
               </tbody>
             </table>
           </div>
@@ -3152,6 +3203,7 @@
           loadProducts();
           loadCategories();
           loadOrders();
+          loadRewardClaims();
           setupCatDragAndDrop();
         } else {
           alertBox.innerText = data.error || 'Invalid admin email address or password.';
@@ -3214,6 +3266,7 @@
         loadProducts();
         loadCategories();
         loadOrders();
+        loadRewardClaims();
         setupCatDragAndDrop();
       }
 
@@ -3223,6 +3276,7 @@
           loadStats();
           loadUsers();
           loadOrders();
+          loadRewardClaims();
         }
       }, 10000);
     });
@@ -3248,6 +3302,7 @@
         products: '<i class="fa-solid fa-boxes-stacked"></i> Complete Product Catalog',
         categories: '<i class="fa-solid fa-layer-group"></i> Category Management',
         orders: '<i class="fa-solid fa-cart-shopping"></i> B2B Customer Orders',
+        rewards: '<i class="fa-solid fa-gift"></i> Reward Claims',
         settings: '<i class="fa-solid fa-sliders"></i> Enterprise Settings'
       };
       document.getElementById('pageTitle').innerHTML = titles[sectionId] || 'Admin Panel';
@@ -3268,6 +3323,7 @@
         products: () => loadProducts(),
         categories: () => loadCategories(),
         orders: () => loadOrders(),
+        rewards: () => loadRewardClaims(),
       };
       try { loaders[sectionId]?.(); } catch (_) { /* a failed refresh keeps the current view */ }
     }
@@ -4897,6 +4953,55 @@
     // -------------------------------------------------------------------------
     // 5. ORDER MANAGEMENT
     // -------------------------------------------------------------------------
+    const formatPointsAdmin = n => Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+    async function loadRewardClaims() {
+      try {
+        const res = await adminFetch('/api/admin/reward-claims');
+        const data = await res.json();
+        if (!data.success || !Array.isArray(data.claims)) return;
+        const pending = data.claims.filter(c => c.status === 'pending');
+        document.getElementById('sidebarRewardBadge').textContent = pending.length;
+        document.getElementById('rewardPendingCard').textContent = pending.length;
+        document.getElementById('rewardPendingValueCard').textContent = `${String.fromCharCode(8377)}${formatPointsAdmin(pending.reduce((s, c) => s + c.value, 0))}`;
+        const tbody = document.getElementById('rewardClaimsTableBody');
+        if (data.claims.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:var(--text-muted);">No reward claims yet.</td></tr>`;
+          return;
+        }
+        tbody.innerHTML = data.claims.map(c => `
+          <tr>
+            <td>${c.createdAt ? new Date(c.createdAt).toLocaleString() : '?'}</td>
+            <td><strong>${escapeHtml(c.name || 'Dealer')}</strong><br><small>${escapeHtml(c.business || '')} ${escapeHtml(c.email || '')}</small></td>
+            <td><strong>${formatPointsAdmin(c.points)}</strong></td>
+            <td>${String.fromCharCode(8377)}${formatPointsAdmin(c.value)}</td>
+            <td>${formatPointsAdmin(c.balance)} pts</td>
+            <td><span class="status-badge ${c.status === 'pending' ? 'pending' : c.status === 'approved' ? 'approved' : 'rejected'}">${escapeHtml(c.status.toUpperCase())}</span></td>
+            <td>${c.status === 'pending' ? `<div class="action-btns">
+                <button class="btn-action-icon" title="Approve claim" onclick="decideRewardClaim(${Number(c.id)}, 'approved')"><i class="fa-solid fa-check" style="color:var(--success)"></i></button>
+                <button class="btn-action-icon danger" title="Reject claim (returns the points)" onclick="decideRewardClaim(${Number(c.id)}, 'rejected')"><i class="fa-solid fa-xmark" style="color:var(--danger)"></i></button>
+              </div>` : (c.decidedAt ? new Date(c.decidedAt).toLocaleDateString() : '')}</td>
+          </tr>`).join('');
+      } catch (err) {}
+    }
+
+    async function decideRewardClaim(id, status) {
+      const verb = status === 'approved' ? 'Approve' : 'Reject';
+      if (!confirm(`${verb} this reward claim?${status === 'rejected' ? ' The points go back to the dealer.' : ''}`)) return;
+      try {
+        const res = await adminFetch(`/api/admin/reward-claims/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        const data = await res.json();
+        showToast(data.success ? `Claim ${status}.` : (data.error || 'Could not update the claim.'), data.success ? '#10B981' : '#EF4444');
+      } catch (err) {
+        showToast('Could not update the claim.', '#EF4444');
+      }
+      loadRewardClaims();
+    }
+
     async function loadOrders() {
       try {
         const res = await adminFetch('/api/admin/orders');
@@ -5080,7 +5185,7 @@
           const sku = escapeHtml(item.sku || item.id || 'N/A');
           const brand = escapeHtml(item.brand || 'RO Wholesale');
           return `<tr style="border-bottom:1px solid #F1F5F9;">
-            <td style="padding:12px 16px;"><div style="display:flex;align-items:center;gap:12px;"><img src="${image}" style="width:40px;height:40px;border-radius:8px;object-fit:cover;border:1px solid var(--border);background:white;" onerror="this.onerror=null;this.src='/purifier.jpg';"><div><strong style="font-size:.88rem;display:block;">${name}</strong><div style="font-size:.74rem;color:var(--text-muted);">Brand: ${brand} | SKU: ${sku}</div></div></div></td>
+            <td style="padding:12px 16px;"><div style="display:flex;align-items:center;gap:12px;"><img src="${image}" style="width:40px;height:40px;border-radius:8px;object-fit:cover;border:1px solid var(--border);background:white;" onerror="this.onerror=null;this.src='/purifier.jpg';"><div><strong style="font-size:.88rem;display:block;">${name}</strong><div style="font-size:.74rem;color:var(--text-muted);">Brand: ${brand} | SKU: ${sku}</div>${item.purchaseMode === 'bulk' ? `<span style="display:inline-block;margin-top:4px;padding:1px 8px;border-radius:6px;background:#EFF6FF;color:#1D4ED8;font-size:.7rem;font-weight:800;">BULK ORDER${item.bulkPackLabel ? ' · ' + escapeHtml(item.bulkPackLabel) : ''}</span>` : ''}</div></div></td>
             <td style="padding:12px 16px;text-align:center;font-weight:700;">${orderedQty}</td>
             <td style="padding:12px 16px;text-align:right;color:var(--text-muted);">${money(price)}</td>
             <td style="padding:12px 16px;text-align:center;font-weight:700;">${actualQty}<div style="font-size:.7rem;color:var(--text-muted);">${undeliveredQty} pending</div></td>

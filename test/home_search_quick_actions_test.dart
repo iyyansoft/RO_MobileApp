@@ -69,7 +69,11 @@ final _products = [
     _p('f$i', 'Carbon Filter Cartridge $i', _categories[2]),
 ];
 
-Future<GoRouter> _pumpHome(WidgetTester tester, double width, Key shotKey) async {
+Future<GoRouter> _pumpHome(
+  WidgetTester tester,
+  double width,
+  Key shotKey,
+) async {
   tester.view.devicePixelRatio = 1.0;
   tester.view.physicalSize = Size(width, 1200);
   addTearDown(tester.view.reset);
@@ -78,7 +82,13 @@ Future<GoRouter> _pumpHome(WidgetTester tester, double width, Key shotKey) async
     initialLocation: '/home',
     routes: [
       GoRoute(path: '/home', builder: (_, __) => const HomeScreen()),
-      for (final page in ['products', 'orders', 'profile', 'cart'])
+      for (final page in [
+        'products',
+        'orders',
+        'profile',
+        'cart',
+        'bulk-orders',
+      ])
         GoRoute(
           path: '/$page',
           builder: (_, __) =>
@@ -97,7 +107,8 @@ Future<GoRouter> _pumpHome(WidgetTester tester, double width, Key shotKey) async
       child: MaterialApp.router(
         debugShowCheckedModeBanner: false,
         routerConfig: router,
-        builder: (context, child) => RepaintBoundary(key: shotKey, child: child),
+        builder: (context, child) =>
+            RepaintBoundary(key: shotKey, child: child),
       ),
     ),
   );
@@ -119,7 +130,9 @@ Future<void> _settleDebounce(WidgetTester tester) async {
 Finder _resultNames() => find.descendant(
   of: find.byKey(const ValueKey('home-search-results')),
   matching: find.byWidgetPredicate(
-    (w) => w is Text && (w.data ?? '').contains(RegExp(r'Pump|Membrane|Filter Cartridge')),
+    (w) =>
+        w is Text &&
+        (w.data ?? '').contains(RegExp(r'Pump|Membrane|Filter Cartridge')),
   ),
 );
 
@@ -137,7 +150,9 @@ void main() {
     if (previewFont != null && File(previewFont).existsSync()) {
       final loader = FontLoader('Roboto')
         ..addFont(
-          Future.value(ByteData.sublistView(File(previewFont).readAsBytesSync())),
+          Future.value(
+            ByteData.sublistView(File(previewFont).readAsBytesSync()),
+          ),
         );
       await loader.load();
     }
@@ -151,7 +166,8 @@ void main() {
               as RenderRepaintBoundary;
       final img = await b.toImage();
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-      File('$previewDir/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+      File('$previewDir/$name.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   }
 
@@ -172,7 +188,12 @@ void main() {
 
       // Desktop: one row of four. Tablet & phone: 2 x 2 grid.
       final tops = {
-        for (final l in ['Bulk Order', 'Track Orders', 'GST Invoice', 'Credit Limit'])
+        for (final l in [
+          'Bulk Order',
+          'Track Orders',
+          'GST Invoice',
+          'Credit Limit',
+        ])
           tester.getRect(find.widgetWithText(QuickActionTile, l)).top.round(),
       };
       expect(tops.length, width >= 900 ? 1 : 2, reason: 'rows of cards');
@@ -186,11 +207,14 @@ void main() {
 
       // Spacing: search -> cards and cards -> slider are 24-32 px.
       final search = tester.getRect(find.byType(HomeSearchBar));
-      final cards = find.byType(QuickActionTile).evaluate().map(
-        (e) => tester.getRect(find.byWidget(e.widget)),
-      );
+      final cards = find
+          .byType(QuickActionTile)
+          .evaluate()
+          .map((e) => tester.getRect(find.byWidget(e.widget)));
       final cardsTop = cards.map((r) => r.top).reduce((a, b) => a < b ? a : b);
-      final cardsBottom = cards.map((r) => r.bottom).reduce((a, b) => a > b ? a : b);
+      final cardsBottom = cards
+          .map((r) => r.bottom)
+          .reduce((a, b) => a > b ? a : b);
       final slider = tester.getRect(find.byType(HeroBannerCarousel));
       final gap1 = cardsTop - search.bottom;
       final gap2 = slider.top - cardsBottom;
@@ -272,7 +296,8 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byKey(const ValueKey('home-search-results')), findsNothing);
     expect(
-      tester.widget<TextField>(find.byKey(const ValueKey('home-search-field')))
+      tester
+          .widget<TextField>(find.byKey(const ValueKey('home-search-field')))
           .controller!
           .text,
       isEmpty,
@@ -297,7 +322,8 @@ void main() {
   });
 
   for (final (action, page) in [
-    ('Bulk Order', 'PRODUCTS PAGE'),
+    // Bulk Orders has its own page (not the normal Categories page).
+    ('Bulk Order', 'BULK-ORDERS PAGE'),
     ('Track Orders', 'ORDERS PAGE'),
     ('GST Invoice', 'ORDERS PAGE'),
     ('Credit Limit', 'PROFILE PAGE'),

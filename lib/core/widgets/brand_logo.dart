@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// Shared RO brand mark. The asset has a transparent background; on dark
+/// The NeeroPlus logo used everywhere in the app (header, footer, splash,
+/// login, admin, Shop app, share cards). Change it here only.
+const kBrandLogoAsset = 'assets/images/neero_logo1.png';
+
+/// Shared brand mark (always shown whole: BoxFit.contain, never stretched). The asset has a transparent background; on dark
 /// surfaces [onDark] adds a small white surface to preserve contrast.
 class BrandLogo extends StatelessWidget {
   const BrandLogo({
@@ -36,11 +40,11 @@ class BrandLogo extends StatelessWidget {
                   : const EdgeInsets.symmetric(horizontal: 8, vertical: 4)
             : EdgeInsets.zero,
         child: Image.asset(
-          'assets/images/RO_LOGO.png',
+          kBrandLogoAsset,
           fit: fit,
           alignment: alignment,
           filterQuality: FilterQuality.high,
-          semanticLabel: 'RO logo',
+          semanticLabel: 'NeeroPlus logo',
         ),
       ),
     ),

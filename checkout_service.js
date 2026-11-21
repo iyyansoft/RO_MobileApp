@@ -1,5 +1,6 @@
 const { pricingRules, priceOrder } = require('./pricing_rules');
 const { orderQuantityProblem } = require('./order_rules');
+const { purchaseMode, bulkOffer, bulkQuantityProblem } = require('./bulk_orders');
 const crypto = require('crypto');
 
 function validGstin(input) {
@@ -20,23 +21,38 @@ function quoteCheckout(input, products, rules = pricingRules()) {
   const withGst = input.withGst === true || input.withGst === 'true';
   const gstin = withGst ? String(input.gstin || '').trim().toUpperCase() : '';
   if (withGst && !validGstin(gstin)) fail('With GST requires a valid GST number.');
-  const quantities = new Map();
+  // One line per product: normal (Dealer Price) or bulk (bulk_orders.js),
+  // never both and never converted.
+  const lines = new Map();
   for (const item of input.items) {
     if (!Number.isSafeInteger(item.quantity) || item.quantity < 1) fail('Product quantity must be a positive integer.');
-    quantities.set(String(item.id), (quantities.get(String(item.id)) || 0) + item.quantity);
+    const mode = purchaseMode(item.purchaseMode ?? item.purchase_mode);
+    if (!mode) fail('Unknown purchase mode.');
+    const id = String(item.id);
+    const line = lines.get(id);
+    if (line && line.mode !== mode) fail('A product cannot be ordered both normally and in bulk. Refresh your cart.');
+    lines.set(id, { mode, quantity: (line?.quantity || 0) + item.quantity });
   }
-  const items = Array.from(quantities, ([id, quantity]) => {
+  const items = Array.from(lines, ([id, { mode, quantity }]) => {
     const product = products.find(p => String(p.id) === id && p.status !== 'inactive');
     if (!product || !Number.isFinite(Number(product.price)) || Number(product.price) <= 0) fail('A product is no longer available. Refresh your cart.');
+    if (mode === 'bulk') {
+      // Bulk: stored bulk price per piece; minimum + whole steps; stock.
+      const problem = bulkQuantityProblem(product, quantity);
+      if (problem) fail(problem.code === 'INSUFFICIENT_STOCK' ? `Not enough stock for ${product.name}.` : problem.error, problem.code === 'INSUFFICIENT_STOCK' ? 400 : problem.status);
+      const offer = bulkOffer(product);
+      return { id, quantity, purchaseMode: 'bulk', bulkPackLabel: offer.label, name: product.name, brand: product.brand, numericPrice: offer.price, imgSrc: product.img || '' };
+    }
     // Same rule as the cart (order_rules.js): MOQ <= quantity <= stock.
     const problem = orderQuantityProblem(product, quantity);
     // "Not enough stock" keeps its existing wording and status (400).
     if (problem) fail(problem.code === 'INSUFFICIENT_STOCK' ? `Not enough stock for ${product.name}.` : problem.error, problem.code === 'INSUFFICIENT_STOCK' ? 400 : problem.status);
-    return { id, quantity, name: product.name, brand: product.brand, numericPrice: Number(product.price), imgSrc: product.img || '' };
+    return { id, quantity, purchaseMode: 'normal', name: product.name, brand: product.brand, numericPrice: Number(product.price), imgSrc: product.img || '' };
   });
   // Amounts sent by the client are ignored: everything is recomputed here
   // from database prices and the configured pricing rules.
-  const totals = priceOrder(items.map(item => ({ unitPrice: item.numericPrice, quantity: item.quantity })), withGst, rules);
+  // Bulk lines get no dealer discount (they are already at the bulk price).
+  const totals = priceOrder(items.map(item => ({ unitPrice: item.numericPrice, quantity: item.quantity, discountable: item.purchaseMode !== 'bulk' })), withGst, rules);
   return { ...input, items, withGst, gstin, ...totals };
 }
 

@@ -169,11 +169,11 @@ test('every declared Express /api route is present in the migration inventory', 
       }
     }
   }
-  assert.equal(routes.length, 69, 'update the inventory when the Express API surface changes');
+  assert.equal(routes.length, 72, 'update the inventory when the Express API surface changes');
   const inventoryRouteRows = inventory
     .split(/\r?\n/)
     .filter((line) => /^\|\s*(GET|POST|PUT|PATCH|DELETE) `\/api\//.test(line));
-  assert.equal(inventoryRouteRows.length, 69,
+  assert.equal(inventoryRouteRows.length, 72,
     'list every concrete method/path separately, including aliases');
   const inventoryLines = inventory.split(/\r?\n/);
   const missing = routes.filter(({ method, path: route }) =>

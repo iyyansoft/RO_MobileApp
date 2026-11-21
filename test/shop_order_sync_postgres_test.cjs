@@ -65,7 +65,7 @@ async function setup({ withAssignmentTable = true, withStockLedger = true } = {}
     server.indexOf('async function orderSupplyTotals('),
     server.indexOf("app.get('/api/admin/dashboard-stats'"),
   );
-  vm.runInNewContext(adminRoutes, { app, pool, requireAdminAuth, console: { error() {} }, ...orderStatus, ...require('../stock_service') });
+  vm.runInNewContext(adminRoutes, { app, pool, requireAdminAuth, console: { error() {} }, ...orderStatus, ...require('../stock_service'), ...require('../rewards') });
   // Dealer invoices / credit and support tickets (real routes from server.js).
   vm.runInNewContext(
     server.slice(server.indexOf("app.get('/api/user/gst-invoices'"), server.indexOf('// PRODUCT CATALOG ENDPOINTS')),

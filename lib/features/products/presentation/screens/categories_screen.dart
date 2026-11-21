@@ -18,6 +18,7 @@ import 'product_details_screen.dart';
 import 'product_listing_screen.dart';
 import '../widgets/cabinet_price_text.dart';
 import '../../domain/cabinet_display_order.dart';
+import '../../domain/category_price_view.dart';
 
 class CategoriesScreen extends ConsumerStatefulWidget {
   const CategoriesScreen({super.key});
@@ -62,17 +63,20 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     try {
       context.go('/cart');
     } catch (_) {
-      Navigator.of(
-        context,
-        rootNavigator: true,
-      ).push(MaterialPageRoute(builder: (context) => const CartScreen()));
+      Navigator.of(context)
+          .push(MaterialPageRoute(builder: (context) => const CartScreen()));
     }
   }
 
-  void _openProduct(BuildContext context, ProductModel product) {
-    Navigator.of(context, rootNavigator: true).push(
+  void _openProduct(
+    BuildContext context,
+    ProductModel product, [
+    ProductPriceView view = ProductPriceView.standard,
+  ]) {
+    Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ProductDetailsScreen(product: product),
+        builder: (context) =>
+            ProductDetailsScreen(product: product, priceView: view),
       ),
     );
   }
@@ -82,7 +86,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     String? categoryId,
     String? categoryName,
   }) {
-    Navigator.of(context, rootNavigator: true).push(
+    Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ProductListingScreen(
           initialCategoryId: categoryId,
@@ -604,7 +608,8 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     double childAspectRatio,
     int crossAxisCount,
   ) {
-    final popularCategories = categories.take(6).toList();
+    // Every category (all 7, including Cabinet) - no fixed cut-off.
+    final popularCategories = categories;
     final launchProducts = products.take(8).toList();
 
     return SingleChildScrollView(
@@ -725,9 +730,15 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
       orElse: () => categories.first,
     );
 
-    final matching = products.where((p) => currentCategory.matchesProduct(p));
+    // RO Systems also lists the Cabinet products (same records).
+    final matching = products.where(
+      (p) => categoryIncludes(currentCategory, p, categories),
+    );
+    final view = priceViewFor(currentCategory);
     // Cabinet: the six 20" housings are shown last (display order only).
-    final categoryProducts = isCabinetCategory(currentCategory)
+    final categoryProducts =
+        isCabinetCategory(currentCategory) ||
+            isRoSystemsCategory(currentCategory)
         ? cabinetDisplayOrder(matching)
         : matching.toList();
 
@@ -863,6 +874,7 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                 }
                 final product = categoryProducts[index];
                 return _buildProductCard(
+                  view: view,
                   context,
                   product: product,
                   badgeText: _getProductBadge(index),
@@ -982,9 +994,11 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
   /// (served from assets/images/ by server.js at /images/<filename>).
   String? _getCategoryLocalImage(String name, String id) {
     final key = '${name.toLowerCase()} ${id.toLowerCase()}';
-    if (key.contains('sys') ||
-        key.contains('purifier') ||
-        key.contains('cabinet')) {
+    // Cabinet: the blue RO cabinet photo (product CAB-04), as on Home.
+    if (key.contains('cabinet') || key.contains('cat_cab')) {
+      return ApiClient.imageUrl('products_image/Aqua%20grid%20blue.jpg');
+    }
+    if (key.contains('sys') || key.contains('purifier')) {
       return ApiClient.imageUrl('RO_System.png');
     }
     if (key.contains('mem')) {
@@ -1119,9 +1133,11 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     required String badgeText,
     required bool isDark,
     required Color primaryColor,
+    ProductPriceView view = ProductPriceView.standard,
   }) {
+    final cabinetOnly = view.cabinetOnly(product);
     return GestureDetector(
-      onTap: () => _openProduct(context, product),
+      onTap: () => _openProduct(context, product, view),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
@@ -1236,14 +1252,17 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    rupee(product.dealerPrice),
+                    cabinetOnly
+                        ? 'Cabinet Price: ${rupee(product.cabinetPrice!)}'
+                        : rupee(product.dealerPrice),
+                    key: ValueKey('category-price-${product.id}'),
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       color: primaryColor,
                     ),
                   ),
-                  if (product.mrp > product.dealerPrice) ...[
+                  if (!cabinetOnly && product.mrp > product.dealerPrice) ...[
                     const SizedBox(width: 3),
                     Text(
                       rupee(product.mrp),
@@ -1258,9 +1277,9 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
               ),
             ),
           ),
-          if (product.hasCabinetPrice)
+          if (view.showsCabinetLine(product))
             SizedBox(
-              height: 14,
+              height: 11,
               child: FittedBox(
                 fit: BoxFit.scaleDown,
                 child: CabinetPriceText(product, fontSize: 9.5),

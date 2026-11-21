@@ -10,6 +10,8 @@ const { validGstin, createDealerToken, verifyDealerToken } = require('./checkout
 const { allocateDeliveryValues } = require('./shop_service');
 const { createAdminAuth, adminTokenFrom } = require('./admin_auth');
 const { releaseOrderStock, reReserveOrderStock } = require('./stock_service');
+const { rewardSummary, requestRewardClaim, decideRewardClaim, reverseOrderReward, reinstateOrderReward, rewardLedgerReady } = require('./rewards');
+const { purchaseMode, bulkQuantityProblem, modeConflict, bulkOrdersReady, bulkFields } = require('./bulk_orders');
 const { rateLimit } = require('./rate_limit');
 const { requireDealerSession, DEALER_DATA_ROUTES } = require('./dealer_auth');
 const { orderQuantityProblem, availability, minOrderQuantity, maxOrderQuantity, stockEnforced } = require('./order_rules');
@@ -385,7 +387,7 @@ async function findUserByEmailOrMobile(identifier) {
         status: userRow.status,
         isApproved: isDatabaseTrue(userRow.is_approved) || userRow.status === 'approved',
         createdAt: userRow.created_at ? new Date(userRow.created_at).toISOString() : new Date().toISOString(),
-        rewardPoints: userRow.reward_points || 0,
+        rewardPoints: Number(userRow.reward_points || 0),
         addresses: (addresses || []).map(a => ({
           id: a.id,
           fullName: userRow.name,
@@ -456,7 +458,7 @@ async function findAuthUserByEmailOrMobile(identifier) {
     status: userRow.status,
     isApproved: isDatabaseTrue(userRow.is_approved) || userRow.status === 'approved',
     createdAt: userRow.created_at ? new Date(userRow.created_at).toISOString() : new Date().toISOString(),
-    rewardPoints: userRow.reward_points || 0,
+    rewardPoints: Number(userRow.reward_points || 0),
     addresses: (addresses || []).map(a => ({
       id: a.id,
       fullName: userRow.name,
@@ -1525,8 +1527,44 @@ function formatCartItemRow(row) {
     status: row.status || 'active',
     imgSrc: row.img || row.imgSrc || 'purifier.jpg',
     sku: row.sku || `SKU-${(row.product_id || row.id).toString().toUpperCase()}`,
-    quantity: parseInt(row.quantity, 10) || 1
+    quantity: parseInt(row.quantity, 10) || 1,
+    // 'normal' (Dealer Price) or 'bulk' (bulk_price per piece, bulk_orders.js).
+    purchase_mode: row.purchase_mode || 'normal',
+    ...bulkFields(row)
   };
+}
+
+/** The dealer's cart lines (with purchase mode and bulk offer once migration 011 is in). */
+async function loadCartRows(userId) {
+  const bulk = await bulkOrdersReady(pool);
+  const [rows] = await pool.query(
+    `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,${bulk ? ' ci.purchase_mode, p.bulk_price, p.bulk_min_qty, p.bulk_step, p.bulk_pack_label,' : ''}
+            p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
+     FROM cart_items ci
+     LEFT JOIN products p ON ci.product_id = p.id
+     WHERE ci.user_id = ?
+     ORDER BY ci.id ASC`,
+    [userId]
+  );
+  return rows.map(formatCartItemRow);
+}
+
+/** Existing cart line for a product: { quantity, mode } or null. */
+async function cartLine(userId, productId) {
+  const bulk = await bulkOrdersReady(pool);
+  const [rows] = await pool.query(`SELECT quantity${bulk ? ', purchase_mode' : ''} FROM cart_items WHERE user_id = ? AND product_id = ?`, [userId, productId]);
+  return rows[0] ? { quantity: Number(rows[0].quantity || 0), mode: rows[0].purchase_mode || 'normal' } : null;
+}
+
+/** Bulk rule check for a cart line (needs the product's bulk offer). */
+async function bulkCartProblem(productId, quantity, options) {
+  if (!(await bulkOrdersReady(pool))) return { status: 503, code: 'BULK_NOT_READY', error: 'Bulk Orders are not available yet.' };
+  const [rows] = await pool.query('SELECT id, name, stock_quantity, status, bulk_price, bulk_min_qty, bulk_step, bulk_pack_label FROM products WHERE id = ? LIMIT 1', [productId]);
+  const product = rows[0];
+  if (!product || String(product.status || 'active').toLowerCase() === 'inactive') {
+    return { status: 404, code: 'PRODUCT_UNAVAILABLE', error: 'This product is no longer available.' };
+  }
+  return bulkQuantityProblem(product, quantity, options);
 }
 
 // 1. GET User Cart
@@ -1539,16 +1577,8 @@ app.get('/api/cart', async (req, res) => {
       return res.json({ success: true, items: [] });
     }
 
-    const [rows] = await pool.query(
-      `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,
-              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
-       FROM cart_items ci
-       LEFT JOIN products p ON ci.product_id = p.id
-       WHERE ci.user_id = ?
-       ORDER BY ci.id ASC`,
-      [userId]
-    );
-    return res.json({ success: true, userId, items: rows.map(formatCartItemRow) });
+    const rows = await loadCartRows(userId);
+    return res.json({ success: true, userId, items: rows });
   } catch (err) {
     console.error('[API ERROR] GET /api/cart:', err.message);
     return res.status(500).json({ success: false, error: 'Server error retrieving cart.' });
@@ -1578,28 +1608,40 @@ app.post('/api/cart/add', async (req, res) => {
       return res.status(400).json({ success: false, error: 'User ID and Product ID required.' });
     }
 
+    const mode = purchaseMode(req.body?.purchaseMode ?? req.body?.purchase_mode);
+    if (!mode) return res.status(400).json({ success: false, error: 'Unknown purchase mode.' });
     const qty = parseInt(quantity, 10) || 1;
     if (qty < 1) return res.status(400).json({ success: false, error: 'Quantity must be at least 1.' });
-    const [inCart] = await pool.query('SELECT quantity FROM cart_items WHERE user_id = ? AND product_id = ?', [userId, productId]);
-    const stockProblem = await cartQuantityProblem(productId, Number(inCart[0]?.quantity || 0) + qty);
-    if (stockProblem) return res.status(stockProblem.status).json({ success: false, error: stockProblem.error, code: stockProblem.code, max: stockProblem.max });
+    const existing = await cartLine(userId, productId);
+    // A product is in the cart normally OR in bulk; never converted silently.
+    if (existing && existing.mode !== mode) {
+      const [[p]] = await pool.query('SELECT name FROM products WHERE id = ? LIMIT 1', [productId]);
+      const conflict = modeConflict(p || {}, existing.mode, mode);
+      return res.status(conflict.status).json({ success: false, error: conflict.error, code: conflict.code });
+    }
+    const wanted = Number(existing?.quantity || 0) + qty;
+    const stockProblem = mode === 'bulk'
+      ? await bulkCartProblem(productId, wanted)
+      : await cartQuantityProblem(productId, wanted);
+    if (stockProblem) return res.status(stockProblem.status).json({ success: false, error: stockProblem.error, code: stockProblem.code, max: stockProblem.max, min: stockProblem.min, step: stockProblem.step });
 
-    await pool.query(
-      `INSERT INTO cart_items (user_id, product_id, quantity)
-       VALUES (?, ?, ?)
-       ON CONFLICT (user_id, product_id) DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity`,
-      [userId, productId, qty]
-    );
-    const [rows] = await pool.query(
-      `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,
-              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
-       FROM cart_items ci
-       LEFT JOIN products p ON ci.product_id = p.id
-       WHERE ci.user_id = ?
-       ORDER BY ci.id ASC`,
-      [userId]
-    );
-    return res.json({ success: true, message: 'Item added to cart.', items: rows.map(formatCartItemRow) });
+    if (mode === 'bulk') {
+      await pool.query(
+        `INSERT INTO cart_items (user_id, product_id, quantity, purchase_mode)
+         VALUES (?, ?, ?, 'bulk')
+         ON CONFLICT (user_id, product_id) DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity`,
+        [userId, productId, qty]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO cart_items (user_id, product_id, quantity)
+         VALUES (?, ?, ?)
+         ON CONFLICT (user_id, product_id) DO UPDATE SET quantity = cart_items.quantity + EXCLUDED.quantity`,
+        [userId, productId, qty]
+      );
+    }
+    const rows = await loadCartRows(userId);
+    return res.json({ success: true, message: 'Item added to cart.', items: rows });
   } catch (err) {
     console.error('[API ERROR] POST /api/cart/add:', err.message);
     return res.status(500).json({ success: false, error: 'Server error adding item to cart.' });
@@ -1621,27 +1663,22 @@ app.put('/api/cart/update', async (req, res) => {
 
     if (!Number.isFinite(qty)) return res.status(400).json({ success: false, error: 'Valid quantity is required.' });
     if (qty > 0) {
-      const [inCart] = await pool.query('SELECT quantity FROM cart_items WHERE user_id = ? AND product_id = ?', [userId, productId]);
-      const current = Number(inCart[0]?.quantity || 0);
-      // Growing a line is fully checked; lowering only has to stay at or above
-      // the MOQ (to go below it, remove the line), so a dealer can always lower.
-      const stockProblem = qty > current
-        ? await cartQuantityProblem(productId, qty)
-        : await cartQuantityProblem(productId, qty, { checkMax: false });
-      if (stockProblem) return res.status(stockProblem.status).json({ success: false, error: stockProblem.error, code: stockProblem.code, max: stockProblem.max });
+      const existing = await cartLine(userId, productId);
+      const current = Number(existing?.quantity || 0);
+      // The line keeps its own mode (bulk lines: minimum + whole steps).
+      const stockProblem = existing?.mode === 'bulk'
+        ? await bulkCartProblem(productId, qty, { checkStock: qty > current })
+        // Growing a line is fully checked; lowering only has to stay at or above
+        // the MOQ (to go below it, remove the line), so a dealer can always lower.
+        : qty > current
+          ? await cartQuantityProblem(productId, qty)
+          : await cartQuantityProblem(productId, qty, { checkMax: false });
+      if (stockProblem) return res.status(stockProblem.status).json({ success: false, error: stockProblem.error, code: stockProblem.code, max: stockProblem.max, min: stockProblem.min, step: stockProblem.step });
     }
     if (qty <= 0) await pool.query(`DELETE FROM cart_items WHERE user_id = ? AND product_id = ?`, [userId, productId]);
     else await pool.query(`UPDATE cart_items SET quantity = ? WHERE user_id = ? AND product_id = ?`, [qty, userId, productId]);
-    const [rows] = await pool.query(
-      `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,
-              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
-       FROM cart_items ci
-       LEFT JOIN products p ON ci.product_id = p.id
-       WHERE ci.user_id = ?
-       ORDER BY ci.id ASC`,
-      [userId]
-    );
-    return res.json({ success: true, message: 'Cart item updated.', items: rows.map(formatCartItemRow) });
+    const rows = await loadCartRows(userId);
+    return res.json({ success: true, message: 'Cart item updated.', items: rows });
   } catch (err) {
     console.error('[API ERROR] PUT /api/cart/update:', err.message);
     return res.status(500).json({ success: false, error: 'Server error updating cart.' });
@@ -1660,16 +1697,8 @@ app.delete('/api/cart/remove', async (req, res) => {
     }
 
     await pool.query(`DELETE FROM cart_items WHERE user_id = ? AND product_id = ?`, [userId, productId]);
-    const [rows] = await pool.query(
-      `SELECT ci.id as cart_item_id, ci.quantity, ci.product_id,
-              p.name, p.brand, p.price, p.mrp, p.moq, p.badge, p.rating, p.img, p.category_key, p.sku, p.stock_quantity, p.status
-       FROM cart_items ci
-       LEFT JOIN products p ON ci.product_id = p.id
-       WHERE ci.user_id = ?
-       ORDER BY ci.id ASC`,
-      [userId]
-    );
-    return res.json({ success: true, message: 'Item removed from cart.', items: rows.map(formatCartItemRow) });
+    const rows = await loadCartRows(userId);
+    return res.json({ success: true, message: 'Item removed from cart.', items: rows });
   } catch (err) {
     console.error('[API ERROR] DELETE /api/cart/remove:', err.message);
     return res.status(500).json({ success: false, error: 'Server error removing cart item.' });
@@ -1757,7 +1786,10 @@ app.get('/api/user/orders', async (req, res) => {
               quantity: i.quantity,
               moq: i.moq || '',
               imgSrc: i.img_src || '',
-              sku: i.sku || i.product_id || ''
+              sku: i.sku || i.product_id || '',
+              // 'bulk' lines were priced per piece at the bulk rate (migration 011).
+              purchaseMode: i.purchase_mode || 'normal',
+              bulkPackLabel: i.bulk_pack_label || null
             })),
             subtotal: parseFloat(o.subtotal),
             discount: parseFloat(o.discount),
@@ -1794,6 +1826,7 @@ require('./order_checkout')(app, pool, SESSION_SECRET, findUserByEmailOrMobile);
 // REWARDS, GST INVOICES & SUPPORT DESK
 // -----------------------------------------------------------------------------
 
+// Points, Free Claim eligibility and history: all computed on the server.
 app.get('/api/user/rewards', async (req, res) => {
   try {
     const email = (req.query.email || '').trim().toLowerCase();
@@ -1802,18 +1835,32 @@ app.get('/api/user/rewards', async (req, res) => {
     const user = await findUserByEmailOrMobile(email);
     if (!user) return res.status(404).json({ success: false, error: 'User account not found.' });
 
-    const historyRows = user.rewardsHistory || [];
-    const totalPointsEarned = historyRows.reduce((sum, h) => sum + (h.pointsEarned || 0), 0);
-
-    return res.status(200).json({
-      success: true,
-      totalPoints: user.rewardPoints || 0,
-      totalPointsEarned: totalPointsEarned,
-      history: historyRows
-    });
+    return res.status(200).json({ success: true, ...(await rewardSummary(pool, user.id)) });
   } catch (err) {
-    console.error('[API ERROR] Fetch rewards:', err);
+    console.error('[API ERROR] Fetch rewards:', err.code || err.name);
     return res.status(500).json({ success: false, error: 'Server error fetching rewards.' });
+  }
+});
+
+// Free Claim request. Only the points value is read from the request; the
+// dealer comes from the session, and eligibility + balance are checked here.
+app.post('/api/user/rewards/claim', async (req, res) => {
+  let conn;
+  try {
+    const user = await findUserByEmailOrMobile(String(req.dealer?.email || '').trim().toLowerCase());
+    if (!user) return res.status(404).json({ success: false, error: 'User account not found.' });
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    const claim = await requestRewardClaim(conn, user.id, req.body?.points);
+    await conn.commit();
+    return res.json({ success: true, claim, message: `Claim for ${claim.points} points sent. You will be notified once it is approved.` });
+  } catch (err) {
+    if (conn) await conn.rollback().catch(() => {});
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
+    console.error('[API ERROR] Reward claim:', err.code || err.name);
+    return res.status(503).json({ success: false, error: 'Could not send the claim. Please try again.' });
+  } finally {
+    conn?.release();
   }
 });
 
@@ -1928,7 +1975,9 @@ app.get('/api/products', async (req, res) => {
     // Cabinet Price comes from its own column (migration 009); it is selected
     // only once that column exists, so the catalog keeps working before it.
     const withCabinetPrice = await hasCabinetPriceColumn();
-    const [rows] = await pool.query(`SELECT id, category_key, category_id, brand, name, price, mrp,${withCabinetPrice ? ' cabinet_price,' : ''} moq, badge, rating, img, sku, description, specs_json, features_json, applications, stock_quantity, min_stock, status, created_at, (SELECT c.title FROM categories c WHERE c.id = products.category_id OR c.key_name = products.category_key ORDER BY (c.id = products.category_id) DESC LIMIT 1) AS category_name FROM products WHERE COALESCE(status, 'active') <> 'inactive' ORDER BY category_key, name`);
+    // Bulk Orders offer (migration 011), selected once those columns exist.
+    const withBulk = await bulkOrdersReady(pool);
+    const [rows] = await pool.query(`SELECT id, category_key, category_id, brand, name, price, mrp,${withCabinetPrice ? ' cabinet_price,' : ''}${withBulk ? ' bulk_price, bulk_min_qty, bulk_step, bulk_pack_label,' : ''} moq, badge, rating, img, sku, description, specs_json, features_json, applications, stock_quantity, min_stock, status, created_at, (SELECT c.title FROM categories c WHERE c.id = products.category_id OR c.key_name = products.category_key ORDER BY (c.id = products.category_id) DESC LIMIT 1) AS category_name FROM products WHERE COALESCE(status, 'active') <> 'inactive' ORDER BY category_key, name`);
     const products = rows.map(p => ({
           id: p.id,
           category: p.category_key,
@@ -1943,6 +1992,9 @@ app.get('/api/products', async (req, res) => {
           // Cabinet products only; null when not set (never Dealer Price or MRP).
           cabinet_price: isCabinetCategory(p.category_id, p.category_key) && p.cabinet_price != null && Number(p.cabinet_price) > 0
             ? Number(p.cabinet_price) : null,
+          // Bulk Orders only (bulk_orders.js); null = not sold in bulk. Never
+          // replaces the Dealer Price or MRP above.
+          ...bulkFields(p),
           moq: p.moq,
           // Same rule as cart and checkout (order_rules.js).
           min_order_quantity: minOrderQuantity(p),
@@ -3075,6 +3127,8 @@ app.get('/api/admin/orders', requireAdminAuth, async (req, res) => {
               price: `₹${parseFloat(i.unit_price).toLocaleString('en-IN')}`,
               numericPrice: parseFloat(i.unit_price),
               dealerPrice: parseFloat(i.unit_price),
+              purchaseMode: i.purchase_mode || 'normal',
+              bulkPackLabel: i.bulk_pack_label || null,
               quantity: i.quantity,
               orderedQuantity: Number(i.quantity),
               actualDeliveredQuantity: i.shop_delivery_confirmed ? Number(i.shop_delivered_quantity ?? 0) : 0,
@@ -3159,7 +3213,9 @@ app.get('/api/admin/analytics', requireAdminAuth, async (req, res) => {
               brand: i.brand,
               numericPrice: parseFloat(i.unit_price),
               quantity: i.quantity,
-              imgSrc: i.img_src
+              imgSrc: i.img_src,
+              purchaseMode: i.purchase_mode || 'normal',
+              bulkPackLabel: i.bulk_pack_label || null
             })),
             grandTotal: parseFloat(o.grand_total || 0),
             status: o.status || 'Processing',
@@ -3381,6 +3437,9 @@ app.put('/api/admin/orders/:id/status', requireAdminAuth, async (req, res) => {
     let stock = null;
     if (status === 'Cancelled' && !wasCancelled) stock = await releaseOrderStock(conn, orderId);
     if (status !== 'Cancelled' && wasCancelled) stock = await reReserveOrderStock(conn, orderId);
+    // Reward points follow the order: cancelled -> reversed, restored -> reinstated.
+    if (status === 'Cancelled' && !wasCancelled) await reverseOrderReward(conn, orderId);
+    if (status !== 'Cancelled' && wasCancelled) await reinstateOrderReward(conn, orderId);
     await conn.query('UPDATE orders SET status = ? WHERE order_id = ?', [status, orderId]);
     await conn.commit();
     return res.json({
@@ -3418,6 +3477,59 @@ app.put('/api/admin/orders/:id/payment-status', requireAdminAuth, async (req, re
   } catch (err) {
     console.error('[API ERROR] Update payment status:', err.code || err.name);
     return res.status(503).json({ success: false, error: 'database is unavailable. Payment status was not changed.' });
+  }
+});
+
+// Admin: Free Claim requests (pending first).
+app.get('/api/admin/reward-claims', requireAdminAuth, async (req, res) => {
+  try {
+    if (!(await rewardLedgerReady(pool))) return res.json({ success: true, claims: [], ledgerReady: false });
+    const [rows] = await pool.query(
+      `SELECT r.id, r.user_id, r.points_redeemed, r.status, r.created_at, r.decided_at,
+              u.name, u.email, u.business_name, u.reward_points
+         FROM rewards_history r JOIN users u ON u.id = r.user_id
+        WHERE r.entry_type = 'redeemed'
+        ORDER BY (r.status = 'pending') DESC, r.created_at DESC
+        LIMIT 500`);
+    return res.json({
+      success: true,
+      claims: rows.map(r => ({
+        id: Number(r.id),
+        userId: r.user_id,
+        name: r.name,
+        email: r.email,
+        business: r.business_name || '',
+        points: Number(r.points_redeemed),
+        value: Number(r.points_redeemed),
+        balance: Number(r.reward_points),
+        status: r.status,
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : null,
+        decidedAt: r.decided_at ? new Date(r.decided_at).toISOString() : null,
+      })),
+    });
+  } catch (err) {
+    console.error('[API ERROR] Reward claims:', err.code || err.name);
+    return res.status(503).json({ success: false, error: 'database is unavailable.' });
+  }
+});
+
+app.put('/api/admin/reward-claims/:id', requireAdminAuth, async (req, res) => {
+  let conn;
+  try {
+    const id = Number.parseInt(req.params.id, 10);
+    if (!Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, error: 'Invalid claim.' });
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    const claim = await decideRewardClaim(conn, id, req.body?.status);
+    await conn.commit();
+    return res.json({ success: true, claim, message: `Claim ${claim.status}.` });
+  } catch (err) {
+    if (conn) await conn.rollback().catch(() => {});
+    if (err.status) return res.status(err.status).json({ success: false, error: err.message });
+    console.error('[API ERROR] Decide reward claim:', err.code || err.name);
+    return res.status(503).json({ success: false, error: 'database is unavailable. The claim was not changed.' });
+  } finally {
+    conn?.release();
   }
 });
 

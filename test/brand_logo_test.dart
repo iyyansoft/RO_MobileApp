@@ -17,7 +17,7 @@ void main() {
     expect(image.image, isA<AssetImage>());
     expect(
       (image.image as AssetImage).assetName,
-      'assets/images/RO_LOGO.png',
+      'assets/images/neero_logo1.png',
     );
     expect(image.fit, BoxFit.contain);
     expect(tester.takeException(), isNull);

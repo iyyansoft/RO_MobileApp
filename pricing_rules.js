@@ -59,13 +59,17 @@ const toRupees = paise => paise / 100;
  */
 function priceOrder(lines, withGst, rules = pricingRules()) {
   let subtotal = 0;
+  // Lines marked discountable: false (Bulk Orders lines, already at the bulk
+  // price) are not part of the dealer discount.
+  let discountable = 0;
   for (const line of lines) {
     const unit = toPaise(line.unitPrice);
     if (!Number.isSafeInteger(unit) || unit <= 0) throw new Error('Invalid product price.');
     if (!Number.isSafeInteger(line.quantity) || line.quantity < 1) throw new Error('Invalid quantity.');
     subtotal += unit * line.quantity;
+    if (line.discountable !== false) discountable += unit * line.quantity;
   }
-  const discount = Math.round(subtotal * rules.dealerDiscountPercent / 100);
+  const discount = Math.round(discountable * rules.dealerDiscountPercent / 100);
   const taxable = subtotal - discount;
   const gst = withGst ? Math.round(taxable * rules.gstPercent / 100) : 0;
   const delivery = subtotal === 0 || subtotal > toPaise(rules.freeDeliveryAbove)

@@ -12,7 +12,7 @@ void main() {
     testWidgets('promo banner fits at width $width', (tester) async {
       var taps = 0;
       final key = GlobalKey();
-      await tester.binding.setSurfaceSize(Size(width + 40, 340));
+      await tester.binding.setSurfaceSize(Size(width + 40, 500));
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -35,7 +35,24 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('Explore Wholesale Deals'));
+      // The banner is the big_banner.png artwork, full width.
+      final banner = find.byKey(const ValueKey('wholesale-promo-banner'));
+      final size = tester.getSize(banner);
+      expect(size.width, width);
+      // Whole image (3:1) on wide screens; at least 150 px tall on phones.
+      final expected = width / WholesalePromoBanner.aspectRatio;
+      expect(size.height, closeTo(expected < 150 ? 150 : expected, 0.5));
+      final ink = tester.widget<Ink>(
+        find.descendant(of: banner, matching: find.byType(Ink)),
+      );
+      final image = (ink.decoration! as BoxDecoration).image!;
+      expect(
+        (image.image as AssetImage).assetName,
+        'assets/images/big_banner.png',
+      );
+      expect(image.fit, BoxFit.cover);
+      // Tapping anywhere on it opens the catalogue.
+      await tester.tap(banner);
       expect(taps, 1);
       await tester.pumpAndSettle();
 

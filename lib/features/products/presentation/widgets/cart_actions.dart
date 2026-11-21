@@ -5,6 +5,8 @@ import '../../../../core/network/api_client.dart' show ApiException;
 import '../../../cart/presentation/providers/cart_provider.dart';
 import '../../domain/models/product_model.dart';
 import 'max_quantity_dialog.dart';
+import '../../../../core/widgets/app_toast.dart';
+import '../../../../app/config/router/app_router.dart';
 
 Future<bool> addProductToCart(
   BuildContext context,
@@ -15,8 +17,7 @@ Future<bool> addProductToCart(
   // Out of Stock or Below MOQ: say why instead of trying.
   final blocked = product.orderBlockedReason;
   if (blocked != null) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(blocked)));
+    AppToast.error(context, blocked);
     return false;
   }
   try {
@@ -26,17 +27,25 @@ Future<bool> addProductToCart(
     if (!context.mounted) {
       return true;
     }
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text('Added ${product.name} to cart')));
+    showAddedToCartToast(context);
     return true;
   } catch (error) {
     if (context.mounted && !showMaxQuantityDialogFor(context, error)) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(cartErrorText(error))));
+      AppToast.error(context, cartErrorText(error));
     }
     return false;
   }
 }
+
+/// The one "added to cart" confirmation used across the app.
+const addedToCartMessage = 'Product added to cart successfully';
+
+void showAddedToCartToast(BuildContext context) => AppToast.success(
+  context,
+  addedToCartMessage,
+  actionLabel: 'View Cart',
+  onAction: () => AppRouter.router.push('/cart'),
+);
 
 /// Readable cart error text (drops Dart's "Bad state: " prefix and shows
 /// the server's message when there is one).

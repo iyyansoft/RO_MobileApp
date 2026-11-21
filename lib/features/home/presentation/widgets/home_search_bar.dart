@@ -359,7 +359,7 @@ class _HomeSearchBarState extends ConsumerState<HomeSearchBar> {
           icon: Icons.search_off_rounded,
           title: 'No products match "$_query"',
           subtitle: 'Try a product name, category, brand or SKU.',
-          suggestions: categories.map((c) => c.name).take(6).toList(),
+          suggestions: categories.map((c) => c.name).toList(),
           onSuggestion: _search,
           isDark: isDark,
         );

@@ -34,6 +34,8 @@ const PHASE1 = [
   'supabase/staging/006_product_images.sql',
   'supabase/staging/007_stock_movements.sql',
   'supabase/staging/009_product_cabinet_price.sql',
+  'supabase/staging/010_reward_ledger.sql',
+  'supabase/staging/011_bulk_orders.sql',
 ];
 
 /** Main statement of a query (WITH ... INSERT counts as INSERT). */
@@ -337,7 +339,21 @@ async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, 
     pdf = await imp.applyDatabaseChanges(db, { rows, expectedSampleIds: info.samples.map(s => s.id), expectedGenuineIds: info.genuine.map(g => g.id) });
     // The Cabinet category and its 41 products (local copy only).
     const cab = require(path.join(root, 'scripts', 'cabinet_import.cjs'));
-    pdf.cabinet = await cab.applyCabinetImport(db, cab.loadData());
+    // Production has had the Cabinet category since the live Cabinet
+    // migration; only add it when the snapshot does not have it yet.
+    const hasCabinet = (await db.query(`SELECT 1 FROM categories WHERE id = 'CAT_CAB' OR LOWER(key_name) = 'cabinets'`)).rows.length > 0;
+    pdf.cabinet = hasCabinet ? { inserted: 0, alreadyPresent: true } : await cab.applyCabinetImport(db, cab.loadData());
+    // Bulk Orders offers from the PDFs (scripts/extract_bulk_pricing.cjs);
+    // only rows marked 'bulk' (the rest are held for review).
+    const bulkFile = path.join(root, 'assets', 'product_pdfs', 'extracted', 'bulk_pricing.json');
+    pdf.bulk = 0;
+    if (migrated && fs.existsSync(bulkFile)) {
+      for (const r of JSON.parse(fs.readFileSync(bulkFile, 'utf8')).products.filter(x => x.status === 'bulk')) {
+        const res = await db.query(`UPDATE products SET bulk_price = $2, bulk_min_qty = $3, bulk_step = $4, bulk_pack_label = $5 WHERE id = $1`,
+          [r.product_id, r.box_price, r.min_qty, r.step, r.pack_label]);
+        pdf.bulk += res.affectedRows || 0;
+      }
+    }
   }
   return {
     db, pool, outbox, credentials, seeded, server, snapshot, pdf,
@@ -352,7 +368,9 @@ if (require.main === module) {
   const arg = name => process.argv.find(a => a.startsWith(`--${name}`));
   const catalog = (arg('catalog') || '--catalog=sample').split('=')[1];
   const liveSnapshot = Boolean(arg('live-snapshot'));
-  startSandbox({ catalog, migrated: !arg('pre-migration'), quiet: true, liveSnapshot, pdfImport: Boolean(arg('pdf-import')) })
+  // --port=8095 runs a second copy next to one already on 8091.
+  const port = Number((arg('port') || '').split('=')[1]) || 8091;
+  startSandbox({ port, catalog, migrated: !arg('pre-migration'), quiet: true, liveSnapshot, pdfImport: Boolean(arg('pdf-import')) })
     .then(s => {
       console.log(`Sandbox backend on http://localhost:${s.port} (isolated in-memory database, emails captured)`);
       if (liveSnapshot) {
@@ -363,7 +381,7 @@ if (require.main === module) {
         console.log(`Catalogue: ${s.seeded.products} products, ${s.seeded.categories} categories (${catalog})`);
         console.log(`Test logins: GET http://localhost:${s.port}/__sandbox/credentials`);
       }
-      if (s.pdf) console.log(`PDF import (local copy only): ${s.pdf.deleted} SAMPLE_ removed, ${s.pdf.inserted} PDF products added, ${s.pdf.skuFilled} order-line SKUs filled; Cabinet category with ${s.pdf.cabinet.inserted} products`);
+      if (s.pdf) console.log(`PDF import (local copy only): ${s.pdf.deleted} SAMPLE_ removed, ${s.pdf.inserted} PDF products added, ${s.pdf.skuFilled} order-line SKUs filled; Cabinet category with ${s.pdf.cabinet.inserted} products; ${s.pdf.bulk} Bulk Orders offers`);
       console.log(`Schema: ${arg('pre-migration') ? "today's live schema" : 'after the Phase 1 migration'}`);
     })
     .catch(error => { console.error('SANDBOX_FAILED', error); process.exit(1); });

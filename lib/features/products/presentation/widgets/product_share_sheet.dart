@@ -9,6 +9,7 @@ import '../../../../core/platform/file_share_support.dart' as platform;
 import '../../domain/models/product_model.dart';
 import '../../domain/models/product_share.dart';
 import 'product_share_card.dart';
+import '../../../../core/widgets/app_toast.dart';
 
 /// The product's own image, downloaded and ready to attach.
 class ShareImageFile {
@@ -31,6 +32,7 @@ class ProductSharer {
     this.shareFile = _shareFile,
     this.downloader = platform.downloadBytes,
     this.launcher = _launchExternal,
+    this.textReachesWhatsApp = platform.whatsAppKeepsSharedText,
     Future<ShareImageFile> Function(ProductModel product, ShareImageFile photo)?
     buildCard,
   }) : fetchImage = fetchImage ?? fetchProductImageFile,
@@ -57,13 +59,28 @@ class ProductSharer {
   final Future<bool> Function(List<int> bytes, String name, String mime)
   downloader;
   final Future<bool> Function(Uri uri) launcher;
+
+  /// Whether WhatsApp keeps the text shared with the image (phones: yes, it
+  /// becomes the caption; WhatsApp Desktop: no, it takes only the image).
+  final bool Function() textReachesWhatsApp;
 }
 
 bool _canShareFile(ShareImageFile f) =>
     platform.canShareImageFile(f.bytes, f.fileName, f.mimeType);
 
-Future<String> _shareFile(ShareImageFile f, String text) =>
-    platform.shareImageFile(f.bytes, f.fileName, f.mimeType, text);
+/// One share: image file + message text (+ the product name as title,
+/// taken from the message's first line "Product Name: ...").
+Future<String> _shareFile(ShareImageFile f, String text) {
+  final first = text.split('\n').first;
+  const prefix = 'Product Name: ';
+  return platform.shareImageFile(
+    f.bytes,
+    f.fileName,
+    f.mimeType,
+    text,
+    title: first.startsWith(prefix) ? first.substring(prefix.length) : null,
+  );
+}
 
 Future<bool> _launchExternal(Uri uri) =>
     launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -109,6 +126,199 @@ Future<ShareImageFile> buildProductShareCardFile(
     bytes: bytes,
     mimeType: 'image/png',
     fileName: '${shareFileName(product)}.png',
+  );
+}
+
+/// Product cards built ahead (when the Product Details page opens), so one
+/// tap on Share can call `navigator.share` straight away: browsers allow it
+/// only right after the tap, and fetching + drawing the card takes longer.
+class ProductShareCards {
+  ProductShareCards._();
+
+  static final _pending = <String, Future<ShareImageFile>>{};
+  static final _ready = <String, ShareImageFile>{};
+
+  /// Changes whenever what the card shows changes.
+  static String _key(ProductModel p) =>
+      [p.id, p.name, p.sku, p.mrp, p.categoryName, p.imageUrl].join('|');
+
+  /// Builds (once) the card for [product].
+  static Future<ShareImageFile> prepare(
+    ProductModel product,
+    ProductSharer sharer,
+  ) {
+    final key = _key(product);
+    return _pending.putIfAbsent(key, () async {
+      try {
+        final photo = await sharer.fetchImage(product);
+        final card = await sharer.buildCard(product, photo);
+        _ready[key] = card;
+        return card;
+      } catch (_) {
+        _pending.remove(key); // allow a retry
+        rethrow;
+      }
+    });
+  }
+
+  /// The finished card, or null while it is still being built.
+  static ShareImageFile? ready(ProductModel product) => _ready[_key(product)];
+
+  @visibleForTesting
+  static void clear() {
+    _pending.clear();
+    _ready.clear();
+  }
+}
+
+/// The Share icon: ONE tap, ONE `navigator.share` with the product image
+/// (files), every product detail (text) and the product name (title).
+/// If the card is still being built, the share sheet opens and its "Share on
+/// WhatsApp" does the same single share as soon as the card is ready.
+Future<void> shareProductInOneClick(
+  BuildContext context, {
+  required ProductModel product,
+  ProductSharer? sharer,
+}) async {
+  final s = sharer ?? ProductSharer();
+  final card = ProductShareCards.ready(product);
+  if (card == null) {
+    return showProductShareSheet(context, product: product, sharer: s);
+  }
+  shareProductCard(context, product: product, card: card, sharer: s);
+}
+
+/// Shares [card] with the full details as its caption, in one share. Must be
+/// called straight from a tap.
+void shareProductCard(
+  BuildContext host, {
+  required ProductModel product,
+  required ShareImageFile card,
+  required ProductSharer sharer,
+}) {
+  final details = whatsAppShareText(product);
+  if (!sharer.canShareFile(card)) {
+    // No image + text sharing in this browser: say so, keep both.
+    Clipboard.setData(ClipboardData(text: details)).catchError((_) {});
+    showShareCompatibilityFallback(
+      host,
+      product: product,
+      card: card,
+      sharer: sharer,
+    );
+    return;
+  }
+  final keepsText = sharer.textReachesWhatsApp();
+  if (!keepsText) {
+    // WhatsApp Desktop takes the image but drops text shared with it: the
+    // details are copied now (allowed only during the tap) for Ctrl+V.
+    Clipboard.setData(ClipboardData(text: details)).catchError((_) {});
+  }
+  sharer.shareFile(card, details).then((outcome) {
+    if (!host.mounted) return;
+    if (outcome.startsWith('failed')) {
+      Clipboard.setData(ClipboardData(text: details)).catchError((_) {});
+      showShareCompatibilityFallback(
+        host,
+        product: product,
+        card: card,
+        sharer: sharer,
+        reason: outcome,
+      );
+    } else if (outcome == 'shared' && !keepsText) {
+      AppToast.success(
+        host,
+        'If WhatsApp Desktop left "Add a message" empty, press Ctrl+V: the '
+        'product details are copied.',
+      );
+    }
+  });
+}
+
+/// This browser cannot share the image together with the text: the image
+/// is downloaded and the details copied, so the customer can attach the
+/// image in WhatsApp and paste the details as its caption (one message).
+Future<void> showShareCompatibilityFallback(
+  BuildContext host, {
+  required ProductModel product,
+  required ShareImageFile card,
+  required ProductSharer sharer,
+  String? reason,
+}) async {
+  final saved = await sharer.downloader(
+    card.bytes,
+    card.fileName,
+    card.mimeType,
+  );
+  if (!host.mounted) return;
+  await showDialog<void>(
+    context: host,
+    builder: (dialogContext) => AlertDialog(
+      key: const ValueKey('share-manual-attach'),
+      title: const Text('Share in WhatsApp'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.memory(
+                  card.bytes,
+                  height: 140,
+                  errorBuilder: (_, _, _) =>
+                      const Icon(Icons.image_outlined, size: 64),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              saved
+                  ? 'This browser cannot share an image together with text. '
+                        'The product image was downloaded as '
+                        '"${card.fileName}" and the full product details are '
+                        'copied.'
+                  : 'This browser cannot share an image together with text, '
+                        'and the image could not be downloaded here. The full '
+                        'product details are copied.',
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'In WhatsApp: choose the chat, attach the product image, paste '
+              'the details (Ctrl+V) as its caption and send: one message.',
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Close'),
+        ),
+        OutlinedButton.icon(
+          key: const ValueKey('share-whatsapp-text'),
+          icon: const Icon(Icons.notes_rounded),
+          label: const Text('Details only (text)'),
+          onPressed: () {
+            Navigator.of(dialogContext).pop();
+            sharer.launcher(whatsAppShareUri(product));
+          },
+        ),
+        FilledButton.icon(
+          key: const ValueKey('share-open-whatsapp'),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFF25D366),
+          ),
+          icon: const Icon(Icons.chat_rounded),
+          label: const Text('Open WhatsApp'),
+          onPressed: () {
+            Navigator.of(dialogContext).pop();
+            sharer.launcher(Uri.parse('https://web.whatsapp.com/'));
+          },
+        ),
+      ],
+    ),
   );
 }
 
@@ -165,8 +375,10 @@ class _ProductShareSheetState extends State<_ProductShareSheet> {
     });
     try {
       // The product's own picture, then the card built from it.
-      final photo = await widget.sharer.fetchImage(widget.product);
-      final image = await widget.sharer.buildCard(widget.product, photo);
+      final image = await ProductShareCards.prepare(
+        widget.product,
+        widget.sharer,
+      );
       if (!mounted) return;
       setState(() {
         _image = image;
@@ -180,95 +392,14 @@ class _ProductShareSheetState extends State<_ProductShareSheet> {
   void _shareOnWhatsApp() {
     final image = _image;
     if (image == null) return;
-    final host = widget.hostContext;
-    if (_canAttach) {
-      // Called directly from the tap: navigator.share needs the user gesture.
-      // Only the card image is sent; its details are inside the image.
-      final pending = widget.sharer.shareFile(image, '');
-      Navigator.of(context).pop();
-      pending.then((outcome) {
-        if (outcome.startsWith('failed') && host.mounted) {
-          _manualAttach(host, image, reason: outcome);
-        }
-      });
-      return;
-    }
+    // Straight from the tap: ONE share with the image and every detail.
+    shareProductCard(
+      widget.hostContext,
+      product: widget.product,
+      card: image,
+      sharer: widget.sharer,
+    );
     Navigator.of(context).pop();
-    _manualAttach(host, image);
-  }
-
-  /// No file sharing here: download the product card and explain how to
-  /// attach it in WhatsApp (its details are inside the image).
-  Future<void> _manualAttach(
-    BuildContext host,
-    ShareImageFile image, {
-    String? reason,
-  }) async {
-    final sharer = widget.sharer;
-    final saved = await sharer.downloader(
-      image.bytes,
-      image.fileName,
-      image.mimeType,
-    );
-    if (!host.mounted) return;
-    await showDialog<void>(
-      context: host,
-      builder: (dialogContext) => AlertDialog(
-        key: const ValueKey('share-manual-attach'),
-        title: const Text('Attach the product card in WhatsApp'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.memory(
-                  image.bytes,
-                  height: 140,
-                  errorBuilder: (_, _, _) =>
-                      const Icon(Icons.image_outlined, size: 64),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              saved
-                  ? 'This browser cannot attach files to WhatsApp directly. '
-                        'The product card was downloaded as '
-                        '"${image.fileName}". Its name, SKU, category and MRP '
-                        'are inside the image.'
-                  : 'This device cannot attach files to WhatsApp directly, '
-                        'and the product card could not be downloaded here.',
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              '1. Open WhatsApp and choose the chat.\n'
-              '2. Attach the downloaded product card.\n'
-              '3. Send.',
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Close'),
-          ),
-          FilledButton.icon(
-            key: const ValueKey('share-open-whatsapp'),
-            style: FilledButton.styleFrom(
-              backgroundColor: const Color(0xFF25D366),
-            ),
-            icon: const Icon(Icons.chat_rounded),
-            label: const Text('Open WhatsApp'),
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              sharer.launcher(Uri.parse('https://web.whatsapp.com/'));
-            },
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _download() async {
@@ -279,7 +410,13 @@ class _ProductShareSheetState extends State<_ProductShareSheet> {
     if (_canAttach) {
       final outcome = await widget.sharer.shareFile(image, '');
       if (outcome.startsWith('failed') && host.mounted) {
-        _manualAttach(host, image, reason: outcome);
+        showShareCompatibilityFallback(
+          host,
+          product: widget.product,
+          card: image,
+          sharer: widget.sharer,
+          reason: outcome,
+        );
       }
       return;
     }
@@ -386,8 +523,8 @@ class _ProductShareSheetState extends State<_ProductShareSheet> {
                     : _image == null
                     ? 'Product card unavailable'
                     : _canAttach
-                    ? 'Sends one image with the product photo, name, SKU, category and MRP'
-                    : 'Downloads the product card to attach in WhatsApp',
+                    ? 'One message: the product image with all details'
+                    : 'This browser cannot share an image with text',
               ),
               onTap: _shareOnWhatsApp,
             ),
@@ -430,7 +567,11 @@ String shareFileName(ProductModel product) {
 }
 
 void _snack(BuildContext context, String message) {
-  ScaffoldMessenger.maybeOf(context)
-    ?..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
+  final failed = RegExp(
+    r"could not|couldn't|failed|unable|error",
+    caseSensitive: false,
+  ).hasMatch(message);
+  failed
+      ? AppToast.error(context, message)
+      : AppToast.success(context, message);
 }

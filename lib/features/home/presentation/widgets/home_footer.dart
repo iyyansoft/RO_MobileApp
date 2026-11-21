@@ -115,7 +115,7 @@ class _HomeFooterState extends State<HomeFooter>
     final shop = _LinkColumn(
       title: 'Shop by category',
       links: [
-        for (final cat in widget.categories.take(6))
+        for (final cat in widget.categories)
           (cat.name, () => widget.onCategoryTap(cat)),
         if (widget.categories.isEmpty)
           ('Browse catalog', () => widget.onNavigate('/products')),
@@ -171,7 +171,7 @@ class _HomeFooterState extends State<HomeFooter>
                   title: 'Shop by category',
                   columns: 2,
                   links: [
-                    for (final cat in widget.categories.take(6))
+                    for (final cat in widget.categories)
                       (cat.name, () => widget.onCategoryTap(cat)),
                     if (widget.categories.isEmpty)
                       ('Browse catalog', () => widget.onNavigate('/products')),
@@ -299,7 +299,7 @@ class _ShimmerWordmark extends StatelessWidget {
           );
         },
         child: Image.asset(
-          'assets/images/RO_LOGO.png',
+          kBrandLogoAsset,
           width: width,
           fit: BoxFit.contain,
           filterQuality: FilterQuality.high,

@@ -10,6 +10,9 @@ import '../../../auth/domain/models/user_model.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../products/presentation/providers/wishlist_provider.dart';
 import '../widgets/profile_sections.dart';
+import '../../domain/reward_summary.dart';
+import '../../../cart/domain/order_pricing.dart' show formatInr;
+import '../../../../core/widgets/app_toast.dart';
 
 class ProfileScreen extends ConsumerStatefulWidget {
   const ProfileScreen({super.key});
@@ -61,9 +64,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       final invoiceData = results[3] as Map<String, dynamic>;
       return {
         'addresses': results[1],
-        'rewards': rewards['totalPoints'] ?? 0,
-        'rewardHistory': rewards['history'] ?? [],
-        'rewardsEarned': rewards['totalPointsEarned'],
+        'rewardSummary': rewards,
         'creditLimit': invoiceData['creditLimit'],
         'availableCredit': invoiceData['availableCredit'],
         'outstandingAmount': invoiceData['outstandingAmount'],
@@ -86,9 +87,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     ]);
     return {
       'addresses': responses[0].data?['addresses'] ?? [],
-      'rewards': responses[1].data?['totalPoints'] ?? 0,
-      'rewardHistory': responses[1].data?['history'] ?? [],
-      'rewardsEarned': responses[1].data?['totalPointsEarned'],
+      'rewardSummary': responses[1].data ?? const {},
       'creditLimit': responses[2].data?['creditLimit'],
       'availableCredit': responses[2].data?['availableCredit'],
       'outstandingAmount': responses[2].data?['outstandingAmount'],
@@ -198,15 +197,26 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             ),
           );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Profile updated')));
+        AppToast.success(context, 'Profile updated');
       }
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$error')));
+        AppToast.error(context, '$error');
       }
     }
+  }
+
+  /// Free Claim: asks how many points to redeem (up to the balance). The
+  /// server re-checks eligibility and balance; the claim then waits for the
+  /// admin's approval.
+  Future<void> _claimRewards(RewardSummary summary) async {
+    final points = await showDialog<double>(
+      context: context,
+      builder: (context) => _RewardClaimDialog(summary: summary),
+    );
+    if (points == null || !mounted) return;
+    final ok = await _post('user/rewards/claim', {'points': points});
+    if (ok && mounted) setState(_refresh);
   }
 
   Future<bool> _post(String path, Map<String, dynamic> body) async {
@@ -243,8 +253,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
             }
         }
         if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text(_successMessage(path))));
+          AppToast.success(context, _successMessage(path));
         }
         return true;
       }
@@ -256,15 +265,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
         throw ApiException(message: '${data['error'] ?? 'Request failed.'}');
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${data['message'] ?? 'Saved successfully'}')),
-        );
+        AppToast.success(context, '${data['message'] ?? 'Saved successfully'}');
       }
       return true;
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$error')));
+        AppToast.error(context, '$error');
       }
       return false;
     }
@@ -543,14 +549,11 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
           newPassword: result['newPassword'] ?? '',
         );
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Password updated successfully.')),
-          );
+          AppToast.success(context, 'Password updated successfully.');
         }
       } catch (error) {
         if (mounted) {
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('$error')));
+          AppToast.error(context, '$error');
         }
       }
       return;
@@ -760,10 +763,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       List<Map> list(String key) =>
           (data[key] as List? ?? []).whereType<Map>().toList();
       final addresses = list('addresses');
+      final rewardSummary = RewardSummary.fromJson(
+        data['rewardSummary'] as Map?,
+      );
       final rewards = RewardsCard(
-        totalPoints: (num.tryParse('${data['rewards'] ?? 0}') ?? 0).toInt(),
-        totalEarned: num.tryParse('${data['rewardsEarned'] ?? ''}')?.toInt(),
-        history: list('rewardHistory'),
+        summary: rewardSummary,
+        onClaim: () => _claimRewards(rewardSummary),
         isDark: isDark,
       );
       final credit = CreditCard(
@@ -952,4 +957,105 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       ],
     ),
   );
+}
+
+/// Asks how many points to claim (validated here, and again on the server).
+/// Owns its text controller, so it is disposed only after the dialog closes.
+class _RewardClaimDialog extends StatefulWidget {
+  const _RewardClaimDialog({required this.summary});
+
+  final RewardSummary summary;
+
+  @override
+  State<_RewardClaimDialog> createState() => _RewardClaimDialogState();
+}
+
+class _RewardClaimDialogState extends State<_RewardClaimDialog> {
+  final _form = GlobalKey<FormState>();
+  late final _controller = TextEditingController(
+    text: formatPoints(widget.summary.availablePoints).replaceAll(',', ''),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (_form.currentState?.validate() != true) return;
+    Navigator.of(context).pop(double.parse(_controller.text.trim()));
+  }
+
+  String? _validate(String? raw) {
+    final available = widget.summary.availablePoints;
+    final text = (raw ?? '').trim();
+    if (!RegExp(r'^\d+(\.\d{1,2})?$').hasMatch(text)) {
+      return 'Enter points, up to 2 decimals.';
+    }
+    final value = double.parse(text);
+    if (value <= 0) return 'Enter more than 0 points.';
+    if (value > available + 1e-9)
+      return 'You have ${formatPoints(available)} pts.';
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = widget.summary;
+    return AlertDialog(
+      title: const Text('Claim reward points'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: Form(
+          key: _form,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Available: ${formatPoints(summary.availablePoints)} pts '
+                '(${formatInr(summary.availableValue)}). 1 point = ₹1.',
+                style: const TextStyle(fontSize: 13.5),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                key: const ValueKey('reward-claim-points'),
+                controller: _controller,
+                autofocus: true,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Points to claim',
+                  suffixText: 'pts',
+                  border: OutlineInputBorder(),
+                ),
+                onFieldSubmitted: (_) => _submit(),
+                validator: _validate,
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Your claim is sent to RO Wholesale for approval. The points '
+                'are held until it is approved, and returned if it is '
+                'rejected.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey('reward-claim-submit'),
+          onPressed: _submit,
+          child: const Text('Send claim'),
+        ),
+      ],
+    );
+  }
 }

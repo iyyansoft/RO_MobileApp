@@ -8,6 +8,7 @@ import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/product_model.dart';
 import '../screens/product_details_screen.dart';
 import 'cabinet_price_text.dart';
+import '../../domain/category_price_view.dart';
 
 class ProductCard extends StatelessWidget {
   final ProductModel product;
@@ -17,6 +18,9 @@ class ProductCard extends StatelessWidget {
   final String? heroTag;
   final Color? accentColorOverride;
 
+  /// Price format of the page showing the card (see [ProductPriceView]).
+  final ProductPriceView priceView;
+
   const ProductCard({
     super.key,
     required this.product,
@@ -25,7 +29,15 @@ class ProductCard extends StatelessWidget {
     this.onAddToCart,
     this.heroTag,
     this.accentColorOverride,
+    this.priceView = ProductPriceView.standard,
   });
+
+  bool get _cabinetOnly => priceView.cabinetOnly(product);
+  double get _shownPrice =>
+      _cabinetOnly ? product.cabinetPrice! : product.dealerPrice;
+  int get _discount => _cabinetOnly ? 0 : product.discountPercentage;
+  bool get _showMrp => !_cabinetOnly && product.mrp > 0;
+  bool get _cabinetLine => priceView.showsCabinetLine(product);
 
   /// Add buttons are disabled for products with stock 0.
   VoidCallback? get _addAction => product.canOrder ? onAddToCart : null;
@@ -34,9 +46,10 @@ class ProductCard extends StatelessWidget {
     if (onTap != null) {
       onTap!();
     } else {
-      Navigator.of(context, rootNavigator: true).push(
+      Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (context) => ProductDetailsScreen(product: product),
+          builder: (context) =>
+              ProductDetailsScreen(product: product, priceView: priceView),
         ),
       );
     }
@@ -63,7 +76,10 @@ class ProductCard extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final imageHeight = constraints.maxHeight.isFinite
-            ? (constraints.maxHeight - 140).clamp(80.0, 160.0).toDouble()
+            // The "Cabinet Price" line needs ~14 px more below the image.
+            ? (constraints.maxHeight - (_cabinetLine ? 154 : 140))
+                  .clamp(80.0, 160.0)
+                  .toDouble()
             : 125.0;
 
         return _buildGridCardContent(
@@ -138,7 +154,7 @@ class ProductCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (product.discountPercentage > 0)
+                      if (_discount > 0)
                         Positioned(
                           top: 11,
                           left: 11,
@@ -152,7 +168,7 @@ class ProductCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(10),
                             ),
                             child: Text(
-                              '${product.discountPercentage}% OFF',
+                              '$_discount% OFF',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 9,
@@ -209,7 +225,7 @@ class ProductCard extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     // MRP 0 = not available: never "MRP ₹0".
-                                    if (product.mrp > 0)
+                                    if (_showMrp)
                                       Text(
                                         'MRP ${rupee(product.mrp)}',
                                         style: const TextStyle(
@@ -220,7 +236,7 @@ class ProductCard extends StatelessWidget {
                                         ),
                                       ),
                                     Text(
-                                      rupee(product.dealerPrice),
+                                      rupee(_shownPrice),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
@@ -232,7 +248,8 @@ class ProductCard extends StatelessWidget {
                                         letterSpacing: -0.5,
                                       ),
                                     ),
-                                    CabinetPriceText(product, fontSize: 11),
+                                    if (_cabinetLine)
+                                      CabinetPriceText(product, fontSize: 11),
                                   ],
                                 ),
                               ),
@@ -350,7 +367,7 @@ class ProductCard extends StatelessWidget {
                     ),
                   ),
                   // Discount Badge
-                  if (product.discountPercentage > 0)
+                  if (_discount > 0)
                     Positioned(
                       top: 8,
                       left: 8,
@@ -364,7 +381,7 @@ class ProductCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          '${product.discountPercentage}% OFF',
+                          '$_discount% OFF',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 9,
@@ -463,7 +480,7 @@ class ProductCard extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 // MRP Struck through (hidden when 0 = not available)
-                                if (product.mrp > 0)
+                                if (_showMrp)
                                   Text(
                                     'MRP ${rupee(product.mrp)}',
                                     style: const TextStyle(
@@ -474,7 +491,7 @@ class ProductCard extends StatelessWidget {
                                   ),
                                 // Dealer Price
                                 Text(
-                                  rupee(product.dealerPrice),
+                                  rupee(_shownPrice),
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w900,
@@ -483,7 +500,8 @@ class ProductCard extends StatelessWidget {
                                         : const Color(0xFF0F172A),
                                   ),
                                 ),
-                                CabinetPriceText(product, fontSize: 10),
+                                if (_cabinetLine)
+                                  CabinetPriceText(product, fontSize: 10),
                               ],
                             ),
                           ),
@@ -616,11 +634,12 @@ class ProductCard extends StatelessWidget {
                           ),
                         ],
                       ),
-                      CabinetPriceText(
-                        product,
-                        fontSize: 10.5,
-                        padding: const EdgeInsets.only(top: 4),
-                      ),
+                      if (_cabinetLine)
+                        CabinetPriceText(
+                          product,
+                          fontSize: 10.5,
+                          padding: const EdgeInsets.only(top: 4),
+                        ),
                       const SizedBox(height: 6),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -628,7 +647,7 @@ class ProductCard extends StatelessWidget {
                           Row(
                             children: [
                               Text(
-                                rupee(product.dealerPrice),
+                                rupee(_shownPrice),
                                 style: TextStyle(
                                   fontSize: 15,
                                   fontWeight: FontWeight.w900,
@@ -639,7 +658,7 @@ class ProductCard extends StatelessWidget {
                               ),
                               const SizedBox(width: 6),
                               // MRP 0 = not available: not shown.
-                              if (product.mrp > 0)
+                              if (_showMrp)
                                 Text(
                                   rupee(product.mrp),
                                   style: const TextStyle(
@@ -648,7 +667,7 @@ class ProductCard extends StatelessWidget {
                                     color: Colors.grey,
                                   ),
                                 ),
-                              if (product.discountPercentage > 0) ...[
+                              if (_discount > 0) ...[
                                 const SizedBox(width: 6),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
@@ -661,7 +680,7 @@ class ProductCard extends StatelessWidget {
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Text(
-                                    '${product.discountPercentage}% OFF',
+                                    '$_discount% OFF',
                                     style: const TextStyle(
                                       color: Color(0xFFEF4444),
                                       fontSize: 8.5,

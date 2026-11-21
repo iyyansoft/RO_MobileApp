@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../../../core/network/api_client.dart';
+import '../../../../core/widgets/brand_logo.dart' show kBrandLogoAsset;
 import '../../domain/models/product_model.dart';
 import '../../domain/models/product_share.dart';
 
@@ -20,9 +21,11 @@ const Color _accent = Color(0xFF0B5FD9);
 const Color _accentSoft = Color(0xFFE6F0FD);
 const Color _photoPanel = Colors.white;
 const Color _line = Color(0xFFE2E8F0);
-const String _logoAsset = 'assets/images/RO_LOGO.png';
+const String _logoAsset = kBrandLogoAsset;
 
-/// The text printed on the share card, top to bottom. Prices come only from
+/// The text printed on the share card, top to bottom: category, name, SKU and
+/// MRP only (description, specifications and features go in the WhatsApp
+/// message text, so the product photo stays large). Prices come only from
 /// [ProductModel.mrp]: the dealer and purchase prices are never read.
 List<String> shareCardText(ProductModel product) => [
   if (product.categoryName.trim().isNotEmpty)

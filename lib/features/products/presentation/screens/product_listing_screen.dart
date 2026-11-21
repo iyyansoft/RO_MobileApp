@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../../core/widgets/loading_skeleton.dart';
+import '../../domain/category_price_view.dart';
 import '../../domain/models/category_model.dart';
 import '../../domain/models/product_model.dart';
 import '../providers/product_provider.dart';
@@ -254,6 +255,7 @@ class _ProductListingScreenState extends ConsumerState<_ProductListingContent> {
                     contentWidth,
                     filterState.isGridView,
                     isDark,
+                    priceViewFor(selected),
                   ),
                 if (filterState.isLoadingMore)
                   const SliverToBoxAdapter(
@@ -337,6 +339,7 @@ class _ProductListingScreenState extends ConsumerState<_ProductListingContent> {
     double contentWidth,
     bool grid,
     bool isDark,
+    ProductPriceView view,
   ) {
     final columns = _columns(contentWidth, grid);
     final spacing = contentWidth < 600 ? 16.0 : 24.0;
@@ -344,7 +347,7 @@ class _ProductListingScreenState extends ConsumerState<_ProductListingContent> {
     // List view: wide rows on tablet/desktop; phones keep the tile.
     final rows = !grid && contentWidth >= 760;
     final extent = rows
-        ? ListingProductCard.rowExtentFor(products)
+        ? ListingProductCard.rowExtentFor(products, view)
         : ListingProductCard.tileExtent(cardWidth);
 
     return SliverPadding(
@@ -363,7 +366,8 @@ class _ProductListingScreenState extends ConsumerState<_ProductListingContent> {
             product: product,
             layout: rows ? ListingCardLayout.row : ListingCardLayout.tile,
             isDark: isDark,
-            onTap: () => _openProductDetails(product),
+            priceView: view,
+            onTap: () => _openProductDetails(product, view),
             onAddToCart: (qty) =>
                 addProductToCart(context, ref, product, quantity: qty),
           );
@@ -449,10 +453,11 @@ class _ProductListingScreenState extends ConsumerState<_ProductListingContent> {
     );
   }
 
-  void _openProductDetails(ProductModel product) {
-    Navigator.of(context, rootNavigator: true).push(
+  void _openProductDetails(ProductModel product, ProductPriceView view) {
+    Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => ProductDetailsScreen(product: product),
+        builder: (context) =>
+            ProductDetailsScreen(product: product, priceView: view),
       ),
     );
   }

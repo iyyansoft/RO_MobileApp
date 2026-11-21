@@ -452,7 +452,7 @@ class SupabaseDealerDataRepository {
       return {
         'orderId': '${row['order_id'] ?? ''}',
         'orderAmount': _double(row['order_amount']),
-        'pointsEarned': _int(row['points_earned']),
+        'pointsEarned': _double(row['points_earned']),
         'createdAt': _date(row['created_at']).toIso8601String(),
         'description': row['order_id'] == null
             ? 'Reward activity'
@@ -460,10 +460,10 @@ class SupabaseDealerDataRepository {
       };
     }).toList();
     return {
-      'totalPoints': _int(user['reward_points']),
-      'totalPointsEarned': history.fold<int>(
+      'totalPoints': _double(user['reward_points']),
+      'totalPointsEarned': history.fold<double>(
         0,
-        (sum, entry) => sum + _int(entry['pointsEarned']),
+        (sum, entry) => sum + _double(entry['pointsEarned']),
       ),
       'history': history,
     };

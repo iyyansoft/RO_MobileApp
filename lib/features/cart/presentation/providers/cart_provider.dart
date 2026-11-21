@@ -39,9 +39,14 @@ class CartState {
   /// included when [withGst] is true, i.e. at checkout.
   OrderTotals totals(PricingRules rules, {bool withGst = false}) =>
       OrderTotals.compute(
-        items.map(
-          (i) => (unitPrice: i.product.dealerPrice, quantity: i.quantity),
-        ),
+        // Normal lines at Dealer Price (dealer discount applies); bulk lines
+        // at the bulk price with no dealer discount.
+        items
+            .where((i) => !i.isBulk)
+            .map((i) => (unitPrice: i.unitPrice, quantity: i.quantity)),
+        undiscountedLines: items
+            .where((i) => i.isBulk)
+            .map((i) => (unitPrice: i.unitPrice, quantity: i.quantity)),
         rules: rules,
         withGst: withGst,
       );
@@ -142,7 +147,50 @@ class CartNotifier extends StateNotifier<CartState> {
     }
   }
 
-  Future<void> addToCart(ProductModel product, {int? quantity}) async {
+  Future<void> addToCart(
+    ProductModel product, {
+    int? quantity,
+    PurchaseMode mode = PurchaseMode.normal,
+  }) async {
+    final lines = state.items.where((item) => item.product.id == product.id);
+    // A product is in the cart normally OR in bulk (the server refuses mixing
+    // too); one is never turned into the other.
+    if (lines.isNotEmpty && lines.first.mode != mode) {
+      throw StateError(
+        lines.first.isBulk
+            ? '${product.name} is already in your cart as a Bulk Order. '
+                  'Remove it from the cart to buy it normally.'
+            : '${product.name} is already in your cart as a normal purchase. '
+                  'Remove it from the cart to buy it in bulk.',
+      );
+    }
+    final inCart = lines.fold<int>(0, (sum, item) => sum + item.quantity);
+    if (mode == PurchaseMode.bulk) {
+      // Bulk rule (bulk_orders.js): minimum, then whole steps; the server
+      // checks again and prices the line itself.
+      if (!product.hasBulkOffer) {
+        throw StateError('${product.name} is not available in Bulk Orders.');
+      }
+      if (SupabaseConfig.dealerDataSessionActive) {
+        throw StateError('Bulk Orders are not available yet.');
+      }
+      final qty = quantity ?? product.bulkMinQty!;
+      if (!product.isValidBulkQuantity(inCart + qty)) {
+        throw StateError(
+          'Bulk quantity for ${product.name} starts at '
+          '${product.bulkMinQty} and goes up in steps of ${product.bulkStep}.',
+        );
+      }
+      await _sync(
+        'cart/add',
+        data: {
+          'productId': product.id,
+          'quantity': qty,
+          'purchaseMode': 'bulk',
+        },
+      );
+      return;
+    }
     // Same rule as the server (order_rules.js): a cart line holds 1 up to the
     // product maximum (the PDF quantity for the PDF catalogue) and the stock.
     // The server checks again.
@@ -150,9 +198,6 @@ class CartNotifier extends StateNotifier<CartState> {
     if (qty < 1) {
       throw StateError('Quantity must be at least 1.');
     }
-    final inCart = state.items
-        .where((item) => item.product.id == product.id)
-        .fold<int>(0, (sum, item) => sum + item.quantity);
     if (product.exceedsMaximum(inCart + qty)) {
       throw MaxOrderQuantityExceeded(product.maxOrderQuantity!);
     }
@@ -166,6 +211,17 @@ class CartNotifier extends StateNotifier<CartState> {
     final items = state.items.where((i) => i.product.id == productId);
     if (items.isEmpty || newQuantity < 0) return false;
     final product = items.first.product;
+    if (items.first.isBulk) {
+      // Bulk lines move in whole steps and never go below the minimum
+      // (removing the line is a separate action).
+      if (!product.isValidBulkQuantity(newQuantity)) return false;
+      _sync(
+        'cart/update',
+        method: 'put',
+        data: {'productId': productId, 'quantity': newQuantity},
+      ).catchError((Object _) {});
+      return true;
+    }
     // Going below the MOQ removes the line (it cannot be ordered smaller).
     if (newQuantity == 0 || newQuantity < product.minOrderQty) {
       removeItem(productId);
@@ -236,6 +292,7 @@ class CartNotifier extends StateNotifier<CartState> {
         return CartItemModel(
           product: matches.isEmpty ? fallback : matches.first,
           quantity: int.tryParse('${json['quantity']}') ?? 1,
+          mode: PurchaseMode.fromApi(json['purchase_mode']),
         );
       }).toList();
       _set(CartState(items: items));

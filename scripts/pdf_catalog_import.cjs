@@ -199,10 +199,13 @@ async function applyDatabaseChanges(client, { rows, expectedSampleIds, expectedG
       if (JSON.stringify(bRest) !== JSON.stringify(aRest)) throw new Error(`order line ${b.id} changed beyond its SKU`);
       if (String(bs || '').trim() && bs !== as) throw new Error(`order line ${b.id}: an existing SKU was changed`);
     }
-    const genuineAfter = await q(`SELECT * FROM products WHERE id NOT LIKE '${SAMPLE_LIKE}' AND id NOT LIKE 'PDF\\_%' ORDER BY id`);
+    // Every product that existed before (including PDF_CAB_ Cabinet products
+    // already in the database) must be exactly as it was.
+    const newIds = rows.map(r => r.id);
+    const genuineAfter = await q(`SELECT * FROM products WHERE id NOT LIKE '${SAMPLE_LIKE}' AND NOT (id = ANY($1)) ORDER BY id`, [newIds]);
     if (JSON.stringify(genuineAfter) !== JSON.stringify(genuineBefore)) throw new Error('a genuine product changed');
     if ((await q(`SELECT count(*)::int AS n FROM products WHERE id LIKE '${SAMPLE_LIKE}'`))[0].n) throw new Error('SAMPLE_ products remain');
-    const inserted = await q(`SELECT id, sku, name, category_id, category_key, price, mrp, moq, img, stock_quantity, status FROM products WHERE id LIKE 'PDF\\_%' ORDER BY id`);
+    const inserted = await q(`SELECT id, sku, name, category_id, category_key, price, mrp, moq, img, stock_quantity, status FROM products WHERE id = ANY($1) ORDER BY id`, [newIds]);
     if (inserted.length !== rows.length) throw new Error(`${inserted.length} PDF products in the table, expected ${rows.length}`);
     const byId = Object.fromEntries(inserted.map(r => [r.id, r]));
     for (const r of rows) {
@@ -251,7 +254,10 @@ async function rollbackFromBackup(client, backupDir) {
   const lines = backupRows(backupDir, 'order_items').filter(l => String(l.product_id).startsWith('SAMPLE_'));
   await client.query('BEGIN');
   try {
-    const removed = affected(await client.query("DELETE FROM products WHERE id LIKE 'PDF\\_%'"));
+    // Only the PDF_ products the import added: any product already in the
+    // backup (e.g. the PDF_CAB_ Cabinet products) is never removed.
+    const backedUpIds = backupRows(backupDir, 'products').map(p => String(p.id));
+    const removed = affected(await client.query("DELETE FROM products WHERE id LIKE 'PDF\\_%' AND NOT (id = ANY($1))", [backedUpIds]));
     for (const p of products) await insertRow(client, 'products', p);
     for (const c of carts) await insertRow(client, 'cart_items', c);
     let skuReset = 0;

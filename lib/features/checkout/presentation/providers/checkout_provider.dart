@@ -397,8 +397,10 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
                 'id': i.product.id,
                 'name': i.product.name,
                 'brand': i.product.brand,
-                'numericPrice': i.product.dealerPrice,
+                'numericPrice': i.unitPrice,
                 'quantity': i.quantity,
+                // The server prices each line by its mode (bulk_orders.js).
+                'purchaseMode': i.mode.api,
                 'imgSrc': i.product.imageUrl,
               },
             )
@@ -456,12 +458,24 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
               pending['grandTotal'] != payload['grandTotal'] ||
               jsonEncode(
                     (pending['items'] as List)
-                        .map((item) => [item['id'], item['quantity']])
+                        .map(
+                          (item) => [
+                            item['id'],
+                            item['quantity'],
+                            item['purchaseMode'] ?? 'normal',
+                          ],
+                        )
                         .toList(),
                   ) !=
                   jsonEncode(
                     cart.items
-                        .map((item) => [item.product.id, item.quantity])
+                        .map(
+                          (item) => [
+                            item.product.id,
+                            item.quantity,
+                            item.mode.api,
+                          ],
+                        )
                         .toList(),
                   )) {
             throw StateError(
@@ -532,12 +546,24 @@ class CheckoutNotifier extends StateNotifier<CheckoutState> {
             pending['grandTotal'] != payload['grandTotal'] ||
             jsonEncode(
                   (pending['items'] as List)
-                      .map((item) => [item['id'], item['quantity']])
+                      .map(
+                        (item) => [
+                          item['id'],
+                          item['quantity'],
+                          item['purchaseMode'] ?? 'normal',
+                        ],
+                      )
                       .toList(),
                 ) !=
                 jsonEncode(
                   cart.items
-                      .map((item) => [item.product.id, item.quantity])
+                      .map(
+                        (item) => [
+                          item.product.id,
+                          item.quantity,
+                          item.mode.api,
+                        ],
+                      )
                       .toList(),
                 )) {
           throw StateError(

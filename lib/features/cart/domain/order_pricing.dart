@@ -109,18 +109,26 @@ class OrderTotals {
     Iterable<PricedLine> lines, {
     required PricingRules rules,
     bool withGst = false,
+    // Bulk Orders lines: in the subtotal, but no dealer discount (same rule
+    // as the server, pricing_rules.js).
+    Iterable<PricedLine> undiscountedLines = const [],
   }) {
     var subtotal = 0;
+    var discountable = 0;
     var count = 0;
-    for (final line in lines) {
+    for (final (line, discounted) in [
+      for (final l in lines) (l, true),
+      for (final l in undiscountedLines) (l, false),
+    ]) {
       // Skip lines that can't be ordered (invalid price or quantity).
       if (!line.unitPrice.isFinite || line.quantity < 1) continue;
       final unit = _paise(line.unitPrice);
       if (unit <= 0) continue;
       subtotal += unit * line.quantity;
+      if (discounted) discountable += unit * line.quantity;
       count += line.quantity;
     }
-    final discount = (subtotal * rules.dealerDiscountPercent / 100).round();
+    final discount = (discountable * rules.dealerDiscountPercent / 100).round();
     final taxable = subtotal - discount;
     final gst = withGst ? (taxable * rules.gstPercent / 100).round() : 0;
     final delivery = subtotal == 0 || subtotal > _paise(rules.freeDeliveryAbove)
@@ -160,9 +168,11 @@ class OrderTotals {
   bool get freeDelivery => !isEmpty && deliveryPaise == 0;
 }
 
-/// "Gold Dealer Discount (10%)".
-String discountLabel(PricingRules rules) =>
-    '${rules.dealerTierLabel} Discount (${formatPercent(rules.dealerDiscountPercent)}%)';
+/// "Gold Dealer Discount (10%)"; with Bulk Orders lines in the cart it adds
+/// that they are not discounted.
+String discountLabel(PricingRules rules, {bool hasBulk = false}) =>
+    '${rules.dealerTierLabel} Discount (${formatPercent(rules.dealerDiscountPercent)}%)'
+    '${hasBulk ? ' · not on Bulk Orders' : ''}';
 
 /// 10 → "10", 12.5 → "12.5".
 String formatPercent(double value) => value == value.roundToDouble()

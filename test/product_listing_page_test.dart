@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:ro_wholesale_dealer_app/features/cart/domain/models/cart_item_model.dart';
 import 'package:ro_wholesale_dealer_app/core/network/api_client.dart';
 import 'package:ro_wholesale_dealer_app/features/cart/presentation/providers/cart_provider.dart';
 import 'package:ro_wholesale_dealer_app/features/products/domain/models/category_model.dart';
@@ -27,7 +28,11 @@ class _RecordingCart extends CartNotifier {
   Future<void> refreshCart() async {}
 
   @override
-  Future<void> addToCart(ProductModel product, {int? quantity}) async {
+  Future<void> addToCart(
+    ProductModel product, {
+    int? quantity,
+    PurchaseMode mode = PurchaseMode.normal,
+  }) async {
     added.add((product.id, quantity ?? 1));
   }
 }
@@ -74,10 +79,22 @@ ProductModel _p(
 final _products = [
   _p('SYS-25', 'Commercial RO System 25 LPH', _categories[0], 16500, 22000),
   _p('SYS-50', 'Commercial RO System 50 LPH', _categories[0], 24500, 32000),
-  _p('SYS-10', 'Domestic RO System 10 L', _categories[0], 7500, 9500,
-      brand: 'Kent'),
-  _p('MEM-75', 'RO Membrane 75 GPD', _categories[1], 650, 900,
-      stock: StockStatus.outOfStock),
+  _p(
+    'SYS-10',
+    'Domestic RO System 10 L',
+    _categories[0],
+    7500,
+    9500,
+    brand: 'Kent',
+  ),
+  _p(
+    'MEM-75',
+    'RO Membrane 75 GPD',
+    _categories[1],
+    650,
+    900,
+    stock: StockStatus.outOfStock,
+  ),
 ];
 
 Future<(_RecordingCart, GoRouter)> _pump(
@@ -127,7 +144,8 @@ Future<(_RecordingCart, GoRouter)> _pump(
       child: MaterialApp.router(
         debugShowCheckedModeBanner: false,
         routerConfig: router,
-        builder: (context, child) => RepaintBoundary(key: shotKey, child: child),
+        builder: (context, child) =>
+            RepaintBoundary(key: shotKey, child: child),
       ),
     ),
   );
@@ -147,7 +165,9 @@ void main() {
     if (previewFont != null && File(previewFont).existsSync()) {
       final loader = FontLoader('Roboto')
         ..addFont(
-          Future.value(ByteData.sublistView(File(previewFont).readAsBytesSync())),
+          Future.value(
+            ByteData.sublistView(File(previewFont).readAsBytesSync()),
+          ),
         );
       await loader.load();
     }
@@ -163,10 +183,12 @@ void main() {
     });
     await tester.pump();
     await tester.runAsync(() async {
-      final b = key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final b =
+          key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
       final img = await b.toImage();
       final bytes = await img.toByteData(format: ui.ImageByteFormat.png);
-      File('$previewDir/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+      File('$previewDir/$name.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
     });
   }
 
@@ -198,10 +220,13 @@ void main() {
       // Only this category's products, as cards with equal heights.
       expect(_cards(), findsNWidgets(3));
       final rects = [
-        for (final e in _cards().evaluate()) tester.getRect(find.byWidget(e.widget)),
+        for (final e in _cards().evaluate())
+          tester.getRect(find.byWidget(e.widget)),
       ];
       expect({for (final r in rects) r.height.round()}, hasLength(1));
-      final firstRowTop = rects.map((r) => r.top).reduce((a, b) => a < b ? a : b);
+      final firstRowTop = rects
+          .map((r) => r.top)
+          .reduce((a, b) => a < b ? a : b);
       expect(
         rects.where((r) => (r.top - firstRowTop).abs() < 1).length,
         columns,
@@ -249,7 +274,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('add-to-cart-SYS-25')));
     await tester.pumpAndSettle();
     expect(cart.added, [('SYS-25', 2)]);
-    expect(find.text('Added Commercial RO System 25 LPH to cart'), findsOneWidget);
+    expect(find.text('Product added to cart successfully'), findsOneWidget);
+    expect(find.text('View Cart'), findsOneWidget);
     // Quantity resets after a successful add.
     expect(
       tester.widget<Text>(inCard(find.byKey(const ValueKey('qty-value')))).data,
@@ -263,7 +289,10 @@ void main() {
     await _pump(tester, 1440);
 
     // Search (by brand).
-    await tester.enterText(find.byKey(const ValueKey('listing-search')), 'kent');
+    await tester.enterText(
+      find.byKey(const ValueKey('listing-search')),
+      'kent',
+    );
     await tester.pumpAndSettle();
     expect(_cards(), findsOneWidget);
     expect(find.text('Domestic RO System 10 L'), findsOneWidget);
@@ -289,7 +318,9 @@ void main() {
     expect(find.byType(SortBottomSheet), findsOneWidget);
     final lowToHigh = find.descendant(
       of: find.byType(SortBottomSheet),
-      matching: find.textContaining(RegExp('Low to High', caseSensitive: false)),
+      matching: find.textContaining(
+        RegExp('Low to High', caseSensitive: false),
+      ),
     );
     if (lowToHigh.evaluate().isNotEmpty) {
       await tester.tap(lowToHigh.first);

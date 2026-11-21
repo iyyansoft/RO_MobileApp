@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../auth/domain/models/user_model.dart';
 import '../../../cart/domain/order_pricing.dart' show formatInr;
+import '../../domain/reward_summary.dart';
 
 const kProfileBlue = Color(0xFF0B5FC4);
 const _ink = Color(0xFF0F172A);
@@ -314,24 +315,29 @@ class AccountStatusBadge extends StatelessWidget {
   }
 }
 
-/// Reward points total and transaction history (from the backend).
+/// Reward Points: balance and its ₹ value, totals, Free Claim progress
+/// toward ₹1,00,000 of cumulative purchases, and the reward history. Every
+/// figure comes from the backend ([RewardSummary]).
 class RewardsCard extends StatefulWidget {
   const RewardsCard({
     super.key,
-    required this.totalPoints,
-    required this.history,
-    this.totalEarned,
+    required this.summary,
+    this.onClaim,
     this.isDark = false,
   });
 
-  final int totalPoints;
-  final int? totalEarned;
-  final List<Map> history;
+  final RewardSummary summary;
+
+  /// Opens the claim dialog; only offered when Free Claim is unlocked.
+  final VoidCallback? onClaim;
   final bool isDark;
 
   @override
   State<RewardsCard> createState() => _RewardsCardState();
 }
+
+const _amber = Color(0xFFD97706);
+const _amberDeep = Color(0xFF92400E);
 
 class _RewardsCardState extends State<RewardsCard> {
   static const _preview = 4;
@@ -339,98 +345,107 @@ class _RewardsCardState extends State<RewardsCard> {
 
   @override
   Widget build(BuildContext context) {
-    final history = widget.history;
+    final s = widget.summary;
+    final isDark = widget.isDark;
+    final history = s.history;
     final shown = _all ? history : history.take(_preview).toList();
     return ProfileSectionCard(
       title: 'Reward Points',
       icon: Icons.stars_rounded,
-      iconColor: const Color(0xFFD97706),
-      isDark: widget.isDark,
+      iconColor: _amber,
+      isDark: isDark,
+      trailing: _FreeClaimBadge(unlocked: s.unlocked),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xFFFFF7E6), Color(0xFFFFEDD5)],
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Available points',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF92400E),
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          formatInr(
-                            widget.totalPoints.toDouble(),
-                            decimals: false,
-                          ).substring(1),
-                          key: const ValueKey('reward-total'),
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF7C2D12),
-                            height: 1.1,
-                          ),
-                        ),
-                      ),
-                      if (widget.totalEarned != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          '${widget.totalEarned} earned from orders',
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            color: Color(0xFF92400E),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+          _balancePanel(s),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, c) {
+              final tiles = [
+                _RewardStat(
+                  key: const ValueKey('reward-earned'),
+                  label: 'Total earned',
+                  value: '${formatPoints(s.totalEarned)} pts',
+                  icon: Icons.trending_up_rounded,
+                  color: _green,
+                  isDark: isDark,
                 ),
-                const Icon(
-                  Icons.workspace_premium_rounded,
-                  size: 44,
-                  color: Color(0xFFF59E0B),
+                _RewardStat(
+                  key: const ValueKey('reward-redeemed'),
+                  label: 'Total redeemed',
+                  value: '${formatPoints(s.totalRedeemed)} pts',
+                  icon: Icons.redeem_rounded,
+                  color: kProfileBlue,
+                  isDark: isDark,
                 ),
-              ],
-            ),
+              ];
+              if (c.maxWidth < 330) {
+                return Column(
+                  children: [tiles[0], const SizedBox(height: 10), tiles[1]],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: tiles[0]),
+                  const SizedBox(width: 10),
+                  Expanded(child: tiles[1]),
+                ],
+              );
+            },
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
+          _freeClaimPanel(s),
+          const SizedBox(height: 18),
+          Row(
+            children: [
+              Text(
+                'Reward activity',
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w700,
+                  color: isDark ? Colors.white : _ink,
+                ),
+              ),
+              const Spacer(),
+              if (history.isNotEmpty)
+                Text(
+                  '${history.length}',
+                  style: const TextStyle(fontSize: 12.5, color: _muted),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
           if (history.isEmpty)
             const _EmptyNote(
-              'No reward activity yet. Points are earned on every order.',
+              'No reward activity yet. Every order earns 2.5% back in points.',
             )
           else ...[
             for (var i = 0; i < shown.length; i++) ...[
-              if (i > 0) const Divider(height: 1, color: _line),
-              _RewardRow(entry: shown[i], isDark: widget.isDark),
+              if (i > 0)
+                Divider(
+                  height: 1,
+                  color: isDark ? const Color(0xFF1E2D3D) : _line,
+                ),
+              _RewardRow(entry: shown[i], isDark: isDark),
             ],
             if (history.length > _preview)
               Align(
                 alignment: Alignment.centerLeft,
-                child: TextButton(
+                child: TextButton.icon(
+                  key: const ValueKey('reward-view-all'),
                   onPressed: () => setState(() => _all = !_all),
-                  child: Text(
+                  iconAlignment: IconAlignment.end,
+                  icon: Icon(
+                    _all
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                  ),
+                  label: Text(
                     _all
                         ? 'Show less'
-                        : 'View all ${history.length} activities',
+                        : 'View all ${history.length} reward activities',
                   ),
                 ),
               ),
@@ -439,38 +454,370 @@ class _RewardsCardState extends State<RewardsCard> {
       ),
     );
   }
+
+  Widget _balancePanel(RewardSummary s) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 18, 18, 18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFFFFF7E6), Color(0xFFFFE7C2)],
+        ),
+        border: Border.all(color: const Color(0xFFFCD9A0)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Available reward points',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: _amberDeep,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    formatPoints(s.availablePoints),
+                    key: const ValueKey('reward-total'),
+                    style: const TextStyle(
+                      fontSize: 34,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF7C2D12),
+                      height: 1.1,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Worth ${formatInr(s.availableValue)}',
+                    key: const ValueKey('reward-value'),
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: _amberDeep,
+                    ),
+                  ),
+                ),
+                if (s.pendingRedemption > 0) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    '${formatPoints(s.pendingRedemption)} pts awaiting claim approval',
+                    key: const ValueKey('reward-pending'),
+                    style: const TextStyle(fontSize: 12, color: _amberDeep),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.65),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.workspace_premium_rounded,
+              size: 34,
+              color: Color(0xFFF59E0B),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _freeClaimPanel(RewardSummary s) {
+    final isDark = widget.isDark;
+    final unlocked = s.unlocked;
+    final accent = unlocked ? _green : kProfileBlue;
+    return Container(
+      key: const ValueKey('reward-free-claim'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark
+            ? const Color(0xFF0F1B2A)
+            : (unlocked ? const Color(0xFFECFDF5) : const Color(0xFFF5F8FD)),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? const Color(0xFF1E2D3D)
+              : (unlocked ? const Color(0xFFA7F3D0) : _line),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(
+                unlocked ? Icons.lock_open_rounded : Icons.lock_outline_rounded,
+                size: 18,
+                color: accent,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  unlocked ? 'Free Claim Unlocked' : 'Free Claim progress',
+                  key: const ValueKey('reward-claim-status'),
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : (unlocked ? _green : _ink),
+                  ),
+                ),
+              ),
+              Text(
+                '${(s.progress * 100).floor()}%',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: accent,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              key: const ValueKey('reward-progress'),
+              value: s.progress,
+              minHeight: 8,
+              backgroundColor: isDark
+                  ? const Color(0xFF1E2D3D)
+                  : const Color(0xFFDDE6F2),
+              valueColor: AlwaysStoppedAnimation(accent),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${formatInr(s.eligiblePurchase)} of ${formatInr(s.threshold, decimals: false)} in purchases',
+            key: const ValueKey('reward-purchased'),
+            style: const TextStyle(fontSize: 12.5, color: _muted),
+          ),
+          const SizedBox(height: 10),
+          if (!unlocked)
+            Text.rich(
+              key: const ValueKey('reward-remaining'),
+              TextSpan(
+                style: TextStyle(
+                  fontSize: 13.5,
+                  color: isDark ? Colors.white70 : _ink,
+                ),
+                children: [
+                  const TextSpan(text: 'Purchase '),
+                  TextSpan(
+                    text: formatInr(s.remaining),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const TextSpan(text: ' more to unlock Free Claim.'),
+                ],
+              ),
+            )
+          else
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              alignment: WrapAlignment.spaceBetween,
+              children: [
+                Text(
+                  s.canClaim
+                      ? 'Redeem up to ${formatPoints(s.availablePoints)} pts (${formatInr(s.availableValue)}).'
+                      : 'No points available to claim right now.',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: isDark ? Colors.white70 : _ink,
+                  ),
+                ),
+                FilledButton.icon(
+                  key: const ValueKey('reward-claim'),
+                  onPressed: s.canClaim ? widget.onClaim : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _green,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.redeem_rounded, size: 18),
+                  label: const Text(
+                    'Claim points',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FreeClaimBadge extends StatelessWidget {
+  const _FreeClaimBadge({required this.unlocked});
+
+  final bool unlocked;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = unlocked ? _green : _muted;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            unlocked ? Icons.verified_rounded : Icons.lock_outline_rounded,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            unlocked ? 'Eligible' : 'Not yet eligible',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RewardStat extends StatelessWidget {
+  const _RewardStat({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+    required this.isDark,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+  final bool isDark;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: isDark ? const Color(0xFF0F1B2A) : Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: isDark ? const Color(0xFF1E2D3D) : _line),
+    ),
+    child: Row(
+      children: [
+        ProfileIconBadge(icon: icon, color: color, size: 34),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: _muted),
+              ),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  style: TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                    color: isDark ? Colors.white : _ink,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _RewardRow extends StatelessWidget {
   const _RewardRow({required this.entry, required this.isDark});
 
-  final Map entry;
+  final RewardEntry entry;
   final bool isDark;
 
   @override
   Widget build(BuildContext context) {
-    final points =
-        num.tryParse('${entry['pointsEarned'] ?? entry['points'] ?? 0}') ?? 0;
-    final earned = points >= 0;
-    final orderId = '${entry['orderId'] ?? ''}'.trim();
-    final description = '${entry['description'] ?? entry['reason'] ?? ''}'
-        .trim();
-    final title = description.isNotEmpty
-        ? description
-        : (orderId.isNotEmpty
-              ? (earned
-                    ? 'Earned on order #$orderId'
-                    : 'Redeemed on order #$orderId')
-              : 'Reward activity');
-    final amount = num.tryParse('${entry['orderAmount'] ?? ''}');
-    final date = formatProfileDate(
-      '${entry['date'] ?? entry['createdAt'] ?? ''}',
-    );
+    final e = entry;
+    final id = e.orderId;
+    final String title;
+    final double points;
+    switch (e.type) {
+      case 'redeemed':
+        title = 'Free Claim request';
+        points = -e.pointsRedeemed;
+      case 'reversed':
+        title = id != null
+            ? 'Reversed: order #$id cancelled'
+            : 'Points reversed';
+        points = e.pointsEarned;
+      case 'reinstated':
+        title = id != null ? 'Restored on order #$id' : 'Points restored';
+        points = e.pointsEarned;
+      default:
+        title = id != null
+            ? 'Earned on order #$id'
+            : 'Earned on earlier purchases';
+        points = e.pointsEarned;
+    }
+    final date = e.isClaim ? (e.date) : (e.orderDate ?? e.date);
+    final dateText = date == null
+        ? null
+        : formatProfileDate(date.toIso8601String());
     final subtitle = [
-      if (date != null) date,
-      if (amount != null && amount > 0) 'Order ${formatInr(amount.toDouble())}',
+      if (dateText != null) dateText,
+      if (!e.isClaim && e.orderAmount != 0)
+        'Order ${formatInr(e.orderAmount.abs())}',
+      if (e.isClaim) 'Worth ${formatInr(e.pointsRedeemed)}',
     ].join('  •  ');
-    final color = earned ? _green : _red;
+    final muted =
+        e.status == 'rejected' ||
+        (e.type == 'earned' && e.status == 'reversed');
+    final color = muted ? _muted : (points >= 0 ? _green : _red);
+    final pointsText =
+        '${points >= 0 ? '+' : '−'}${formatPoints(points.abs())} pts';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: Row(
@@ -483,7 +830,11 @@ class _RewardRow extends StatelessWidget {
               shape: BoxShape.circle,
             ),
             child: Icon(
-              earned ? Icons.north_east_rounded : Icons.south_west_rounded,
+              e.isClaim
+                  ? Icons.redeem_rounded
+                  : (points >= 0
+                        ? Icons.north_east_rounded
+                        : Icons.south_west_rounded),
               color: color,
               size: 18,
             ),
@@ -514,15 +865,55 @@ class _RewardRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          Text(
-            '${earned ? '+' : '−'}${points.abs()} pts',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                pointsText,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                  decoration: muted ? TextDecoration.lineThrough : null,
+                ),
+              ),
+              const SizedBox(height: 3),
+              _StatusChip(status: e.status),
+            ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final (label, color) = switch (status) {
+      'pending' => ('Pending', _amber),
+      'approved' => ('Approved', kProfileBlue),
+      'rejected' => ('Rejected', _muted),
+      'reversed' => ('Reversed', _red),
+      _ => ('Credited', _green),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
       ),
     );
   }

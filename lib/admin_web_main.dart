@@ -423,7 +423,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       // empty; a saved Dealer Price/MRP of 0 means "not set" and shows empty.
       'brand': TextEditingController(text: '${product?['brand'] ?? ''}'),
       'purchase': TextEditingController(
-        text: '${product?['purchase_price'] ?? product?['purchasePrice'] ?? ''}',
+        text:
+            '${product?['purchase_price'] ?? product?['purchasePrice'] ?? ''}',
       ),
       'dealer': TextEditingController(text: _amountText(product?['price'])),
       'mrp': TextEditingController(text: _amountText(product?['mrp'])),
@@ -620,12 +621,13 @@ class _AdminDashboardState extends State<AdminDashboard> {
                               (cabinetPrice == null || cabinetPrice <= 0)
                           ? 'Cabinet Price must be greater than zero.'
                           : amount('purchase').isNotEmpty &&
-                              (purchase == null || purchase < 0)
+                                (purchase == null || purchase < 0)
                           ? 'Purchase price must be zero or more.'
                           : amount('dealer').isNotEmpty &&
                                 (price == null || price <= 0)
                           ? 'Dealer price must be greater than zero.'
-                          : amount('mrp').isNotEmpty && (mrp == null || mrp <= 0)
+                          : amount('mrp').isNotEmpty &&
+                                (mrp == null || mrp <= 0)
                           ? 'MRP must be greater than zero.'
                           : mrp != null && price != null && mrp < price
                           ? 'MRP cannot be lower than the dealer price.'
@@ -654,9 +656,7 @@ class _AdminDashboardState extends State<AdminDashboard> {
                             'price': price ?? '',
                             'mrp': mrp ?? '',
                             // Saved in its own column; never the Dealer Price.
-                            'cabinet_price': cabinetProduct
-                                ? cabinetPrice
-                                : '',
+                            'cabinet_price': cabinetProduct ? cabinetPrice : '',
                             // Blank on an existing product keeps it blank.
                             'moq': fields['moq']!.text.trim().isEmpty
                                 ? (product == null ? '1' : '')

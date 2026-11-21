@@ -35,20 +35,22 @@ Future<FileShareOutcome> shareImageFile(
   Uint8List bytes,
   String fileName,
   String mimeType,
-  String text,
-) async {
+  String text, {
+  String? title,
+}) async {
   try {
+    // ONE share payload: the image file, the message text and the title.
+    final files = <web.File>[_file(bytes, fileName, mimeType)].toJS;
+    final hasTitle = title != null && title.trim().isNotEmpty;
     await web.window.navigator
         .share(
-          // No text when there is none: only the image is sent.
           text.isEmpty
-              ? web.ShareData(
-                  files: <web.File>[_file(bytes, fileName, mimeType)].toJS,
-                )
-              : web.ShareData(
-                  files: <web.File>[_file(bytes, fileName, mimeType)].toJS,
-                  text: text,
-                ),
+              ? (hasTitle
+                    ? web.ShareData(files: files, title: title)
+                    : web.ShareData(files: files))
+              : (hasTitle
+                    ? web.ShareData(files: files, text: text, title: title)
+                    : web.ShareData(files: files, text: text)),
         )
         .toDart;
     return 'shared';
@@ -57,6 +59,15 @@ Future<FileShareOutcome> shareImageFile(
     if (message.contains('AbortError')) return 'dismissed';
     return 'failed: $message';
   }
+}
+
+/// Whether WhatsApp keeps the text shared together with an image: true on
+/// phones (it becomes the caption, "Add a message"); false in desktop
+/// browsers, where the share goes to WhatsApp Desktop, which takes only the
+/// image.
+bool whatsAppKeepsSharedText() {
+  final agent = web.window.navigator.userAgent.toLowerCase();
+  return RegExp(r'android|iphone|ipad|ipod|mobile').hasMatch(agent);
 }
 
 /// Saves the bytes with the browser's download prompt, so the image can be

@@ -17,7 +17,7 @@ Finder _homeLogo() => find.byWidgetPredicate(
   (widget) =>
       widget is Image &&
       widget.image is AssetImage &&
-      (widget.image as AssetImage).assetName == 'assets/images/RO_LOGO.png',
+      (widget.image as AssetImage).assetName == 'assets/images/neero_logo1.png',
 );
 
 const _products = [

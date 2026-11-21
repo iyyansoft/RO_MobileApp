@@ -111,19 +111,57 @@ Uri whatsAppShareUri(ProductModel product, {String? apiBaseUrl}) => Uri.https(
   {'text': whatsAppShareText(product, apiBaseUrl: apiBaseUrl)},
 );
 
-/// Message sent to WhatsApp: details with MRP only, then the product page
-/// link (last, so WhatsApp builds its photo preview from it).
+/// Optional enquiry line printed on the product card and added to the
+/// WhatsApp message (hidden when empty), set at build time, e.g.
+/// `--dart-define=SHARE_CONTACT="Enquiry: +91 98xxxxxxx · sales@neeroplus.in"`.
+const kShareContact = String.fromEnvironment('SHARE_CONTACT');
+
+/// Specification rows entered in the Admin Dashboard, as (label, value).
+/// Free text saved by the admin form (key "details") has an empty label.
+/// Blank rows are left out.
+List<(String, String)> shareSpecRows(ProductModel product) => [
+  for (final e in product.specifications.entries)
+    if (e.value.trim().isNotEmpty)
+      (
+        e.key.trim().toLowerCase() == 'details' ? '' : e.key.trim(),
+        e.value.trim(),
+      ),
+];
+
+/// Key features entered in the Admin Dashboard (blank lines left out).
+List<String> shareFeatures(ProductModel product) => [
+  for (final f in product.features)
+    if (f.trim().isNotEmpty) f.trim(),
+];
+
+/// WhatsApp message sent with the product image: every detail entered in
+/// the Admin Dashboard as readable text (the image itself shows only the
+/// photo, category, name, SKU and MRP). Sections without data are left out;
+/// the description, specification values and features keep their own line
+/// breaks. MRP only, never the dealer or purchase price. The product page
+/// link comes last.
 String whatsAppShareText(ProductModel product, {String? apiBaseUrl}) {
   final link = productShareUrl(product, apiBaseUrl: apiBaseUrl);
-  return [
-    '*${product.name}*',
-    if (product.mrp > 0) 'MRP: ${mrpSharePrice(product)}',
-    if (product.sku.trim().isNotEmpty) 'SKU: ${product.sku}',
-    if (product.brand.trim().isNotEmpty) 'Brand: ${product.brand}',
+  final description = product.description.trim();
+  final specs = shareSpecRows(product);
+  final features = shareFeatures(product);
+  final blocks = <String>[
+    'Product Name: ${product.name.trim()}',
+    if (product.sku.trim().isNotEmpty) 'SKU: ${product.sku.trim()}',
     if (product.categoryName.trim().isNotEmpty)
-      'Category: ${product.categoryName}',
-    if (product.description.trim().isNotEmpty) product.description.trim(),
-    '',
-    link.toString(),
-  ].join('\n');
+      'Category: ${product.categoryName.trim()}',
+    if (product.brand.trim().isNotEmpty) 'Brand: ${product.brand.trim()}',
+    if (product.mrp > 0) 'MRP: ${mrpSharePrice(product)}',
+    if (description.isNotEmpty) 'DESCRIPTION:\n$description',
+    if (specs.isNotEmpty)
+      'SPECIFICATIONS:\n${specs.map((s) => s.$1.isEmpty ? s.$2 : '${s.$1}: ${s.$2}').join('\n')}',
+    if (features.isNotEmpty)
+      'KEY FEATURES:\n${features.map((f) => '- $f').join('\n')}',
+    'Product Link: $link',
+    [
+      'Contact us for orders and enquiries.',
+      if (kShareContact.trim().isNotEmpty) kShareContact.trim(),
+    ].join('\n'),
+  ];
+  return blocks.join('\n\n');
 }

@@ -34,6 +34,52 @@ class ProductModel {
   /// True when a Cabinet Price should be shown.
   bool get hasCabinetPrice => cabinetPrice != null && cabinetPrice! > 0;
 
+  /// Bulk Orders offer (products.bulk_*; server rule in bulk_orders.js):
+  /// [bulkPrice] per piece, from [bulkMinQty] in steps of [bulkStep]
+  /// (Domestic PDF: one pack, e.g. 42, 84, 126; Mukhil PDF: Mini qty, then
+  /// +1). Null = not sold in Bulk Orders. Never replaces [dealerPrice].
+  final double? bulkPrice;
+  final int? bulkMinQty;
+  final int? bulkStep;
+
+  /// As printed in the PDF, e.g. "42 PCS" or "10 NOS".
+  final String? bulkPackLabel;
+
+  bool get hasBulkOffer =>
+      bulkPrice != null &&
+      bulkPrice! > 0 &&
+      (bulkMinQty ?? 0) >= 1 &&
+      (bulkStep ?? 0) >= 1 &&
+      bulkMinQty! % bulkStep! == 0 &&
+      (bulkPackLabel ?? '').trim().isNotEmpty;
+
+  /// True when [quantity] is a valid bulk quantity (minimum + whole steps).
+  bool isValidBulkQuantity(int quantity) =>
+      hasBulkOffer &&
+      quantity >= bulkMinQty! &&
+      (quantity - bulkMinQty!) % bulkStep! == 0;
+
+  /// Why [quantity] cannot be bought in Bulk Orders, or null (same rule as
+  /// the server, bulk_orders.js: offer, stock, minimum + whole steps). The
+  /// normal-purchase maximum does not apply to bulk lines.
+  String? bulkQuantityProblem(int quantity) {
+    if (!hasBulkOffer) return '$name is not available in Bulk Orders.';
+    if (stockStatus == StockStatus.outOfStock) return '$name is out of stock.';
+    if (!isValidBulkQuantity(quantity)) {
+      return 'Bulk quantity for $name starts at $bulkMinQty and goes up in '
+          'steps of $bulkStep.';
+    }
+    final stock = stockQuantity;
+    if (stock != null && quantity > stock) {
+      return 'Only $stock of $name in stock.';
+    }
+    return null;
+  }
+
+  /// The smallest bulk order: [bulkMinQty] x [bulkPrice].
+  double? get bulkMinimumOrderValue =>
+      hasBulkOffer ? bulkMinQty! * bulkPrice! : null;
+
   double get detailsPrice => purchasePrice ?? dealerPrice;
   final String imageUrl;
   final List<String> galleryImages;
@@ -130,6 +176,10 @@ class ProductModel {
     required this.dealerPrice,
     this.purchasePrice,
     this.cabinetPrice,
+    this.bulkPrice,
+    this.bulkMinQty,
+    this.bulkStep,
+    this.bulkPackLabel,
     required this.imageUrl,
     this.galleryImages = const [],
     required this.stockStatus,
@@ -266,6 +316,13 @@ class ProductModel {
       cabinetPrice: _positiveOrNull(
         json['cabinet_price'] ?? json['cabinetPrice'],
       ),
+      bulkPrice: _positiveOrNull(json['bulk_price'] ?? json['bulkPrice']),
+      bulkMinQty: int.tryParse(
+        '${json['bulk_min_qty'] ?? json['bulkMinQty'] ?? ''}',
+      ),
+      bulkStep: int.tryParse('${json['bulk_step'] ?? json['bulkStep'] ?? ''}'),
+      bulkPackLabel: (json['bulk_pack_label'] ?? json['bulkPackLabel'])
+          ?.toString(),
       imageUrl: '${json['img'] ?? json['imgSrc'] ?? ''}',
       stockStatus: _stockStatus(
         markedOutOfStock: '${json['badge']}'.toLowerCase().contains(
@@ -320,7 +377,9 @@ class ProductModel {
 /// A price above zero, or null (blank, 0 or not a number: never shown as ₹0).
 double? _positiveOrNull(dynamic value) {
   if (value == null) return null;
-  final amount = value is num ? value.toDouble() : double.tryParse('$value'.trim());
+  final amount = value is num
+      ? value.toDouble()
+      : double.tryParse('$value'.trim());
   return amount != null && amount.isFinite && amount > 0 ? amount : null;
 }
 

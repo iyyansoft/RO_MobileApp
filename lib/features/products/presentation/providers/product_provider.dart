@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../domain/models/product_model.dart';
 import '../../domain/models/category_model.dart';
 import '../../domain/cabinet_display_order.dart';
+import '../../domain/category_price_view.dart';
 
 enum SortOption {
   popularity('Popularity'),
@@ -309,7 +310,9 @@ final categoriesProvider = Provider<List<CategoryModel>>((ref) {
   return categories
       .map(
         (category) => category.withProductCount(
-          products.where(category.matchesProduct).length,
+          products
+              .where((p) => categoryIncludes(category, p, categories))
+              .length,
         ),
       )
       .toList();
@@ -343,6 +346,10 @@ List<ProductModel> listingProducts(
   final selectedCategory = selectedCategories.isEmpty
       ? null
       : selectedCategories.first;
+  // Price filter and price sort use the price the page shows (Cabinet Price
+  // on the Cabinets page, Dealer Price elsewhere).
+  final view = priceViewFor(selectedCategory);
+  final price = view.listedPrice;
 
   List<ProductModel> filtered = allProducts.where((product) {
     // 1. Search Query
@@ -359,16 +366,18 @@ List<ProductModel> listingProducts(
 
     // 2. Category Filter
     if (filterState.selectedCategoryId != null) {
-      if (!(selectedCategory?.matchesProduct(product) ??
-          (product.categoryId == filterState.selectedCategoryId))) {
+      // RO Systems also lists the Cabinet products (same records).
+      if (!(selectedCategory != null
+          ? categoryIncludes(selectedCategory, product, categories)
+          : product.categoryId == filterState.selectedCategoryId)) {
         return false;
       }
     }
 
     // 3. Price Filter
-    if (product.dealerPrice < filterState.minPrice ||
+    if (price(product) < filterState.minPrice ||
         (filterState.maxPrice < 30000 &&
-            product.dealerPrice > filterState.maxPrice)) {
+            price(product) > filterState.maxPrice)) {
       return false;
     }
 
@@ -391,10 +400,10 @@ List<ProductModel> listingProducts(
   // Sort
   switch (filterState.sortOption) {
     case SortOption.priceLowToHigh:
-      filtered.sort((a, b) => a.dealerPrice.compareTo(b.dealerPrice));
+      filtered.sort((a, b) => price(a).compareTo(price(b)));
       break;
     case SortOption.priceHighToLow:
-      filtered.sort((a, b) => b.dealerPrice.compareTo(a.dealerPrice));
+      filtered.sort((a, b) => price(b).compareTo(price(a)));
       break;
     case SortOption.discountHighToLow:
       filtered.sort(
@@ -412,7 +421,8 @@ List<ProductModel> listingProducts(
   // Cabinet category, default order: the six 20" housings go last. A sort
   // the dealer picks (price, discount, newest) is left as chosen.
   if (filterState.sortOption == SortOption.popularity &&
-      isCabinetCategory(selectedCategory)) {
+      (isCabinetCategory(selectedCategory) ||
+          isRoSystemsCategory(selectedCategory))) {
     filtered = cabinetDisplayOrder(filtered);
   }
 

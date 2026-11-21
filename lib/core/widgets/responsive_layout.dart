@@ -27,7 +27,8 @@ extension ResponsiveContext on BuildContext {
 
   ScreenType get screenType {
     if (screenWidth < ResponsiveBreakpoints.tabletMin) return ScreenType.mobile;
-    if (screenWidth < ResponsiveBreakpoints.desktopMin) return ScreenType.tablet;
+    if (screenWidth < ResponsiveBreakpoints.desktopMin)
+      return ScreenType.tablet;
     return ScreenType.desktop;
   }
 }
@@ -68,7 +69,8 @@ class ResponsiveBuilder extends StatelessWidget {
     BuildContext context,
     ScreenType screenType,
     BoxConstraints constraints,
-  ) builder;
+  )
+  builder;
 
   const ResponsiveBuilder({super.key, required this.builder});
 
@@ -82,4 +84,3 @@ class ResponsiveBuilder extends StatelessWidget {
     );
   }
 }
-

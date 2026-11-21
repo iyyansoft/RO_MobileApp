@@ -18,6 +18,9 @@ import '../../../features/checkout/presentation/screens/checkout_screen.dart';
 import '../../../features/checkout/presentation/screens/order_success_screen.dart';
 import '../../../features/home/presentation/screens/home_screen.dart';
 import '../../../features/products/presentation/screens/product_details_screen.dart';
+import '../../../features/products/domain/category_price_view.dart';
+import '../../../features/bulk_orders/presentation/screens/bulk_orders_screen.dart';
+import '../../../features/bulk_orders/presentation/screens/bulk_product_details_screen.dart';
 import '../../../features/products/presentation/screens/products_screen.dart';
 import '../../../features/products/presentation/screens/wishlist_screen.dart';
 import '../../../features/orders/presentation/screens/orders_screen.dart';
@@ -28,9 +31,10 @@ import '../../../features/main/presentation/screens/main_navigation_screen.dart'
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(
   debugLabel: 'root',
 );
-final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(
-  debugLabel: 'shell',
-);
+// The customer pages' navigator (inside MainNavigationScreen, which draws
+// the navbar); the navbar uses it to close pages opened on top of a tab.
+final GlobalKey<NavigatorState> _shellNavigatorKey =
+    MainNavigationScreen.shellNavigatorKey;
 
 class AppRouter {
   AppRouter._();
@@ -117,54 +121,6 @@ class AppRouter {
       // Admin Route (web only; the redirect above keeps Android out)
       GoRoute(path: '/admin', builder: (context, state) => const AdminScreen()),
 
-      // 3. Shopping Cart & Checkout Routes
-      GoRoute(
-        path: WishlistScreen.path,
-        builder: (context, state) => const WishlistScreen(),
-      ),
-      GoRoute(
-        path: '/checkout',
-        builder: (context, state) => const CheckoutScreen(),
-      ),
-      GoRoute(
-        path: OrderSuccessScreen.path,
-        redirect: (context, state) =>
-            OrderSuccessScreen.fromQuery(state.uri.queryParameters) == null
-            ? '/orders'
-            : null,
-        builder: (context, state) =>
-            OrderSuccessScreen.fromQuery(state.uri.queryParameters)!,
-      ),
-
-      GoRoute(
-        path: '/products/:id',
-        parentNavigatorKey: _rootNavigatorKey,
-        builder: (context, state) {
-          final productId = state.pathParameters['id'];
-          return Consumer(
-            builder: (context, ref, child) {
-              return ref
-                  .watch(catalogProductsProvider)
-                  .when(
-                    loading: () => const Scaffold(
-                      body: Center(child: CircularProgressIndicator()),
-                    ),
-                    error: (error, stack) =>
-                        Scaffold(body: Center(child: Text('$error'))),
-                    data: (products) {
-                      final matches = products.where((p) => p.id == productId);
-                      if (matches.isEmpty) {
-                        return const Scaffold(
-                          body: Center(child: Text('Product not found')),
-                        );
-                      }
-                      return ProductDetailsScreen(product: matches.first);
-                    },
-                  );
-            },
-          );
-        },
-      ),
       // 4. Main App Shell Routes
       ShellRoute(
         navigatorKey: _shellNavigatorKey,
@@ -172,6 +128,63 @@ class AppRouter {
           return MainNavigationScreen(child: child);
         },
         routes: [
+          // Wishlist, checkout, order confirmation and product details are
+          // inside the shell too, so the main navbar shows on every page.
+          GoRoute(
+            path: WishlistScreen.path,
+            builder: (context, state) => const WishlistScreen(),
+          ),
+          GoRoute(
+            path: '/checkout',
+            builder: (context, state) => const CheckoutScreen(),
+          ),
+          GoRoute(
+            path: OrderSuccessScreen.path,
+            redirect: (context, state) =>
+                OrderSuccessScreen.fromQuery(state.uri.queryParameters) == null
+                ? '/orders'
+                : null,
+            builder: (context, state) =>
+                OrderSuccessScreen.fromQuery(state.uri.queryParameters)!,
+          ),
+
+          GoRoute(
+            path: '/products/:id',
+            builder: (context, state) {
+              final productId = state.pathParameters['id'];
+              return Consumer(
+                builder: (context, ref, child) {
+                  return ref
+                      .watch(catalogProductsProvider)
+                      .when(
+                        loading: () => const Scaffold(
+                          body: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (error, stack) =>
+                            Scaffold(body: Center(child: Text('$error'))),
+                        data: (products) {
+                          final matches = products.where(
+                            (p) => p.id == productId,
+                          );
+                          if (matches.isEmpty) {
+                            return const Scaffold(
+                              body: Center(child: Text('Product not found')),
+                            );
+                          }
+                          // ?view=cabinet | ro-systems keeps the category's
+                          // price format; no view = the standard display.
+                          return ProductDetailsScreen(
+                            product: matches.first,
+                            priceView: ProductPriceView.fromQuery(
+                              state.uri.queryParameters['view'],
+                            ),
+                          );
+                        },
+                      );
+                },
+              );
+            },
+          ),
           GoRoute(
             path: '/home',
             builder: (context, state) => const HomeScreen(),
@@ -183,6 +196,22 @@ class AppRouter {
           GoRoute(
             path: '/categories',
             builder: (context, state) => const ProductsScreen(),
+          ),
+          GoRoute(
+            path: BulkOrdersScreen.path,
+            builder: (context, state) => BulkOrdersScreen(
+              initialCategoryId: state.uri.queryParameters['category'],
+            ),
+            routes: [
+              // Bulk Product Details (bulk pricing; ?category= for Back).
+              GoRoute(
+                path: BulkProductDetailsScreen.routePath,
+                builder: (context, state) => BulkProductDetailsScreen(
+                  productId: state.pathParameters['id']!,
+                  categoryId: state.uri.queryParameters['category'],
+                ),
+              ),
+            ],
           ),
           GoRoute(
             path: '/orders',
