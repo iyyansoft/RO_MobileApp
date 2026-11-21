@@ -26,7 +26,10 @@ module.exports = function installShopRoutes(app, pool, secret, requireAdminAuth)
   const configuredZone = String(process.env.SHOP_TIME_ZONE || 'Asia/Kolkata').trim();
   const shopTimeZone = /^[A-Za-z][A-Za-z0-9_+\-/]{1,63}$/.test(configuredZone) ? configuredZone : 'Asia/Kolkata';
   const localDate = column => `((${column} AT TIME ZONE 'UTC') AT TIME ZONE '${shopTimeZone}')::date`;
-  const localToday = `((CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE '${shopTimeZone}')::date`;
+  // CURRENT_TIMESTAMP already carries a time zone, so it converts straight to
+  // shop-local time. (Converting it via 'UTC' first shifted "today" back by
+  // 5½ hours, so from 00:00 to 11:00 IST the dashboard showed yesterday.)
+  const localToday = `(CURRENT_TIMESTAMP AT TIME ZONE '${shopTimeZone}')::date`;
 
   /**
    * SQL condition limiting orders (alias `o`) to the employee's shop, using the
