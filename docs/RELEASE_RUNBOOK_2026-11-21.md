@@ -65,6 +65,20 @@ production. Every production step needs explicit approval from the owner.
 | 2 migrations | SQL in each migration header (011 first) | only while no bulk lines / decimal points / claims exist; afterwards prefer code rollback |
 | anything | restore the step-1 `pg_dump` | last resort: loses every later change |
 
+## Repository visibility (checked 2026-11-21)
+
+The GitHub repository `iyyansoft/RO_MobileApp` is **public**. Therefore:
+
+* Stock-entry spreadsheets, supplier PDFs, extracted price data, backups, `.env` and signing
+  keys stay outside Git (`.gitignore` covers them). The filled stock sheet lives in
+  `%USERPROFILE%\ro_mobile_build\release_prep\`.
+* The supplier price-list PDFs and extracted price data were committed in `da74ae4` and removed
+  in `3df211f`; they are still downloadable from the public history. Removing them needs a
+  history rewrite and force push (owner decision), or making the repository private.
+* `supabase/.temp/pooler-url` (database user name and host, no password) is tracked from
+  earlier work; now ignored for the future, not deleted.
+* No `.env`, password, API secret, signing key or database dump has ever been committed.
+
 ## Open review items (no action without approval)
 
 * **SAMPLE_ products**: in active use (39 order lines, latest order 2026-11-20, 11 Shop

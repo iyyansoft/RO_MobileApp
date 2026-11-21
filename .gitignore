@@ -43,3 +43,10 @@ assets/product_pdfs/
 # Android release signing (never commit)
 key.properties
 android/key.properties
+
+# Supabase CLI local temp files (never commit)
+supabase/.temp/
+
+# Stock-entry spreadsheets contain supplier prices and stock (repository is public)
+NeeroPlus_Stock_Entry*.xlsx
+*Stock_Entry*.xlsx
