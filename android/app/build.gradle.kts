@@ -53,10 +53,13 @@ android {
     signingConfigs {
         if (hasReleaseKey) {
             create("release") {
+                // Passwords preferably come from NEEROPLUS_KEYSTORE_PASSWORD (set only for
+                // the build by scripts/build-release-aab.ps1), so key.properties holds none.
+                val envPassword = System.getenv("NEEROPLUS_KEYSTORE_PASSWORD")
                 keyAlias = keyProperties.getProperty("keyAlias")
-                keyPassword = keyProperties.getProperty("keyPassword")
+                keyPassword = keyProperties.getProperty("keyPassword") ?: envPassword
                 storeFile = file(keyProperties.getProperty("storeFile"))
-                storePassword = keyProperties.getProperty("storePassword")
+                storePassword = keyProperties.getProperty("storePassword") ?: envPassword
             }
         }
     }

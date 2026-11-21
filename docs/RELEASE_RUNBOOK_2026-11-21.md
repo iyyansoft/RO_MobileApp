@@ -27,7 +27,7 @@ production. Every production step needs explicit approval from the owner.
 | Stock entry from the spreadsheet | only `stock_quantity` changes; blank rows skipped; stale dry run and invalid values refused; rollback exact |
 | Bulk pricing after stock | only stocked products with an offer opened; server: stocked bulk add 200, unstocked 409 OUT_OF_STOCK |
 | Full rollback (bulk, stock, catalogue) | every table identical to before |
-| Admin Dashboard stock edit (real admin.html, headless Chrome) | stock saved; rating and MOQ kept; blank stock refused (fixed in this branch) |
+| Admin Dashboard stock edit (real admin.html, headless Chrome) | only `stock_quantity` changes (whole-row diff on an imported, a Cabinet, a SAMPLE_ and the RO_1 product); blank stock refused (fixed in this branch) |
 | Shop dashboard date fix | old formula gave yesterday 00:00-10:59 IST; new formula correct all day |
 
 ## Sequence (each step: approval -> run -> verify -> continue)
@@ -51,7 +51,8 @@ production. Every production step needs explicit approval from the owner.
 7. **Bulk prices**: `node scripts/bulk_pricing_import.cjs` (dry run lists ready vs waiting),
    then `APPLY_BULK_PRICING=YES node scripts/bulk_pricing_import.cjs --apply`. Only products with
    stock > 0 get an offer; re-run after later stock counts to open the rest.
-8. **CAB-02 image** (see below). **Android**: company-signed App Bundle (docs/ANDROID_RELEASE_SIGNING.md).
+8. **CAB-02 image** (pending the supplier photo, see below). **Android**: create the company key once with
+   `scripts\create-signing-key.ps1`, then `scripts\build-release-aab.ps1` (docs/ANDROID_RELEASE_SIGNING.md).
 
 ## Rollback
 

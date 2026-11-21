@@ -2829,13 +2829,22 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
       status: status === 'inactive' ? 'inactive' : 'active',
       cabinet_price: cabinetPrice.value
     };
+    // A field that was never set and comes back empty from the form stays unset
+    // (NULL), so an edit such as a stock update changes only what was changed.
+    const isEmptyValue = v => v == null || (typeof v === 'string' && !v.trim())
+      || (Array.isArray(v) ? v.length === 0 : typeof v === 'object' && Object.keys(v).length === 0);
+    for (const [field, column] of [['badge', 'badge'], ['desc', 'description'], ['applications', 'applications'], ['specs', 'specs_json'], ['features', 'features_json']]) {
+      if (databaseProduct[column] == null && isEmptyValue(updatedProd[field])) updatedProd[field] = null;
+    }
 
     await pool.query(
       `UPDATE products SET category_id = ?, category_key = ?, sku = ?, name = ?, brand = ?, purchase_price = ?, price = ?, mrp = ?, moq = ?, badge = ?, rating = ?, img = ?, description = ?, specs_json = ?, features_json = ?, applications = ?, status = ?, stock_quantity = ?, min_stock = ?${withCabinetColumn ? ', cabinet_price = ?' : ''} WHERE id = ?`,
       [
         updatedProd.category_id, updatedProd.category, updatedProd.sku, updatedProd.name, updatedProd.brand,
         updatedProd.purchase_price, updatedProd.price, updatedProd.mrp, updatedProd.moq, updatedProd.badge, updatedProd.rating,
-        updatedProd.img, updatedProd.desc, JSON.stringify(updatedProd.specs), JSON.stringify(updatedProd.features),
+        updatedProd.img, updatedProd.desc,
+        updatedProd.specs == null ? null : JSON.stringify(updatedProd.specs),
+        updatedProd.features == null ? null : JSON.stringify(updatedProd.features),
         updatedProd.applications, updatedProd.status, updatedProd.stock_quantity, updatedProd.min_stock,
         ...(withCabinetColumn ? [updatedProd.cabinet_price] : []),
         databaseProduct.id

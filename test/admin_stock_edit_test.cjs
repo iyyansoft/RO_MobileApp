@@ -40,6 +40,10 @@ test('editing only the stock keeps the rating (none stays none) and the MOQ text
   assert.equal(res.status, 200, JSON.stringify(res.body));
   const after = await row('PDF_TST_01');
   assert.equal(Number(after.stock_quantity), 120);
+  // Every other column is exactly as before (NULLs stay NULL, nothing filled in).
+  const { stock_quantity: _b, ...restBefore } = before;
+  const { stock_quantity: _a, ...restAfter } = after;
+  assert.deepEqual(restAfter, restBefore, 'only the stock changed');
   assert.equal(after.rating, null, 'no made-up 5-star rating');
   assert.equal(after.moq, '40 nos', 'MOQ text unchanged (no "MOQ: " added)');
   assert.equal(Number(after.price), 1200);

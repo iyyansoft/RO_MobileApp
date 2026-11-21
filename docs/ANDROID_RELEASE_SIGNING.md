@@ -1,84 +1,80 @@
 # Android release signing (company-owned key)
 
-The signing key proves every future update comes from the company. Google Play
-only accepts updates signed by the same key, so it must be **owned by the company,
-backed up, and never stored in this repository**.
+The signing key proves every future update comes from the company. Google Play only
+accepts updates signed with the same (upload) key, so it must be **owned by the company,
+backed up, and never stored in this repository or sent anywhere**.
 
-What the project already does (`android/app/build.gradle.kts`):
+What the project does (`android/app/build.gradle.kts`):
 
-* Reads the key from a `key.properties` file at the path in the environment variable
-  `NEEROPLUS_KEY_PROPERTIES` (recommended: a folder outside the repository), or from
-  `android/key.properties` (git-ignored, with `*.jks` / `*.keystore`).
-* `flutter build appbundle --release` **refuses to build** without that key, so a
-  debug-signed bundle can never be uploaded by mistake.
-* Without the key, `flutter build apk --release` still works for emulator/internal
-  testing and prints a warning; such APKs are signed with the Android debug key.
+* Reads `key.properties` from the path in `NEEROPLUS_KEY_PROPERTIES` (outside the
+  repository) or `android/key.properties` (git-ignored, like `*.jks` / `*.keystore`).
+* The keystore password comes from `NEEROPLUS_KEYSTORE_PASSWORD`, set only for the
+  build by `scripts/build-release-aab.ps1`, so `key.properties` contains **no password**.
+* `flutter build appbundle --release` **refuses** to build without the company key, so a
+  debug-signed bundle can never reach Play. Test APKs without the key stay debug-signed.
 
-Verified 2026-11-21 with a throw-away test key (deleted afterwards): AAB refused
-without a key; AAB signed by the key from `key.properties`; APK without a key is
-debug-signed; `git status` shows no signing files.
+Verified 2026-11-21 with a throw-away TEST key (deleted afterwards): key created in a
+private folder, `key.properties` without password, second run and in-repo folder refused,
+AAB refused without a key and for a non-HTTPS/emulator API, AAB signed by the new key
+with matching fingerprint, nothing uploaded.
 
-## 1. Create the upload key (company owner, once)
+## 1. Before you start
 
-Do this on a trusted company computer, signed in as the owner (not a shared account).
+* A trusted company Windows PC, signed in with the owner's own account.
+* The company password manager open (e.g. Bitwarden/1Password business vault owned by
+  the company account, not a personal account).
+* An encrypted USB drive (BitLocker To Go) for the offline copy.
 
-1. Create a private folder outside the repository, e.g. `C:\NeeroPlusSigning\`
-   (right-click > Properties > Security: only the owner and Administrators).
-2. Generate two strong random passwords (password manager). PKCS12 keystores use one
-   password for the store and the key, so use the same value for both.
-3. Run (JDK `keytool`, e.g. `C:\Users\<you>\AppData\Local\ROAndroidJava\jdk-21...\bin\keytool.exe`):
+## 2. Create the key (once)
 
-   ```
-   keytool -genkeypair -v -keystore C:\NeeroPlusSigning\neeroplus-upload.jks ^
-     -storetype PKCS12 -alias upload -keyalg RSA -keysize 2048 -validity 10000 ^
-     -dname "CN=<Company legal name>, O=<Company legal name>, L=<City>, ST=Tamil Nadu, C=IN"
-   ```
-
-   Enter the password when asked (do not put it on the command line).
-4. Create `C:\NeeroPlusSigning\key.properties`:
+1. In the password manager, create an entry **"NeeroPlus Android upload key"** and let it
+   generate a password of 24+ random characters. Save the entry.
+2. In PowerShell in the project folder run:
 
    ```
-   storePassword=<password>
-   keyPassword=<password>
-   keyAlias=upload
-   storeFile=C:/NeeroPlusSigning/neeroplus-upload.jks
+   powershell -ExecutionPolicy Bypass -File scripts\create-signing-key.ps1 -CompanyName "<Company legal name>" -City "<City>"
    ```
 
-5. Record the certificate fingerprint (safe to share, used to confirm the right key):
-   `keytool -list -v -keystore C:\NeeroPlusSigning\neeroplus-upload.jks -alias upload`
+   Paste the password twice when asked (it is never shown or saved to disk). The script:
+   * creates `C:\NeeroPlusSigning\` readable only by you, SYSTEM and Administrators
+     (it refuses a folder inside any Git repository and never overwrites an existing key);
+   * creates `neeroplus-upload.jks` (RSA 2048, ~27 years) and `key.properties` (no password);
+   * prints the certificate **SHA256** fingerprint.
+3. Copy the SHA256 fingerprint into the password-manager entry.
 
-## 2. Back it up
+## 3. Back it up (same day)
 
-* Store `neeroplus-upload.jks` **and** its password in the company password manager
-  (attachment + password entry), owned by the company account, shared only with the
-  people who publish releases.
-* Keep one offline copy (encrypted USB drive) in a locked place. Test the backup once
-  by listing the key from the copy (step 1.5).
-* Never email it, never put it in GitHub, Google Drive shared folders, WhatsApp or the
-  project folder.
+1. Attach `C:\NeeroPlusSigning\neeroplus-upload.jks` to the password-manager entry.
+2. Copy the `.jks` to the encrypted USB drive; keep it locked away (not with the PC).
+   Check the copy opens: `keytool -list -keystore E:\neeroplus-upload.jks -alias upload`
+   (asks for the password; the fingerprint must match).
+3. Share the entry only with the people who publish releases. Never email, WhatsApp,
+   Drive-share or commit the `.jks`, `key.properties` or the password.
+4. If the PC is replaced: restore the `.jks` from the vault into a new private folder and
+   create `key.properties` with `keyAlias=upload` and `storeFile=<path to .jks>`.
 
-## 3. Google Play App Signing (recommended)
+## 4. Google Play App Signing (recommended)
 
-In Play Console create the app, then enrol in **Play App Signing**: Google keeps the
-app-signing key and our keystore becomes the *upload key*. If the upload key is ever
-lost or leaked, the account owner can request an upload-key reset from Google instead
-of losing the ability to update the app.
+Create the app in Play Console and enrol in **Play App Signing**: Google keeps the
+app-signing key; our key is the *upload key*. If it is ever lost or leaked, the account
+owner can ask Google for an upload-key reset instead of losing the app.
 
-## 4. Build the release bundle (after approval only)
+## 5. Build the bundle (only after approval)
 
 ```
-set NEEROPLUS_KEY_PROPERTIES=C:\NeeroPlusSigning\key.properties
-flutter build appbundle --release --dart-define=API_BASE_URL=https://ro-mobileapp.onrender.com
+powershell -ExecutionPolicy Bypass -File scripts\build-release-aab.ps1
 ```
 
-Output: `build\app\outputs\bundle\release\app-release.aab`. Check the signer:
-`keytool -printcert -jarfile build\app\outputs\bundle\release\app-release.aab`
-(must show the company certificate, not "Android Debug").
+It asks for the password, builds with the production API
+(`https://ro-mobileapp.onrender.com`, refuses anything else), checks the bundle is signed
+by the company certificate (refuses the debug key), copies it to
+`%USERPROFILE%\ro_mobile_build\release\NeeroPlus-<version>.aab` and prints the signer,
+fingerprint and file SHA-256. It uploads nothing.
 
-* Raise `version:` in `pubspec.yaml` for every upload (e.g. `1.0.1+2`; the number after
-  `+` must always increase).
+* Before each Play upload raise `version:` in `pubspec.yaml` (e.g. `1.0.1+2`; the number
+  after `+` must always increase).
 * Package name `com.rowholesale.ro_wholesale_dealer_app` is permanent once published.
-* The app targets Android API 36. Play Console will ask for declarations for the NFC
-  and phone-state permissions added by plugins.
-* Anyone who installed a debug-signed test APK must uninstall it before installing a
+* Target API 36. Play Console will ask for declarations for the NFC and phone-state
+  permissions added by plugins.
+* Anyone with a debug-signed test APK must uninstall it before installing a
   company-signed build (different signatures cannot update each other).
