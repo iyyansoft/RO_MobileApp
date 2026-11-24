@@ -35,7 +35,6 @@ class ProductCard extends StatelessWidget {
   bool get _cabinetOnly => priceView.cabinetOnly(product);
   double get _shownPrice =>
       _cabinetOnly ? product.cabinetPrice! : product.dealerPrice;
-  int get _discount => _cabinetOnly ? 0 : product.discountPercentage;
   bool get _showMrp => !_cabinetOnly && product.mrp > 0;
   bool get _cabinetLine => priceView.showsCabinetLine(product);
 
@@ -154,30 +153,6 @@ class ProductCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (_discount > 0)
-                        Positioned(
-                          top: 11,
-                          left: 11,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 9,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFE85D4A),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '$_discount% OFF',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 9,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.3,
-                              ),
-                            ),
-                          ),
-                        ),
                       Positioned(
                         top: 11,
                         right: 11,
@@ -366,30 +341,6 @@ class ProductCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  // Discount Badge
-                  if (_discount > 0)
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 7,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEF4444),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          '$_discount% OFF',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                      ),
-                    ),
                   // Stock Status Badge
                   Positioned(
                     top: 8,
@@ -667,28 +618,6 @@ class ProductCard extends StatelessWidget {
                                     color: Colors.grey,
                                   ),
                                 ),
-                              if (_discount > 0) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 5,
-                                    vertical: 1.5,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFEF4444)
-                                        .withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    '$_discount% OFF',
-                                    style: const TextStyle(
-                                      color: Color(0xFFEF4444),
-                                      fontSize: 8.5,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ),
-                              ],
                             ],
                           ),
                           ElevatedButton.icon(

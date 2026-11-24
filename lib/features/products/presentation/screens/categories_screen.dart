@@ -19,6 +19,7 @@ import 'product_listing_screen.dart';
 import '../widgets/cabinet_price_text.dart';
 import '../../domain/cabinet_display_order.dart';
 import '../../domain/category_price_view.dart';
+import '../../domain/categories_image_policy.dart';
 
 class CategoriesScreen extends ConsumerStatefulWidget {
   const CategoriesScreen({super.key});
@@ -243,6 +244,8 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                   // Real RO Categories
                   ...allCategories.map((cat) {
                     final localImg = _getCategoryLocalImage(cat.name, cat.id);
+                    // Cabinet: no picture, the sidebar's water-drop placeholder.
+                    final cabinet = _isCabinetCategory(cat.name, cat.id);
                     return _buildSidebarItem(
                       id: cat.id,
                       title: cat.name,
@@ -250,8 +253,10 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                       isDark: isDark,
                       primaryColor: primaryColor,
                       localImagePath: localImg,
-                      imagePath: cat.imagePath,
-                      fallbackIcon: _getCategoryFallbackIcon(cat.name, cat.id),
+                      imagePath: cabinet ? null : cat.imagePath,
+                      fallbackIcon: cabinet
+                          ? Icons.water_drop_rounded
+                          : _getCategoryFallbackIcon(cat.name, cat.id),
                     );
                   }),
                 ],
@@ -994,10 +999,9 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
   /// (served from assets/images/ by server.js at /images/<filename>).
   String? _getCategoryLocalImage(String name, String id) {
     final key = '${name.toLowerCase()} ${id.toLowerCase()}';
-    // Cabinet: the blue RO cabinet photo (product CAB-04), as on Home.
-    if (key.contains('cabinet') || key.contains('cat_cab')) {
-      return ApiClient.imageUrl('products_image/Aqua%20grid%20blue.jpg');
-    }
+    // Cabinet has no category picture (water-drop placeholder, see
+    // _isCabinetCategory); checked first so "cabinets" never matches below.
+    if (_isCabinetCategory(name, id)) return null;
     if (key.contains('sys') || key.contains('purifier')) {
       return ApiClient.imageUrl('RO_System.png');
     }
@@ -1039,15 +1043,21 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
     required Color primaryColor,
   }) {
     final localImage = _getCategoryLocalImage(cat.name, cat.id);
+    // Cabinet: no picture, the water-drop placeholder (same size and colour).
+    final cabinet = _isCabinetCategory(cat.name, cat.id);
     final fallback = Center(
       child: Icon(
-        _getCategoryFallbackIcon(cat.name, cat.id),
+        cabinet
+            ? Icons.water_drop_rounded
+            : _getCategoryFallbackIcon(cat.name, cat.id),
         color: primaryColor,
         size: 36,
       ),
     );
     // Actual category photo, whole (contain) and centred.
-    final Widget image = localImage != null
+    final Widget image = cabinet
+        ? fallback
+        : localImage != null
         ? CategoryImage(url: localImage, fallback: fallback)
         : cat.imagePath.isNotEmpty
         ? AppImage(
@@ -1169,20 +1179,32 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                 clipBehavior: Clip.none,
                 alignment: Alignment.center,
                 children: [
-                  // Product Image
+                  // Product Image. On every platform this page shows only
+                  // Supabase Storage pictures; anything else gets the
+                  // placeholder (the saved image and all other screens are
+                  // unchanged).
                   Padding(
                     padding: const EdgeInsets.fromLTRB(5, 5, 5, 10),
-                    child: AppImage(
-                      product.displayImageUrl,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stack) => Center(
-                        child: Icon(
-                          Icons.water_drop_outlined,
-                          size: 24,
-                          color: Colors.grey.shade400,
-                        ),
-                      ),
-                    ),
+                    child: categoriesPageUsesPlaceholder(product.imageUrl)
+                        ? Center(
+                            key: const ValueKey('categories-image-placeholder'),
+                            child: Icon(
+                              Icons.water_drop_outlined,
+                              size: 24,
+                              color: Colors.grey.shade400,
+                            ),
+                          )
+                        : AppImage(
+                            product.displayImageUrl,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stack) => Center(
+                              child: Icon(
+                                Icons.water_drop_outlined,
+                                size: 24,
+                                color: Colors.grey.shade400,
+                              ),
+                            ),
+                          ),
                   ),
 
                   // Teal status pill badge
@@ -1396,6 +1418,13 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
         8 +
         _sidebarLabelSize(context) * 1.2 * 2 * scale +
         12;
+  }
+
+  /// The Cabinet category: shown with the water-drop placeholder (it has no
+  /// category picture).
+  static bool _isCabinetCategory(String name, String id) {
+    final key = '${name.toLowerCase()} ${id.toLowerCase()}';
+    return key.contains('cabinet') || key.contains('cat_cab');
   }
 
   // --- HELPER: Category fallback icons ---

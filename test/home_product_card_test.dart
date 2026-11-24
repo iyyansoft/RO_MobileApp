@@ -51,7 +51,8 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      expect(find.text('40% OFF'), findsOneWidget);
+      expect(find.textContaining('% OFF'), findsNothing,
+          reason: 'discount badges are removed from all products');
       expect(find.text('₹180'), findsOneWidget);
       expect(find.text('Save ₹120'), findsOneWidget);
       await tester.tap(find.byIcon(Icons.add_shopping_cart_rounded));

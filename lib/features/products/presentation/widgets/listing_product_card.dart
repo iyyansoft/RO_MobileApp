@@ -308,9 +308,8 @@ class _Details extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ink = isDark ? Colors.white : _ink;
-    // Cabinets page: the Cabinet Price only (no Dealer Price, MRP, discount).
+    // Cabinets page: the Cabinet Price only (no Dealer Price, MRP).
     final cabinetOnly = view.cabinetOnly(product);
-    final discount = cabinetOnly ? 0 : product.discountPercentage;
     final showMrp = !cabinetOnly && product.mrp > product.dealerPrice;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -405,27 +404,6 @@ class _Details extends StatelessWidget {
                     color: Color(0xFF94A3B8),
                     fontSize: 13,
                     decoration: TextDecoration.lineThrough,
-                  ),
-                ),
-              ],
-              if (discount > 0) ...[
-                const SizedBox(width: 10),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEE2E2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    '$discount% OFF',
-                    style: const TextStyle(
-                      color: Color(0xFFDC2626),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
                   ),
                 ),
               ],

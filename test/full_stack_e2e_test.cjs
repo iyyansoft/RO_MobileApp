@@ -80,13 +80,13 @@ test('1. Admin Panel: login, dashboard, products, categories, dealers, orders', 
     assert.equal(created.status, 201, JSON.stringify(created.body));
     state.uvProductId = created.body.product.id;
     assert.match(created.body.product.img, /^\/api\/product-images\/img_\d+_[0-9a-f]+\.png$/);
-    assert.equal((await admin('POST', '/api/admin/products', { name: 'Bad', sku: 'BAD-1', category: 'uv', price: 500, mrp: 400 })).status, 400, 'MRP below dealer price');
-    assert.equal((await admin('POST', '/api/admin/products', { name: 'Dup', sku: 'UV-11W', category: 'uv', price: 1, mrp: 2 })).status, 400, 'duplicate SKU');
+    assert.equal((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Bad', sku: 'BAD-1', category: 'uv', price: 500, mrp: 400 })).status, 400, 'MRP below dealer price');
+    assert.equal((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Dup', sku: 'UV-11W', category: 'uv', price: 1, mrp: 2 })).status, 400, 'duplicate SKU');
     const edited = await admin('PUT', `/api/admin/products/${state.uvProductId}`, { name: 'UV Lamp 11 W', sku: 'UV-11W', category: 'uv', price: 450, mrp: 700, stock_quantity: 5 });
     assert.equal(edited.status, 200, JSON.stringify(edited.body));
     const bulk = await admin('POST', '/api/admin/products/bulk', { products: [
-      { name: 'UV Lamp 16W', sku: 'UV-16W', category: 'UV Lamps & Sterilisers', brand: 'Aqua Mars', purchase_price: 350, price: 520, mrp: 800 },
-      { name: 'Broken row', sku: 'UV-BAD', category: 'uv', brand: 'X', price: 10, mrp: 5 },
+      { stock_quantity: 5, name: 'UV Lamp 16W', sku: 'UV-16W', category: 'UV Lamps & Sterilisers', brand: 'Aqua Mars', purchase_price: 350, price: 520, mrp: 800 },
+      { stock_quantity: 5, name: 'Broken row', sku: 'UV-BAD', category: 'uv', brand: 'X', price: 10, mrp: 5 },
     ] });
     assert.equal(bulk.status, 201, JSON.stringify(bulk.body));
     assert.equal(bulk.body.importedCount, 1);

@@ -19,6 +19,8 @@
 //       snapshot every live database connection is blocked, every other .env
 //       value is blanked, emails are captured and it listens on 127.0.0.1 only.
 //       --pdf-import also applies the prepared PDF catalogue import (memory only).
+//   --storage-browse (any mode): keep SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY so the
+//       Admin "Choose from Supabase" picker can list Storage pictures (list only).
 //
 // Sandbox-only endpoints (only exist in this process):
 //   GET  /__sandbox/outbox       captured emails (OTP codes etc.)
@@ -126,6 +128,18 @@ async function seedCatalog(db, source) {
       typeof p.features_json === 'string' ? p.features_json : JSON.stringify(p.features_json || []),
       p.applications || '', Number(p.stock_quantity ?? 50), Number(p.min_stock ?? 10), p.status || 'active']);
   }
+  if (source === 'live') {
+    // Keep the live values exactly (no 'RO Wholesale' / rating / MOQ defaults) and
+    // copy the later columns too (Cabinet Price, Bulk Orders), so the Admin form
+    // in this local copy shows what production has.
+    const have = new Set((await db.query(`SELECT column_name FROM information_schema.columns WHERE table_name = 'products'`)).rows.map(r => r.column_name));
+    const cols = ['brand', 'rating', 'moq', 'cabinet_price', 'bulk_price', 'bulk_min_qty', 'bulk_step', 'bulk_pack_label'].filter(c => have.has(c));
+    for (const p of products) {
+      const present = cols.filter(c => c in p);
+      if (!present.length) continue;
+      await db.query(`UPDATE products SET ${present.map((c, i) => `${c} = $${i + 2}`).join(', ')} WHERE id = $1`, [p.id, ...present.map(c => p[c])]);
+    }
+  }
   return { categories: categories.length, products: products.length };
 }
 
@@ -219,7 +233,7 @@ function isolateFromEnvFile(keep = []) {
   for (const key of Object.keys(parsed)) if (!keep.includes(key)) process.env[key] = '';
 }
 
-async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, quiet = false, liveSnapshot = false, snapshotLoader = readLiveSnapshot, pdfImport = false } = {}) {
+async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, quiet = false, liveSnapshot = false, snapshotLoader = readLiveSnapshot, pdfImport = false, storageBrowse = false } = {}) {
   const { PGlite } = require('@electric-sql/pglite');
   const { citext } = require('@electric-sql/pglite/contrib/citext');
   const bcrypt = require('bcryptjs');
@@ -257,7 +271,10 @@ async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, 
 
   // Isolate from .env: every value there is blanked except the admin login in
   // --live-snapshot (no database URL, Supabase key, mail or payment settings).
-  isolateFromEnvFile(liveSnapshot ? ['ADMIN_EMAIL', 'ADMIN_PASSWORD'] : []);
+  // --storage-browse also keeps the Supabase URL and Storage key so the Admin
+  // "Choose from Supabase" picker can LIST pictures (server.js only ever lists;
+  // the database connection stays blocked and blank).
+  isolateFromEnvFile([...(liveSnapshot ? ['ADMIN_EMAIL', 'ADMIN_PASSWORD'] : []), ...(storageBrowse ? ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'] : [])]);
   const admin = adminFromEnv || credentials.admin;
   Object.assign(process.env, {
     PORT: String(port),
@@ -370,7 +387,8 @@ if (require.main === module) {
   const liveSnapshot = Boolean(arg('live-snapshot'));
   // --port=8095 runs a second copy next to one already on 8091.
   const port = Number((arg('port') || '').split('=')[1]) || 8091;
-  startSandbox({ port, catalog, migrated: !arg('pre-migration'), quiet: true, liveSnapshot, pdfImport: Boolean(arg('pdf-import')) })
+  const storageBrowse = Boolean(arg('storage-browse'));
+  startSandbox({ port, catalog, migrated: !arg('pre-migration'), quiet: true, liveSnapshot, pdfImport: Boolean(arg('pdf-import')), storageBrowse })
     .then(s => {
       console.log(`Sandbox backend on http://localhost:${s.port} (isolated in-memory database, emails captured)`);
       if (liveSnapshot) {
@@ -382,6 +400,7 @@ if (require.main === module) {
         console.log(`Test logins: GET http://localhost:${s.port}/__sandbox/credentials`);
       }
       if (s.pdf) console.log(`PDF import (local copy only): ${s.pdf.deleted} SAMPLE_ removed, ${s.pdf.inserted} PDF products added, ${s.pdf.skuFilled} order-line SKUs filled; Cabinet category with ${s.pdf.cabinet.inserted} products; ${s.pdf.bulk} Bulk Orders offers`);
+      if (storageBrowse) console.log('Storage browsing: on (read-only listing of ro-product-images/cabinets and /pdf-catalog for the Admin picker)');
       console.log(`Schema: ${arg('pre-migration') ? "today's live schema" : 'after the Phase 1 migration'}`);
     })
     .catch(error => { console.error('SANDBOX_FAILED', error); process.exit(1); });

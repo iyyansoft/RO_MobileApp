@@ -74,17 +74,6 @@ class PriceText extends StatelessWidget {
                   fontSize: fontSize * 0.75,
                 ),
               ),
-              const SizedBox(width: 4),
-              Text(
-                '${(((originalPrice! - price) / originalPrice!) * 100).toStringAsFixed(0)}% OFF',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: isDark
-                      ? AppColors.successDark
-                      : AppColors.successLight,
-                  fontWeight: FontWeight.bold,
-                  fontSize: fontSize * 0.65,
-                ),
-              ),
             ],
           ),
         ],

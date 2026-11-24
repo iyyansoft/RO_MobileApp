@@ -237,10 +237,10 @@ void main() {
         expect(r.right, lessThanOrEqualTo(width));
       }
 
-      // Real prices with Indian grouping, MRP and discount.
+      // Real prices with Indian grouping and MRP; no discount badge.
       expect(find.text('₹16,500'), findsOneWidget);
       expect(find.text('₹22,000'), findsOneWidget);
-      expect(find.text('25% OFF'), findsOneWidget);
+      expect(find.textContaining('% OFF'), findsNothing);
       expect(find.text('SKU: RO-SYS-25  •  MOQ: 1 Pcs'), findsOneWidget);
       await shot(tester, key, 'listing_$label');
 

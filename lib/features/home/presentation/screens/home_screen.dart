@@ -1260,11 +1260,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
-  /// Bundled photo for categories without a server image: the Cabinet
-  /// category shows a blue RO cabinet (product CAB-04's photo).
-  static const _cabinetCategoryImage =
-      'assets/images/products_image/Aqua grid blue.jpg';
-
   /// Category card: pastel gradient, product photo, item-count badge and a
   /// footer with icon, name and arrow (see [HomeCategoryCard]).
   Widget _buildCategoryImageCard(
@@ -1289,8 +1284,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       gradient: gradient,
       compact: !isDesktop,
       imageUrl: localImagePath,
-      assetImage: localImagePath == null && isCabinet
-          ? _cabinetCategoryImage
+      // Cabinet has no category picture: the water-drop placeholder is shown.
+      placeholderIcon: localImagePath == null && isCabinet
+          ? Icons.water_drop_rounded
           : null,
       onTap: () => _pushHomeRoute(
         context,

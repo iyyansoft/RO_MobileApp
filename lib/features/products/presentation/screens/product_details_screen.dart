@@ -387,24 +387,6 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
         Row(
           children: [
             _buildStockBadge(p.stockStatus),
-            const SizedBox(width: 8),
-            if (p.discountPercentage > 0 && !widget.priceView.cabinetOnly(p))
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${p.discountPercentage}% OFF WHOLESALE',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ),
             const Spacer(),
             const Icon(Icons.star_rounded, size: 17, color: Color(0xFFFFB300)),
             const SizedBox(width: 3),

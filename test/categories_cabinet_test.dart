@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -139,17 +141,16 @@ void main() {
             reason: '${c.name}: sidebar + grid card',
           );
         }
-        // Cabinet uses the blue cabinet photo, not the RO Systems one.
+        // Cabinet has no category picture: no image is requested for it and
+        // the water-drop placeholder is shown (sidebar + Popular Store tile).
         final urls = tester
             .widgetList<CategoryImage>(find.byType(CategoryImage))
             .map((w) => w.url)
             .toList();
-        expect(
-          urls.where(
-            (u) => u.contains('products_image/Aqua%20grid%20blue.jpg'),
-          ),
-          isNotEmpty,
-        );
+        expect(urls.where((u) => u.toLowerCase().contains('grid')), isEmpty);
+        expect(urls.where((u) => u.contains('RO_System.png')), isNotEmpty,
+            reason: 'other categories keep their pictures');
+        expect(find.byIcon(Icons.water_drop_rounded), findsAtLeastNWidgets(2));
         expect(tester.takeException(), isNull);
       },
     );
@@ -171,11 +172,20 @@ void main() {
   test('CategoryImage keeps sub-folders for its bundled fallback', () {
     // The fallback path is derived from the URL after /images/.
     const url =
-        'https://ro-mobileapp.onrender.com/images/products_image/Aqua%20grid%20blue.jpg';
+        'https://ro-mobileapp.onrender.com/images/sub%20folder/sample%20photo.jpg';
     final segments = Uri.parse(url).pathSegments;
     expect(
       segments.sublist(segments.indexOf('images') + 1).join('/'),
-      'products_image/Aqua grid blue.jpg',
+      'sub folder/sample photo.jpg',
     );
+  });
+
+  test('the removed Cabinet photo is no longer referenced anywhere in the app', () {
+    expect(File('pubspec.yaml').readAsStringSync().contains('Aqua grid blue'), isFalse);
+    for (final f in Directory('lib').listSync(recursive: true).whereType<File>()) {
+      if (!f.path.endsWith('.dart')) continue;
+      final text = f.readAsStringSync();
+      expect(text.contains('Aqua grid blue') || text.contains('Aqua%20grid%20blue'), isFalse, reason: f.path);
+    }
   });
 }

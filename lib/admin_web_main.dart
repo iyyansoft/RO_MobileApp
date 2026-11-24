@@ -433,16 +433,22 @@ class _AdminDashboardState extends State<AdminDashboard> {
         text: _amountText(product?['cabinet_price']),
       ),
       'moq': TextEditingController(
-        // New products start at 1; an existing product with no MOQ stays blank.
-        text: '${product == null ? '1' : product['moq'] ?? ''}'
-            .replaceFirst('MOQ:', '')
-            .trim(),
+        // Blank unless the product has an MOQ (never pre-filled).
+        text: '${product?['moq'] ?? ''}'.replaceFirst('MOQ:', '').trim(),
       ),
       'stock': TextEditingController(
-        text: '${product?['stock_quantity'] ?? product?['stock'] ?? 50}',
+        // Counted stock is entered by the admin; never pre-filled.
+        text: '${product?['stock_quantity'] ?? product?['stock'] ?? ''}',
       ),
       'description': TextEditingController(
         text: '${product?['desc'] ?? product?['description'] ?? ''}',
+      ),
+      // One "Name: Value" per line / one feature per line (what the admin edits).
+      'specs': TextEditingController(text: _specsToLines(product?['specs'])),
+      'features': TextEditingController(
+        text: product?['features'] is List
+            ? (product!['features'] as List).map((f) => '$f').join('\n')
+            : '',
       ),
     };
     var imageValue = '${product?['img'] ?? product?['image'] ?? ''}';
@@ -588,6 +594,28 @@ class _AdminDashboardState extends State<AdminDashboard> {
                             border: OutlineInputBorder(),
                           ),
                         ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: fields['specs'],
+                          minLines: 3,
+                          maxLines: 8,
+                          decoration: const InputDecoration(
+                            labelText:
+                                'Specifications (one "Name: Value" per line)',
+                            hintText: 'Flow Rate: 100 GPD\nVoltage: 24V DC',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: fields['features'],
+                          minLines: 3,
+                          maxLines: 8,
+                          decoration: const InputDecoration(
+                            labelText: 'Key Features (one per line)',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
                       ],
                     );
                   },
@@ -658,19 +686,21 @@ class _AdminDashboardState extends State<AdminDashboard> {
                             // Saved in its own column; never the Dealer Price.
                             'cabinet_price': cabinetProduct ? cabinetPrice : '',
                             // Blank on an existing product keeps it blank.
-                            'moq': fields['moq']!.text.trim().isEmpty
-                                ? (product == null ? '1' : '')
-                                : fields['moq']!.text.trim(),
+                            // Blank = not set (never an assumed 1).
+                            'moq': fields['moq']!.text.trim(),
                             'stock_quantity': stock,
                             'desc': fields['description']!.text.trim(),
                             if (product?['badge'] != null)
                               'badge': product!['badge'],
                             if (product?['rating'] != null)
                               'rating': product!['rating'],
-                            if (product?['specs'] != null)
-                              'specs': product!['specs'],
-                            if (product?['features'] != null)
-                              'features': product!['features'],
+                            // Each line is its own specification / feature.
+                            'specs': fields['specs']!.text.trim(),
+                            'features': fields['features']!.text
+                                .split('\n')
+                                .map((f) => f.trim())
+                                .where((f) => f.isNotEmpty)
+                                .toList(),
                             if (product?['applications'] != null)
                               'applications': product!['applications'],
                             if (product?['status'] != null)
@@ -1139,9 +1169,8 @@ class _AdminDashboardState extends State<AdminDashboard> {
       final purchaseText = value(['purchaseprice', 'purchase']);
       final purchase = purchaseText.isEmpty ? 0.0 : _number(purchaseText);
       final mrpText = value(['mrp', 'listprice']);
-      final mrp = mrpText.isEmpty
-          ? (dealer == null ? null : dealer * 1.25)
-          : _number(mrpText);
+      // Never estimated: a missing MRP is reported, not invented.
+      final mrp = mrpText.isEmpty ? null : _number(mrpText);
       final moqText = value(['moq', 'minimumorderquantity']);
       final stockText = value(['stock', 'stockquantity', 'quantity']);
       final moqMatch = RegExp(
@@ -1149,9 +1178,9 @@ class _AdminDashboardState extends State<AdminDashboard> {
         caseSensitive: false,
       ).firstMatch(moqText);
       final moq = moqText.isEmpty
-          ? 1
+          ? null
           : int.tryParse(moqText) ?? int.tryParse(moqMatch?.group(1) ?? '');
-      final stock = stockText.isEmpty ? 50 : int.tryParse(stockText);
+      final stock = stockText.isEmpty ? null : int.tryParse(stockText);
       final errors = <String>[];
       if (name.isEmpty) errors.add('Name is required.');
       if (sku.isEmpty) errors.add('SKU is required.');
@@ -1173,9 +1202,11 @@ class _AdminDashboardState extends State<AdminDashboard> {
         errors.add('Purchase Price must be a valid nonnegative amount.');
       if (mrp == null || mrp <= 0 || mrp > 99999999.99)
         errors.add('MRP must be a valid positive amount.');
-      if (moq == null || moq < 1)
-        errors.add('MOQ must be a positive whole number.');
-      if (stock == null || stock < 0 || stock > 2147483647)
+      if (moqText.isNotEmpty && (moq == null || moq < 1))
+        errors.add('MOQ must be a positive whole number (or leave it empty).');
+      if (stockText.isEmpty)
+        errors.add('Stock is required (enter the counted stock, 0 or more).');
+      else if (stock == null || stock < 0 || stock > 2147483647)
         errors.add('Stock must be a nonnegative whole number.');
       if (sku.isNotEmpty && existingSkus.contains(sku))
         errors.add('SKU already exists in the catalog.');
@@ -1185,12 +1216,12 @@ class _AdminDashboardState extends State<AdminDashboard> {
         'name': name,
         'sku': sku,
         'category': category ?? categoryInput,
-        'brand': brand.isEmpty ? 'RO Wholesale' : brand,
+        'brand': brand,
         'purchase_price': purchase ?? 0,
         'price': dealer ?? 0,
         'mrp': mrp ?? 0,
-        'moq': moq ?? 1,
-        'stock_quantity': stock ?? 50,
+        'moq': moq == null ? '' : '$moq',
+        'stock_quantity': stock ?? '',
         'desc': value(['productdescription', 'description', 'desc']),
         'img': value(['image', 'imageurl', 'img']),
       };
@@ -3672,4 +3703,12 @@ String _date(dynamic value) {
   final day = d.day.toString().padLeft(2, '0');
   final month = d.month.toString().padLeft(2, '0');
   return '$day/$month/${d.year}';
+}
+
+/// Saved specifications (a JSON object) as one "Name: Value" line each.
+String _specsToLines(Object? specs) {
+  if (specs is Map) {
+    return specs.entries.map((e) => '${e.key}: ${e.value}').join('\n');
+  }
+  return '';
 }

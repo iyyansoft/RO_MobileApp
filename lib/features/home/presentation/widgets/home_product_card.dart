@@ -135,14 +135,7 @@ class _HomeProductCardState extends State<HomeProductCard> {
                                   ),
                                 ),
                               ),
-                              if (p.discountPercentage > 0)
-                                Positioned(
-                                  top: 8,
-                                  left: 8,
-                                  child: _DiscountBadge(p.discountPercentage),
-                                ),
-                              // Narrow cards: stock pill moves to the bottom
-                              // so it never collides with the discount badge.
+                              // Narrow cards: stock pill sits at the bottom.
                               Positioned(
                                 top: compact ? null : 8,
                                 bottom: compact ? 8 : null,
@@ -300,40 +293,6 @@ class _HomeProductCardState extends State<HomeProductCard> {
               },
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DiscountBadge extends StatelessWidget {
-  const _DiscountBadge(this.percent);
-  final int percent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF43F5E), Color(0xFFF97316)],
-        ),
-        borderRadius: BorderRadius.circular(8),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFFF43F5E).withValues(alpha: 0.3),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Text(
-        '$percent% OFF',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 9.5,
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.3,
         ),
       ),
     );

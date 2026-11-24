@@ -79,6 +79,24 @@ void main() {
     expect(placeholders.contains('prod_1_2.jpg'), isFalse);
   });
 
+  test('a full image URL saved in Admin is always shown as-is, even with a placeholder file name', () {
+    const supabase =
+        'https://abc.supabase.co/storage/v1/object/public/ro-product-images';
+    for (final url in [
+      '$supabase/booster-pumps/Max%20flow%20pump%201%20year%20warranty%20100%20gpd.jpg',
+      '$supabase/membrane/membrane.jpg',
+      'https://ro-mobileapp.onrender.com/purifier.jpg',
+    ]) {
+      expect(product('MUK-02', 'pumps', 'Booster Pumps', url).displayImageUrl, url);
+      expect(product('RO-PMP-100', 'pumps', 'Booster Pumps', url).allImages, [url]);
+    }
+    // Bare demo names keep the built-in picture.
+    expect(
+      product('RO-PMP-100', 'pumps', 'Booster Pumps', 'cat_pump.jpg').displayImageUrl,
+      startsWith('catalog-sprite://'),
+    );
+  });
+
   test('placeholder list matches the app', () {
     for (final img in placeholders) {
       expect(

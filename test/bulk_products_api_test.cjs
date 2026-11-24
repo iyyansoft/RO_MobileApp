@@ -9,16 +9,22 @@ const start = source.indexOf("app.post('/api/admin/products/bulk'");
 const end = source.indexOf("app.put('/api/admin/products/", start);
 const block = source.slice(start, end);
 const handlerCode = block.slice(block.indexOf('async (req, res) => {'), block.lastIndexOf('});') + 1);
-const priceRuleStart = source.indexOf('function productPriceError(');
-const priceRuleEnd = /\r?\n}\r?\n/.exec(source.slice(priceRuleStart));
-const productPriceError = vm.runInNewContext(
-  `(${source.slice(priceRuleStart, priceRuleStart + priceRuleEnd.index + priceRuleEnd[0].trimEnd().length)})`,
-);
+// The route's helpers, taken from server.js itself (top-level function / const declarations).
+const topLevel = name => {
+  const at = source.search(new RegExp(`^(?:async )?(?:function ${name}\\(|const ${name} = )`, 'm'));
+  assert.ok(at >= 0, `${name} not found in server.js`);
+  const end = source[source.indexOf(name, at) + name.length] === '(' || source.slice(at, at + 9) === 'function ' || source.slice(at, at + 15).startsWith('async function')
+    ? at + /\r?\n}\r?\n/.exec(source.slice(at)).index + 2
+    : source.indexOf(';\n', at) + 1;
+  return source.slice(at, end);
+};
+const helperSource = ['isBlankField', 'optionalAmount', 'productPriceError', 'isCabinetCategory', 'CABINET_PRICE_REQUIRED', 'CABINET_PRICE_NO_COLUMN', 'cabinetPriceFor', 'validateBulkProductRow']
+  .map(topLevel).join('\n');
 
 async function save({ offline = false, rejectSecond = false, products } = {}) {
   let mirrored = null;
   const inserts = [];
-  const handler = vm.runInNewContext(`(${handlerCode})`, {
+  const context = vm.createContext({
     pool: { query: async (sql, values) => {
       if (offline) throw new Error('Connection refused');
       if (sql.includes('INSERT INTO products')) {
@@ -31,9 +37,13 @@ async function save({ offline = false, rejectSecond = false, products } = {}) {
     } },
     saveUploadedFile: (image) => image,
     storeProductImage: async (image) => image,
-    productPriceError,
+    hasCabinetPriceColumn: async () => false,
+    ...require('../product_info'),
+    productImageProblem: require('../storage_images').productImageProblem,
     console: { error() {}, warn() {} },
   });
+  vm.runInContext(helperSource, context);
+  const handler = vm.runInContext(`(${handlerCode})`, context);
   const response = { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
   await handler({ body: { products: products ?? ['FIRST', 'SECOND'].map((sku) => ({ sku, name: sku, category: 'membranes', purchase_price: 500, price: 900, mrp: 1200, moq: '2', stock_quantity: 12, desc: 'Details', img: 'https://example.test/image.png' })) } }, response);
   return { response, mirrored, inserts };
@@ -63,6 +73,7 @@ test('bulk import accepts Product Name and Product Description aliases and store
     productDescription: 'Long product description from the upload sheet',
     category: 'membranes',
     price: 900,
+    stock_quantity: 4,
   }] });
   assert.equal(response.body.importedCount, 1);
   assert.equal(inserts.length, 1);
@@ -80,12 +91,19 @@ test('partial PostgreSQL failures report only confirmed products as imported', a
 
 test('rows whose MRP is below the dealer price are skipped with a reason', async () => {
   const { response, inserts } = await save({ products: [
-    { sku: 'OK-1', name: 'Valid', category: 'membranes', purchase_price: 7500, price: 8500, mrp: 12000 },
-    { sku: 'LOW-MRP', name: 'Bad MRP', category: 'membranes', purchase_price: 7500, price: 8500, mrp: 8000 },
-    { sku: 'NEG-COST', name: 'Bad cost', category: 'membranes', purchase_price: -1, price: 8500, mrp: 12000 },
+    { sku: 'OK-1', name: 'Valid', category: 'membranes', purchase_price: 7500, price: 8500, mrp: 12000, stock_quantity: 3 },
+    { sku: 'LOW-MRP', name: 'Bad MRP', category: 'membranes', purchase_price: 7500, price: 8500, mrp: 8000, stock_quantity: 3 },
+    { sku: 'NEG-COST', name: 'Bad cost', category: 'membranes', purchase_price: -1, price: 8500, mrp: 12000, stock_quantity: 3 },
   ] });
   assert.equal(response.body.importedCount, 1);
   assert.deepEqual(inserts.map((v) => v[3]), ['OK-1']);
   assert.deepEqual([...response.body.skipped.map((s) => s.sku)].sort(), ['LOW-MRP', 'NEG-COST']);
   assert.match(response.body.skipped.find((s) => s.sku === 'LOW-MRP').reason, /MRP cannot be lower/);
+});
+
+test('rows without a stock quantity are reported, never saved with an assumed stock', async () => {
+  const { response, inserts } = await save({ products: [{ sku: 'NO-STOCK', name: 'No stock', category: 'membranes', price: 900 }] });
+  assert.equal(response.statusCode, 400);
+  assert.equal(inserts.length, 0);
+  assert.match(response.body.skipped[0].reason, /Stock quantity is required/);
 });

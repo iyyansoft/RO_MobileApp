@@ -238,7 +238,8 @@ void main() {
         expect(find.text('4 Products Found'), findsOneWidget);
         expect(_price(tester, 'CAB-15'), '₹4,650');
         expect(find.text('₹13,500'), findsOneWidget);
-        expect(find.text('66% OFF'), findsOneWidget);
+        expect(find.textContaining('% OFF'), findsNothing,
+            reason: 'discount badges are removed from all products');
         expect(_price(tester, 'SYS-1'), '₹16,500');
         expect(find.textContaining('Cabinet Price'), findsNothing);
         expect(tester.takeException(), isNull);

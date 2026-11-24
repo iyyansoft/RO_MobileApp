@@ -230,6 +230,13 @@ class ProductModel {
   /// Uses distinct category-appropriate art for the bundled demo placeholders,
   /// while leaving actual uploaded product images untouched.
   String get displayImageUrl {
+    // A full web address saved by the admin (e.g. a Supabase Storage URL) is
+    // always shown as-is, even if its file name happens to be "membrane.jpg";
+    // only the old bundled demo names (no scheme) get the built-in art.
+    final trimmed = imageUrl.trim();
+    if (RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)) {
+      return trimmed;
+    }
     final parsedSource = Uri.tryParse(imageUrl);
     final sourcePath = parsedSource?.pathSegments.isNotEmpty == true
         ? parsedSource!.pathSegments.last.toLowerCase()

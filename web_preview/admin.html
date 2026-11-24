@@ -862,6 +862,31 @@
     /* -------------------------------------------------------------------------
        MODAL WINDOWS & FILE UPLOAD COMPONENT
        ------------------------------------------------------------------------- */
+    .storage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 10px;
+      max-height: 55vh;
+      overflow-y: auto;
+      padding: 2px;
+    }
+    .storage-tile {
+      border: 2px solid var(--border);
+      border-radius: 8px;
+      background: white;
+      padding: 6px;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      position: relative;
+    }
+    .storage-tile:hover { border-color: #93C5FD; }
+    .storage-tile.selected { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(15, 98, 254, 0.2); }
+    .storage-tile img { width: 100%; height: 100px; object-fit: contain; display: block; background: #F8FAFC; border-radius: 4px; }
+    .storage-tile .storage-name { font-size: 0.75rem; margin-top: 6px; word-break: break-all; line-height: 1.25; }
+    .storage-tile .storage-badge { position: absolute; top: 4px; left: 4px; background: #047857; color: white; font-size: 0.65rem; font-weight: 700; padding: 2px 6px; border-radius: 10px; }
+    @media (max-width: 760px) { .storage-picker-layout { grid-template-columns: 1fr !important; } }
+
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -2610,10 +2635,13 @@
                 <th style="min-width: 220px;">Product Details *</th>
                 <th style="min-width: 140px;">SKU Code *</th>
                 <th style="min-width: 160px;">Category *</th>
-                <th style="min-width: 130px;">Brand *</th>
+                <th style="min-width: 130px;">Brand</th>
                 <th style="min-width: 130px;">Purchase Price (₹) *</th>
                 <th style="min-width: 130px;">Dealer Price (₹) *</th>
                 <th style="min-width: 120px;">MRP (₹) *</th>
+                <th style="min-width: 110px;">Stock Qty *</th>
+                <th style="min-width: 110px;">MOQ</th>
+                <th style="min-width: 130px;">Cabinet Price (₹)<br><small>Cabinet only</small></th>
                 <th style="width: 60px; text-align: center;">Action</th>
               </tr>
             </thead>
@@ -2770,7 +2798,7 @@
             </div>
             <div class="form-group">
               <label class="form-label">Available Stock Quantity</label>
-              <input type="number" id="prodStockQuantity" class="form-control" placeholder="50" min="0">
+              <input type="number" id="prodStockQuantity" class="form-control" placeholder="Required: counted stock (0 or more)" min="0" step="1" required>
             </div>
             <div class="form-group">
               <label class="form-label">Minimum Stock Alert Threshold</label>
@@ -2778,16 +2806,19 @@
             </div>
             <div class="form-group col-span-2">
               <label class="form-label">Product Image</label>
-              <div style="display: flex; gap: 10px; align-items: center;">
-                <input type="text" id="prodImg" class="form-control" style="flex: 1;" placeholder="Upload an image, or enter /uploads/... or purifier.jpg" oninput="pendingProductImage = ''">
+              <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="prodImg" class="form-control" style="flex: 1; min-width: 220px;" placeholder="Image URL, or Upload Image, or Choose from Supabase" onpaste="handleProductImagePaste(event)" oninput="pendingProductImage = ''; this.setCustomValidity(''); showProductImagePreview(this.value, '')">
                 <button type="button" class="btn-secondary" style="white-space: nowrap;" onclick="document.getElementById('singleProdFileInput').click()">
                   <i class="fa-solid fa-upload"></i> Upload Image
+                </button>
+                <button type="button" class="btn-secondary" id="openStoragePickerBtn" style="white-space: nowrap;" onclick="openStoragePicker()">
+                  <i class="fa-solid fa-cloud"></i> Choose from Supabase
                 </button>
                 <input type="file" id="singleProdFileInput" accept="image/jpeg,image/jpg,image/png,image/webp" style="display:none;" onchange="handleSingleProdFileSelect(event)">
               </div>
               <div id="singleProdImgPreview" style="margin-top: 8px; display: none; align-items: center; gap: 10px;">
-                <img id="singleProdImgThumb" src="" style="width: 48px; height: 48px; object-fit: contain; border-radius: 6px; border: 1px solid var(--border); padding: 2px; background: white;">
-                <span style="font-size: 0.8rem; color: #047857; font-weight: 700;">✓ Image selected</span>
+                <img id="singleProdImgThumb" src="" alt="Product image preview" style="width: 64px; height: 64px; object-fit: contain; border-radius: 6px; border: 1px solid var(--border); padding: 2px; background: white;" onerror="this.onerror=null; this.src='/purifier.jpg'; document.getElementById('singleProdImgNote').innerText = 'Image could not be loaded (showing the default picture)'; document.getElementById('singleProdImgNote').style.color = '#B91C1C';">
+                <span id="singleProdImgNote" style="font-size: 0.8rem; color: #047857; font-weight: 700;">✓ Image selected</span>
               </div>
             </div>
             <div class="form-group col-span-2">
@@ -2795,8 +2826,8 @@
               <textarea id="prodDesc" class="form-control" placeholder="Enter product overview..."></textarea>
             </div>
             <div class="form-group col-span-2">
-              <label class="form-label">Technical Specifications (JSON / Lines)</label>
-              <textarea id="prodSpecs" class="form-control" placeholder='{"Flow Rate": "100 GPD", "Voltage": "24V DC"}'></textarea>
+              <label class="form-label">Technical Specifications (one "Name: Value" per line)</label>
+              <textarea id="prodSpecs" class="form-control" rows="5" placeholder="Flow Rate: 100 GPD&#10;Voltage: 24V DC"></textarea>
             </div>
             <div class="form-group col-span-2">
               <label class="form-label">Key Features (One feature per line)</label>
@@ -2826,6 +2857,38 @@
   <!-- =======================================================================
        CATEGORY ADD/EDIT MODAL WITH REAL IMAGE UPLOAD & PREVIEW
        ======================================================================= -->
+  <!-- Choose from Supabase: pictures already in Storage (ro-product-images). Read-only. -->
+  <div class="modal-overlay" id="storagePickerModal" style="z-index: 300;">
+    <div class="modal-container" style="max-width: 980px;">
+      <div class="modal-header">
+        <h3 class="modal-title">Choose from Supabase</h3>
+        <button type="button" class="btn-close-modal" onclick="closeStoragePicker()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px;">
+          <label class="form-label" for="storageFolderSelect" style="margin: 0;">Folder</label>
+          <select id="storageFolderSelect" class="form-control" style="width: auto;" onchange="loadStorageImages(true)"></select>
+          <input type="search" id="storageSearchInput" class="form-control" style="flex: 1; min-width: 200px;" placeholder="Search file name..." oninput="scheduleStorageSearch()">
+        </div>
+        <div id="storagePickerStatus" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;"></div>
+        <div style="display: grid; grid-template-columns: 1fr 260px; gap: 16px;" class="storage-picker-layout">
+          <div>
+            <div id="storageImageGrid" class="storage-grid"></div>
+            <div style="text-align: center; margin-top: 12px;">
+              <button type="button" class="btn-secondary" id="storageLoadMoreBtn" style="display: none;" onclick="loadStorageImages(false)">Load more</button>
+            </div>
+          </div>
+          <div class="storage-preview">
+            <div style="font-weight: 700; margin-bottom: 8px;">Preview</div>
+            <img id="storagePreviewImg" alt="Selected picture preview" src="" style="display: none; width: 100%; height: 220px; object-fit: contain; background: white; border: 1px solid var(--border); border-radius: 8px;" onerror="this.onerror=null; this.src='/purifier.jpg';">
+            <div id="storagePreviewName" style="font-size: 0.85rem; word-break: break-all; margin-top: 8px; color: var(--text-muted);">Select a picture.</div>
+            <button type="button" class="btn-primary-action" id="storageUseBtn" style="margin-top: 12px; width: 100%; justify-content: center;" disabled onclick="useStorageImage()">Use this image</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="categoryModal">
     <div class="modal-container">
       <div class="modal-header">
@@ -3892,16 +3955,219 @@
       prepareProductImage(file).then(base64Str => {
         pendingProductImage = base64Str;
         document.getElementById('prodImg').value = file.name;
-        const thumb = document.getElementById('singleProdImgThumb');
-        const previewBox = document.getElementById('singleProdImgPreview');
-        if (thumb && previewBox) {
-          thumb.src = base64Str;
-          previewBox.style.display = 'flex';
-        }
+        showProductImagePreview(base64Str, '✓ Image selected (uploaded when you press Save)');
       }).catch(err => {
         alert(err.message || 'Image could not be used.');
         event.target.value = '';
       });
+    }
+
+    function handleProductImagePaste(event) {
+      const replacement = pastedImageValue((event.clipboardData || window.clipboardData)?.getData('text'));
+      if (replacement === null) return; // not a full URL: normal paste
+      event.preventDefault();
+      const input = event.target;
+      input.value = replacement;
+      pendingProductImage = '';
+      input.setCustomValidity('');
+      showProductImagePreview(replacement, 'New image (saved when you press Save)');
+    }
+
+    // Preview under the Product Image field (URL typed, uploaded or chosen from Supabase).
+    function showProductImagePreview(src, note) {
+      const thumb = document.getElementById('singleProdImgThumb');
+      const box = document.getElementById('singleProdImgPreview');
+      const label = document.getElementById('singleProdImgNote');
+      if (!thumb || !box) return;
+      const value = String(src || '').trim();
+      if (!value) { box.style.display = 'none'; return; }
+      if (label) { label.innerText = note || 'Current image'; label.style.color = '#047857'; }
+      thumb.onerror = function () { this.onerror = null; this.src = '/purifier.jpg'; if (label) { label.innerText = 'Image could not be loaded (showing the default picture)'; label.style.color = '#B91C1C'; } };
+      thumb.src = value.startsWith('data:') ? value : formatImgUrl(value);
+      box.style.display = 'flex';
+    }
+
+    // ---- Choose from Supabase -------------------------------------------------
+    // STORAGE_PICKER_HELPERS_START
+    /** Comparable key for a product name / SKU / file name ("Aqua 2090 -premium gray602 - Copy.webp" -> "aqua2090premiumgray602"). */
+    function storageNameKey(text) {
+      return String(text || '').toLowerCase()
+        .replace(/\.(jpe?g|png|webp|gif)$/, '')
+        .replace(/\s*-\s*copy(\s*\(\d+\))?$/, '')
+        .replace(/^shopping(?=[a-z0-9])/, '')
+        .replace(/\/abs$/, '')
+        .replace(/[^a-z0-9]+/g, '');
+    }
+    /** 0 for a clean file name; higher for duplicates ("x - Copy.jpg" worst, then "shoppingX.webp"). */
+    function storageIsDuplicateName(name) {
+      return (/\s-\s*copy(\s*\(\d+\))?\.[a-z0-9]+$/i.test(name) ? 2 : 0) + (/^shopping/i.test(name) ? 1 : 0);
+    }
+    /** File name that matches the product name or SKU, or '' (never guesses beyond an exact key match). */
+    function suggestStorageImage(product, images) {
+      const keys = [storageNameKey(product && product.name), storageNameKey(product && product.sku)].filter(k => k.length >= 3);
+      if (!keys.length) return '';
+      const hits = (images || []).filter(img => keys.includes(storageNameKey(img.name)));
+      hits.sort((a, b) => Number(storageIsDuplicateName(a.name)) - Number(storageIsDuplicateName(b.name)) || a.name.localeCompare(b.name));
+      return hits.length ? hits[0].name : '';
+    }
+    /** Same rule as the server (storage_images.js productImageProblem): one URL / path / file name. */
+    function productImageProblem(value) {
+      const text = String(value ?? '').trim();
+      if (!text || /^data:image\//i.test(text)) return null;
+      const joined = 'The image URL looks like two addresses joined together. Clear the field, paste the full URL once, and save again.';
+      if (/\s/.test(text)) return 'The image URL must not contain spaces or line breaks (use %20 for spaces).';
+      const schemes = text.match(/https?:\/\//gi) || [];
+      if (/^https?:\/\//i.test(text)) {
+        if (schemes.length > 1) return joined;
+        try {
+          const url = new URL(text);
+          if (!url.hostname || !url.hostname.includes('.') && url.hostname !== 'localhost') return 'The image URL is not a valid web address.';
+        } catch (_) { return 'The image URL is not a valid web address.'; }
+        return null;
+      }
+      if (schemes.length || /^[a-z][a-z0-9+.-]*:/i.test(text)) return 'The image must start with https:// (or be a site path such as /api/product-images/...).';
+      return null;
+    }
+    /** Pasting a full web address replaces the whole field instead of being inserted into the old value. */
+    function pastedImageValue(pasted) {
+      const text = String(pasted || '').trim();
+      return /^https?:\/\//i.test(text) ? text : null;
+    }
+    // STORAGE_PICKER_HELPERS_END
+
+    const storagePicker = { folders: [], categoryFolders: {}, images: [], nextOffset: 0, hasMore: false, selected: null, suggested: '', loading: false, searchTimer: null, requestId: 0 };
+
+    async function openStoragePicker() {
+      const modal = document.getElementById('storagePickerModal');
+      const status = document.getElementById('storagePickerStatus');
+      modal.style.display = 'flex';
+      storagePicker.selected = null;
+      renderStoragePreview();
+      document.getElementById('storageSearchInput').value = '';
+      status.innerText = 'Loading folders...';
+      try {
+        if (!storagePicker.folders.length) {
+          const res = await adminFetch('/api/admin/storage-folders');
+          const data = await res.json();
+          if (!data.success) throw new Error(data.error || 'Could not load folders.');
+          storagePicker.folders = data.folders || [];
+          storagePicker.categoryFolders = data.categoryFolders || {};
+          storagePicker.configured = data.configured;
+        }
+        const select = document.getElementById('storageFolderSelect');
+        select.innerHTML = storagePicker.folders.map(f => `<option value="${f}">${f}</option>`).join('');
+        const category = document.getElementById('prodCategory').value;
+        select.value = storagePicker.categoryFolders[category] || storagePicker.folders[0] || '';
+        if (storagePicker.configured === false) {
+          status.innerText = 'Choosing pictures from Supabase is not set up on this server. Use Image URL or Upload Image.';
+          document.getElementById('storageImageGrid').innerHTML = '';
+          return;
+        }
+        await loadStorageImages(true);
+      } catch (err) {
+        status.innerText = err.message || 'Could not load pictures from Supabase.';
+      }
+    }
+
+    function closeStoragePicker() {
+      document.getElementById('storagePickerModal').style.display = 'none';
+    }
+
+    function scheduleStorageSearch() {
+      clearTimeout(storagePicker.searchTimer);
+      storagePicker.searchTimer = setTimeout(() => loadStorageImages(true), 350);
+    }
+
+    async function loadStorageImages(reset) {
+      const folder = document.getElementById('storageFolderSelect').value;
+      const search = document.getElementById('storageSearchInput').value.trim();
+      const status = document.getElementById('storagePickerStatus');
+      const requestId = ++storagePicker.requestId;
+      if (reset) { storagePicker.images = []; storagePicker.nextOffset = 0; storagePicker.selected = null; renderStoragePreview(); }
+      status.innerText = 'Loading pictures...';
+      try {
+        const params = new URLSearchParams({ folder, offset: String(storagePicker.nextOffset) });
+        if (search) params.set('search', search);
+        const res = await adminFetch(`/api/admin/storage-images?${params}`);
+        const data = await res.json();
+        if (requestId !== storagePicker.requestId) return; // a newer search replaced this one
+        if (!data.success) throw new Error(data.error || 'Could not load pictures.');
+        storagePicker.images = storagePicker.images.concat(data.images || []);
+        storagePicker.nextOffset = data.nextOffset;
+        storagePicker.hasMore = Boolean(data.hasMore);
+        storagePicker.suggested = suggestStorageImage({ name: document.getElementById('prodName').value, sku: document.getElementById('prodSku').value }, storagePicker.images);
+        renderStorageGrid();
+        const count = storagePicker.images.length;
+        status.innerText = count
+          ? `${count} picture${count === 1 ? '' : 's'} in ${folder}${search ? ` matching "${search}"` : ''}${storagePicker.suggested ? ` · Suggested: ${storagePicker.suggested}` : ''}`
+          : `No pictures in ${folder}${search ? ` matching "${search}"` : ''}.`;
+        if (reset && storagePicker.suggested) selectStorageImage(storagePicker.suggested);
+      } catch (err) {
+        if (requestId === storagePicker.requestId) status.innerText = err.message || 'Could not load pictures from Supabase.';
+      }
+    }
+
+    function renderStorageGrid() {
+      const grid = document.getElementById('storageImageGrid');
+      grid.innerHTML = '';
+      const ordered = storagePicker.suggested
+        ? [...storagePicker.images].sort((a, b) => Number(b.name === storagePicker.suggested) - Number(a.name === storagePicker.suggested))
+        : storagePicker.images;
+      for (const image of ordered) {
+        const tile = document.createElement('button');
+        tile.type = 'button';
+        tile.className = 'storage-tile' + (storagePicker.selected && storagePicker.selected.name === image.name ? ' selected' : '');
+        tile.title = image.name;
+        tile.onclick = () => selectStorageImage(image.name);
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.alt = image.name;
+        img.src = image.url;
+        img.onerror = function () { this.onerror = null; this.src = '/purifier.jpg'; };
+        const name = document.createElement('div');
+        name.className = 'storage-name';
+        name.textContent = image.name; // original file name, shown as text (never as HTML)
+        tile.append(img, name);
+        if (image.name === storagePicker.suggested) {
+          const badge = document.createElement('span');
+          badge.className = 'storage-badge';
+          badge.textContent = 'Suggested';
+          tile.append(badge);
+        }
+        grid.append(tile);
+      }
+      document.getElementById('storageLoadMoreBtn').style.display = storagePicker.hasMore ? 'inline-flex' : 'none';
+    }
+
+    function selectStorageImage(name) {
+      storagePicker.selected = storagePicker.images.find(i => i.name === name) || null;
+      renderStorageGrid();
+      renderStoragePreview();
+    }
+
+    function renderStoragePreview() {
+      const img = document.getElementById('storagePreviewImg');
+      const name = document.getElementById('storagePreviewName');
+      const btn = document.getElementById('storageUseBtn');
+      const sel = storagePicker.selected;
+      if (!sel) { img.style.display = 'none'; img.removeAttribute('src'); name.textContent = 'Select a picture.'; btn.disabled = true; return; }
+      img.onerror = function () { this.onerror = null; this.src = '/purifier.jpg'; };
+      img.src = sel.url;
+      img.style.display = 'block';
+      name.textContent = `${sel.path}${sel.size ? ` · ${Math.round(sel.size / 1024)} KB` : ''}`;
+      btn.disabled = false;
+    }
+
+    // Puts the picture's public URL in the Product Image field (nothing is copied or uploaded).
+    function useStorageImage() {
+      const sel = storagePicker.selected;
+      if (!sel) return;
+      pendingProductImage = '';
+      const fileInput = document.getElementById('singleProdFileInput');
+      if (fileInput) fileInput.value = '';
+      document.getElementById('prodImg').value = sel.url;
+      showProductImagePreview(sel.url, `Supabase: ${sel.path} (saved when you press Save)`);
+      closeStoragePicker();
     }
 
     function formatImgUrl(url) {
@@ -4013,11 +4279,12 @@
           document.getElementById('prodPrice').value = p.price || '';
           document.getElementById('prodMrp').value = p.mrp || '';
           document.getElementById('prodMoq').value = p.moq || '';
-          document.getElementById('prodStockQuantity').value = p.stock_quantity !== undefined ? p.stock_quantity : (p.stock !== undefined ? p.stock : 50);
+          document.getElementById('prodStockQuantity').value = p.stock_quantity ?? p.stock ?? '';
           document.getElementById('prodMinStock').value = p.min_stock !== undefined ? p.min_stock : (p.minStock !== undefined ? p.minStock : 10);
           document.getElementById('prodImg').value = p.img || '';
+          showProductImagePreview(p.img || '', 'Current image');
           document.getElementById('prodDesc').value = p.desc || '';
-          document.getElementById('prodSpecs').value = typeof p.specs === 'object' ? JSON.stringify(p.specs) : (p.specs || '');
+          document.getElementById('prodSpecs').value = specsToLines(p.specs);
           document.getElementById('prodFeatures').value = Array.isArray(p.features) ? p.features.join('\n') : '';
           document.getElementById('prodBadge').value = p.badge || '';
           document.getElementById('prodStatus').value = p.status || 'active';
@@ -4027,7 +4294,8 @@
         document.getElementById('prodModalTitle').innerText = 'Add New Product';
         document.getElementById('prodEditId').value = '';
         document.getElementById('prodPurchasePrice').value = '';
-        document.getElementById('prodStockQuantity').value = 50;
+        // New product: stock is entered by the admin, never pre-filled.
+        document.getElementById('prodStockQuantity').value = '';
         document.getElementById('prodMinStock').value = 10;
       }
       updateCabinetPriceField();
@@ -4057,6 +4325,37 @@
       document.getElementById('productModal').style.display = 'none';
     }
 
+    /** Saved specifications -> one "Name: Value" line each (what the admin edits). */
+    function specsToLines(specs) {
+      if (!specs) return '';
+      if (typeof specs === 'string') { try { specs = JSON.parse(specs); } catch (_) { return specs; } }
+      if (typeof specs !== 'object' || Array.isArray(specs)) return '';
+      return Object.entries(specs).map(([k, v]) => `${k}: ${v}`).join('\n');
+    }
+
+    /** "Name: Value" lines (or a JSON object) -> { value } or { error }. */
+    function linesToSpecs(text) {
+      const raw = String(text || '').trim();
+      if (!raw) return { value: {} };
+      if (raw.startsWith('{')) {
+        try {
+          const obj = JSON.parse(raw);
+          if (obj && typeof obj === 'object' && !Array.isArray(obj)) return { value: obj };
+        } catch (_) { /* fall through to the message below */ }
+        return { error: 'Specifications are not valid JSON. Use one "Name: Value" per line.' };
+      }
+      const value = {};
+      const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      for (let i = 0; i < lines.length; i++) {
+        const at = lines[i].search(/[:=\t]/);
+        const key = at > 0 ? lines[i].slice(0, at).trim() : '';
+        const val = at > 0 ? lines[i].slice(at + 1).trim() : '';
+        if (!key || !val) return { error: `Specification line ${i + 1} ("${lines[i].slice(0, 40)}") needs a name and a value, e.g. "Voltage: 24V".` };
+        value[key] = val;
+      }
+      return { value };
+    }
+
     async function handleSaveProduct(e) {
       e.preventDefault();
       const editId = document.getElementById('prodEditId').value;
@@ -4072,12 +4371,27 @@
         return;
       }
 
-      let specsObj = {};
-      try {
-        const raw = document.getElementById('prodSpecs').value.trim();
-        if (raw) specsObj = JSON.parse(raw);
-      } catch(err) {
-        specsObj = { details: document.getElementById('prodSpecs').value.trim() };
+      // One "Name: Value" per line (or a JSON object): each line is its own
+      // specification. A line without a name and a value is refused, never merged.
+      const specsInput = document.getElementById('prodSpecs');
+      const parsedSpecs = linesToSpecs(specsInput.value);
+      if (parsedSpecs.error) {
+        specsInput.setCustomValidity(parsedSpecs.error);
+        specsInput.reportValidity();
+        specsInput.addEventListener('input', () => specsInput.setCustomValidity(''), { once: true });
+        return;
+      }
+      const specsObj = parsedSpecs.value;
+
+      // The saved image value is used as-is everywhere; a broken one (e.g. two URLs joined) is refused.
+      const imgInput = document.getElementById('prodImg');
+      imgInput.value = imgInput.value.trim();
+      const imgProblem = pendingProductImage ? null : productImageProblem(imgInput.value);
+      if (imgProblem) {
+        imgInput.setCustomValidity(imgProblem);
+        imgInput.reportValidity();
+        imgInput.addEventListener('input', () => imgInput.setCustomValidity(''), { once: true });
+        return;
       }
 
       const featuresArr = document.getElementById('prodFeatures').value.split('\n').map(f => f.trim()).filter(Boolean);
@@ -4333,10 +4647,13 @@
         <td><input type="text" class="bulk-cell-input bulk-name" placeholder="e.g. Aqua Mars RO 100 GPD" value="${escapeHtml(data.name || data.title || data.details || '')}"></td>
         <td><input type="text" class="bulk-cell-input bulk-sku" placeholder="e.g. AQUA-001" value="${escapeHtml(data.sku || data.sku_code || '')}"></td>
         <td><select class="bulk-cell-select bulk-category">${catOptions}</select></td>
-        <td><input type="text" class="bulk-cell-input bulk-brand" placeholder="e.g. Aqua Mars" value="${escapeHtml(data.brand || 'Aqua Mars')}"></td>
+        <td><input type="text" class="bulk-cell-input bulk-brand" placeholder="e.g. Aqua Mars" value="${escapeHtml(data.brand || '')}"></td>
         <td><input type="number" step="0.01" min="0" class="bulk-cell-input bulk-purchase-price" placeholder="7500" value="${data.purchase_price !== undefined ? data.purchase_price : (data.purchasePrice !== undefined ? data.purchasePrice : '')}"></td>
         <td><input type="number" step="0.01" min="0" class="bulk-cell-input bulk-dealer-price" placeholder="8500" value="${data.dealer_price !== undefined ? data.dealer_price : (data.price !== undefined ? data.price : '')}"></td>
         <td><input type="number" step="0.01" min="0" class="bulk-cell-input bulk-mrp" placeholder="12000" value="${data.mrp !== undefined ? data.mrp : ''}"></td>
+        <td><input type="number" step="1" min="0" class="bulk-cell-input bulk-stock" placeholder="Required" value="${data.stock !== undefined && data.stock !== null ? escapeHtml(String(data.stock)) : ''}"></td>
+        <td><input type="text" class="bulk-cell-input bulk-moq" placeholder="e.g. 10 nos" value="${escapeHtml(data.moq || '')}"></td>
+        <td><input type="number" step="0.01" min="0" class="bulk-cell-input bulk-cabinet-price" placeholder="Cabinet only" value="${data.cabinet_price !== undefined && data.cabinet_price !== null ? escapeHtml(String(data.cabinet_price)) : ''}"></td>
         <td style="text-align: center;">
           <button type="button" class="btn-action-icon danger" onclick="removeBulkTableRow(this)" title="Delete Row"><i class="fa-solid fa-trash"></i></button>
         </td>
@@ -4368,11 +4685,12 @@
     }
 
     function downloadExcelTemplate() {
-      const headers = ["Product Details", "SKU Code", "Category", "Brand", "Purchase Price", "Dealer Price", "MRP"];
+      // Stock Quantity is required (counted stock, 0 or more); MOQ and Cabinet Price are optional
+      // (Cabinet Price is required for Cabinet products). The example rows show the format only.
+      const headers = ["Product Details", "SKU Code", "Category", "Brand", "Purchase Price", "Dealer Price", "MRP", "Stock Quantity", "MOQ", "Cabinet Price"];
       const sampleData = [
-        ["Aqua Mars RO 100 GPD Commercial System", "AQUA-RO-100GPD", "RO Systems", "Aqua Mars", 7500, 8500, 12000],
-        ["High Flow 80 GPD RO Membrane", "MEM-80GPD-HI", "Membranes", "Aqua Mars", 950, 1250, 1800],
-        ["100 GPD Booster Pump 24V", "PUMP-100GPD-24V", "Booster Pumps", "Echen", 1400, 1850, 2600]
+        ["EXAMPLE - Aqua Mars RO 100 GPD Commercial System", "EXAMPLE-RO-100GPD", "RO Systems", "Aqua Mars", 7500, 8500, 12000, 5, "1 nos", ""],
+        ["EXAMPLE - High Flow 80 GPD RO Membrane", "EXAMPLE-MEM-80GPD", "Membranes", "", 950, 1250, 1800, 40, "10 nos", ""]
       ];
 
       if (window.XLSX) {
@@ -4449,14 +4767,20 @@
         const name = r["Product Details"] || r["Product Name"] || r["Name"] || r["details"] || r["name"] || "";
         const sku = r["SKU Code"] || r["SKU"] || r["sku_code"] || r["sku"] || "";
         const cat = r["Category"] || r["category"] || "";
-        const brand = r["Brand"] || r["brand"] || "Aqua Mars";
-        const purchasePrice = r["Purchase Price"] || r["purchase_price"] || r["PurchasePrice"] || 0;
-        const dealerPrice = r["Dealer Price"] || r["dealer_price"] || r["DealerPrice"] || r["Price"] || r["price"] || 0;
-        const mrp = r["MRP"] || r["mrp"] || 0;
+        // Empty cells stay empty: nothing is filled in automatically.
+        const cell = (...keys) => { for (const k of keys) if (r[k] !== undefined && String(r[k]).trim() !== '') return r[k]; return ''; };
+        const brand = cell("Brand", "brand");
+        const purchasePrice = cell("Purchase Price", "purchase_price", "PurchasePrice");
+        const dealerPrice = cell("Dealer Price", "dealer_price", "DealerPrice", "Price", "price");
+        const mrp = cell("MRP", "mrp");
+        const stock = cell("Stock Quantity", "Stock Qty", "Stock", "stock_quantity", "stock");
+        const moq = cell("MOQ", "Minimum Order Qty", "moq");
+        const cabinetPrice = cell("Cabinet Price", "cabinet_price");
 
         if (name || sku) {
           addBulkTableRow({
-            name, sku, category: cat, brand, purchase_price: purchasePrice, dealer_price: dealerPrice, mrp
+            name, sku, category: cat, brand, purchase_price: purchasePrice, dealer_price: dealerPrice, mrp,
+            stock, moq, cabinet_price: cabinetPrice
           });
         }
       });
@@ -4484,7 +4808,7 @@
         const brand = tr.querySelector('.bulk-brand').value.trim();
         const purchasePrice = parseFloat(tr.querySelector('.bulk-purchase-price').value || 0);
         const dealerPrice = parseFloat(tr.querySelector('.bulk-dealer-price').value || 0);
-        const mrp = parseFloat(tr.querySelector('.bulk-mrp').value || 0) || Math.round(dealerPrice * 1.25);
+        const mrp = parseFloat(tr.querySelector('.bulk-mrp').value || 0);
         const img = tr.dataset.image || '/purifier.jpg';
 
         const card = document.createElement('div');
@@ -4550,6 +4874,7 @@
         const purchasePrice = parseFloat(purchasePriceInput ? purchasePriceInput.value : 0);
         const dealerPrice = parseFloat(dealerPriceInput ? dealerPriceInput.value : 0);
         const mrp = parseFloat(mrpInput ? mrpInput.value : 0);
+        const stockText = (tr.querySelector('.bulk-stock') ? tr.querySelector('.bulk-stock').value : '').trim();
 
         const rowErrors = [];
 
@@ -4565,7 +4890,8 @@
           rowErrors.push(`SKU Code "${sku}" already exists in the shared database.`);
         }
 
-        if (!brand) rowErrors.push(`Brand cannot be empty.`);
+        if (!stockText) rowErrors.push(`Stock Quantity is required (enter the counted stock, 0 or more).`);
+        else if (!/^\d+$/.test(stockText)) rowErrors.push(`Stock Quantity must be a whole number, 0 or more.`);
         if (!cat) rowErrors.push(`Category must be selected.`);
         if (isNaN(purchasePrice) || purchasePrice < 0) rowErrors.push(`Purchase Price must be a valid non-negative number.`);
         if (isNaN(dealerPrice) || dealerPrice <= 0) rowErrors.push(`Dealer Price must be greater than zero.`);
@@ -4650,31 +4976,65 @@
       const rows = document.querySelectorAll('#bulkTableBody tr.bulk-table-row');
       const productsToImport = [];
 
-      rows.forEach(tr => {
-        const name = tr.querySelector('.bulk-name').value.trim();
-        const sku = tr.querySelector('.bulk-sku').value.trim();
-        const cat = tr.querySelector('.bulk-category').value.trim();
-        const brand = tr.querySelector('.bulk-brand').value.trim();
-        const purchasePrice = parseFloat(tr.querySelector('.bulk-purchase-price').value || 0);
-        const dealerPrice = parseFloat(tr.querySelector('.bulk-dealer-price').value || 0);
-        const mrp = parseFloat(tr.querySelector('.bulk-mrp').value || 0);
-        const img = tr.dataset.image || '';
-
+      // Exactly what the admin entered: empty cells are sent empty, never filled in.
+      rows.forEach((tr, index) => {
+        const value = cls => (tr.querySelector(cls) ? tr.querySelector(cls).value.trim() : '');
         productsToImport.push({
-          name,
-          sku,
-          category: cat,
-          brand,
-          purchase_price: purchasePrice,
-          dealer_price: dealerPrice,
-          price: dealerPrice,
-          mrp: mrp > 0 ? mrp : dealerPrice * 1.25,
-          moq: 'MOQ: 1 Unit',
-          stock_quantity: 50,
-          img: img,
+          row: index + 1,
+          name: value('.bulk-name'),
+          sku: value('.bulk-sku'),
+          category: value('.bulk-category'),
+          brand: value('.bulk-brand'),
+          purchase_price: value('.bulk-purchase-price'),
+          dealer_price: value('.bulk-dealer-price'),
+          price: value('.bulk-dealer-price'),
+          mrp: value('.bulk-mrp'),
+          stock_quantity: value('.bulk-stock'),
+          moq: value('.bulk-moq'),
+          cabinet_price: value('.bulk-cabinet-price'),
+          img: tr.dataset.image || '',
           status: 'active'
         });
       });
+
+      // 1. Dry run on the server: validates every row, saves nothing.
+      let preview;
+      try {
+        const res = await adminFetch('/api/admin/products/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ products: productsToImport, dryRun: true })
+        });
+        preview = await res.json().catch(() => ({}));
+        if (!res.ok || !preview.success) {
+          showBulkImportErrorModal(`Status: ${res.status}`, preview.error || 'The upload could not be checked.');
+          return;
+        }
+      } catch (err) {
+        showBulkImportErrorModal('Network / Client Error', err.message || String(err));
+        return;
+      }
+      const problems = (preview.rows || []).filter(r => r.status !== 'ready');
+      const alertBox = document.getElementById('bulkValidationAlert');
+      const alertList = document.getElementById('bulkValidationList');
+      alertList.innerHTML = '';
+      problems.forEach(r => {
+        const li = document.createElement('li');
+        li.innerText = `Row ${r.row} (${r.sku || 'no SKU'}): ${r.status === 'duplicate' ? 'skipped – ' : '❌ '}${(r.errors || []).join(' ')}`;
+        alertList.appendChild(li);
+      });
+      alertBox.style.display = problems.length ? 'block' : 'none';
+      const s = preview.summary || {};
+      if (!s.ready) {
+        alert(`Nothing to import: ${s.errors || 0} row(s) with errors, ${s.duplicates || 0} existing SKU(s). See the list above.`);
+        return;
+      }
+      if (!confirm(`Dry run: ${s.ready} of ${s.total} row(s) are ready to import.` +
+          (s.errors ? `\n${s.errors} row(s) have errors and will NOT be imported.` : '') +
+          (s.duplicates ? `\n${s.duplicates} SKU(s) already exist and will NOT be changed.` : '') +
+          `\n\nImport the ${s.ready} ready row(s) now?`)) {
+        return;
+      }
 
       const importBtn = document.getElementById('bulkImportBtn');
       importBtn.disabled = true;

@@ -13,6 +13,8 @@ const { releaseOrderStock, reReserveOrderStock } = require('./stock_service');
 const { rewardSummary, requestRewardClaim, decideRewardClaim, reverseOrderReward, reinstateOrderReward, rewardLedgerReady } = require('./rewards');
 const { purchaseMode, bulkQuantityProblem, modeConflict, bulkOrdersReady, bulkFields } = require('./bulk_orders');
 const { rateLimit } = require('./rate_limit');
+const { parseSpecifications, specificationLines, parseFeatures } = require('./product_info');
+const { STORAGE_BUCKET, STORAGE_FOLDERS, CATEGORY_FOLDERS, categoryFolders, storageListRequest, listStorageFolders, listStorageImages, productImageProblem } = require('./storage_images');
 const { requireDealerSession, DEALER_DATA_ROUTES } = require('./dealer_auth');
 const { orderQuantityProblem, availability, minOrderQuantity, maxOrderQuantity, stockEnforced } = require('./order_rules');
 const { ORDER_STATUSES, normalizeOrderStatus, normalizePaymentStatus, effectiveOrderStatus, orderStatusChangeError, paymentStatusChangeError } = require('./order_status');
@@ -187,6 +189,9 @@ function decodeImageDataUrl(input) {
 /** Saves a product/category image and returns the path to store. */
 async function storeProductImage(imageInput, prefix = 'prod') {
   const raw = String(imageInput || '').trim();
+  // The saved value is used as-is everywhere (app, web, share), so a broken one is refused, never stored.
+  const problem = productImageProblem(raw);
+  if (problem) throw new Error(problem);
   if (!raw.startsWith('data:image/')) return raw; // existing path or URL
   if ((await productImageStore()) !== 'database') return saveUploadedFile(raw, prefix);
   const { ext, bytes, contentType } = decodeImageDataUrl(raw);
@@ -213,6 +218,82 @@ function productPriceError({ purchasePrice, price, mrp }) {
   // Compared only when a dealer price is set (0 = not set).
   if (price > 0 && cleanMrp < price) return 'MRP cannot be lower than the dealer price.';
   return null;
+}
+
+/**
+ * One row of an Admin Excel / bulk product upload. Never invents a value:
+ * stock must be entered (0 or more); rating, MOQ, brand, MRP, description,
+ * specifications, features and applications stay empty when not given.
+ * Existing SKUs are reported as 'duplicate' and are never updated.
+ * Returns { status: 'ready'|'error'|'duplicate', errors, sku, name, image, product }.
+ */
+function validateBulkProductRow(raw, { resolveCategory, existingSkus, skusInUpload }) {
+  const pick = (...keys) => { for (const k of keys) if (raw[k] !== undefined && raw[k] !== null) return raw[k]; return undefined; };
+  const text = value => (isBlankField(value) ? '' : String(value).trim());
+  const errors = [];
+  const name = text(pick('name', 'product_name', 'productName', 'title', 'details', 'product_details'));
+  const sku = text(pick('sku', 'sku_code')).toUpperCase();
+  if (!name) errors.push('Product name is required.');
+  if (!sku) errors.push('SKU is required.');
+  else if (skusInUpload.has(sku)) errors.push(`SKU "${sku}" appears more than once in this upload.`);
+
+  const rawPrice = pick('price', 'dealer_price', 'dealerPrice');
+  const price = optionalAmount(rawPrice);
+  if (isBlankField(rawPrice)) errors.push('Dealer price is required.');
+  else if (isNaN(price) || price <= 0) errors.push('Dealer price must be greater than zero.');
+  const purchasePrice = optionalAmount(pick('purchase_price', 'purchasePrice'));
+  const rawMrp = pick('mrp');
+  const priceError = productPriceError({ purchasePrice, price: isNaN(price) ? 0 : price, mrp: rawMrp });
+  if (priceError) errors.push(priceError);
+
+  const rawStock = pick('stock_quantity', 'stock');
+  const stock = Number(text(rawStock));
+  if (isBlankField(rawStock)) errors.push('Stock quantity is required (enter the counted stock, 0 or more).');
+  else if (!Number.isSafeInteger(stock) || stock < 0 || stock > 2147483647) errors.push('Stock quantity must be a whole number, 0 or more.');
+  const rawMinStock = pick('min_stock', 'minStock');
+  const minStock = isBlankField(rawMinStock) ? 10 : Number(text(rawMinStock)); // low-stock alert threshold
+  if (!Number.isSafeInteger(minStock) || minStock < 0) errors.push('Minimum stock alert must be a whole number, 0 or more.');
+
+  const categoryInput = pick('category', 'category_key');
+  const category = resolveCategory(categoryInput);
+  if (!category) errors.push(isBlankField(categoryInput) ? 'Category is required.' : `Category "${text(categoryInput)}" does not exist.`);
+  // Same rule as Add Product: Cabinet products need their own Cabinet Price.
+  const cabinet = category ? cabinetPriceFor(isCabinetCategory(category.id, category.key), pick('cabinet_price', 'cabinetPrice')) : { value: null };
+  if (cabinet.error) errors.push(cabinet.error);
+
+  const parsedSpecs = parseSpecifications(pick('specs', 'specifications'));
+  if (parsedSpecs.error) errors.push(parsedSpecs.error);
+  const specs = parsedSpecs.value || {};
+  const rawFeatures = pick('features', 'key_features');
+  const features = Array.isArray(rawFeatures)
+    ? rawFeatures.map(f => String(f).trim()).filter(Boolean)
+    : text(rawFeatures).split(/\r?\n/).map(f => f.trim()).filter(Boolean);
+  const moq = text(pick('moq', 'MOQ'));
+  const rating = text(pick('rating'));
+  const imageProblem = productImageProblem(text(pick('img', 'image')));
+  if (imageProblem) errors.push(imageProblem);
+
+  if (errors.length) return { status: 'error', errors, sku, name };
+  if (existingSkus.has(sku)) {
+    return { status: 'duplicate', errors: [`SKU "${sku}" already exists; the existing product is not changed.`], sku, name };
+  }
+  return {
+    status: 'ready', errors: [], sku, name,
+    image: text(pick('img', 'image')),
+    product: {
+      sku, name, category: category.key, category_id: category.id,
+      brand: text(pick('brand')),
+      purchase_price: purchasePrice, price, mrp: optionalAmount(rawMrp), cabinet_price: cabinet.value ?? null,
+      stock_quantity: stock, min_stock: minStock,
+      moq: moq ? (moq.startsWith('MOQ:') ? moq : `MOQ: ${moq}`) : null,
+      badge: text(pick('badge')),
+      rating: rating || null,
+      desc: text(pick('desc', 'product_description', 'productDescription', 'description')),
+      specs, features,
+      applications: text(pick('applications')) || null,
+      status: raw.status === 'inactive' ? 'inactive' : 'active',
+    },
+  };
 }
 
 /** An optional form field left empty (missing, null or only spaces). */
@@ -2132,6 +2213,8 @@ function productShareImagePath(product) {
   const img = String(product.img || '').trim();
   const name = img.split(/[?#]/)[0].split('/').pop().toLowerCase();
   const map = loadCatalogImageMap();
+  // A full web address saved by the admin is always used as-is (same rule as the app).
+  if (/^https?:\/\//i.test(img)) return img;
   if (img && !map.placeholders.includes(name)) return img;
   let tile = map.bySku[String(product.sku || '').toUpperCase()];
   if (tile === undefined) {
@@ -2333,6 +2416,47 @@ ${preview.width && preview.height ? `<meta property="og:image:width" content="${
 </html>`);
 });
 
+// Admin: browse pictures already uploaded to Supabase Storage (read-only listing;
+// the service key stays on the server). The chosen picture is saved as its public URL.
+const storageBrowseConfig = () => ({
+  supabaseUrl: String(process.env.SUPABASE_URL || '').trim(),
+  serviceKey: String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim(),
+});
+// Folders are read from the bucket (so newly created ones appear); cached briefly.
+let storageFolderCache = { at: 0, folders: null };
+async function storageFoldersNow({ supabaseUrl, serviceKey }) {
+  if (storageFolderCache.folders && Date.now() - storageFolderCache.at < 60000) return storageFolderCache.folders;
+  const found = await listStorageFolders({ supabaseUrl, serviceKey });
+  storageFolderCache = { at: Date.now(), folders: found.length ? found : STORAGE_FOLDERS };
+  return storageFolderCache.folders;
+}
+app.get('/api/admin/storage-folders', requireAdminAuth, async (req, res) => {
+  const { supabaseUrl, serviceKey } = storageBrowseConfig();
+  if (!supabaseUrl || !serviceKey) return res.json({ success: true, configured: false, bucket: STORAGE_BUCKET, folders: STORAGE_FOLDERS, categoryFolders: CATEGORY_FOLDERS });
+  try {
+    const folders = await storageFoldersNow({ supabaseUrl, serviceKey });
+    res.json({ success: true, configured: true, bucket: STORAGE_BUCKET, folders, categoryFolders: categoryFolders(folders) });
+  } catch (error) {
+    console.error('Storage folder list failed:', error.status || '', error.message);
+    res.status(502).json({ success: false, error: 'Could not load folders from Supabase Storage. Please try again.' });
+  }
+});
+app.get('/api/admin/storage-images', requireAdminAuth, async (req, res) => {
+  const { supabaseUrl, serviceKey } = storageBrowseConfig();
+  if (!supabaseUrl || !serviceKey) {
+    return res.status(503).json({ success: false, configured: false, error: 'Choosing pictures from Supabase is not set up on this server (Supabase Storage key missing). Use Image URL or Upload Image.' });
+  }
+  try {
+    const request = storageListRequest(req.query, await storageFoldersNow({ supabaseUrl, serviceKey }));
+    if (request.error) return res.status(400).json({ success: false, error: request.error });
+    const page = await listStorageImages({ supabaseUrl, serviceKey, ...request });
+    res.json({ success: true, bucket: STORAGE_BUCKET, folder: request.folder, search: request.search, ...page });
+  } catch (error) {
+    console.error('Storage image list failed:', error.status || '', error.message);
+    res.status(502).json({ success: false, error: 'Could not load pictures from Supabase Storage. Please try again.' });
+  }
+});
+
 // Admin Endpoint: Get all products (active + inactive)
 app.get('/api/admin/products', requireAdminAuth, async (req, res) => {
   try {
@@ -2384,7 +2508,11 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
     // Brand, Purchase Price, Dealer Price and MRP are optional: blank = not set.
     const cleanPrice = optionalAmount(price);
     const cleanPurchasePrice = optionalAmount(purchase_price !== undefined ? purchase_price : purchasePrice);
-    const cleanStock = Number(req.body.stock_quantity ?? req.body.stock ?? 50);
+    // Stock is never assumed: the admin must enter the counted quantity (0 or more).
+    if (isBlankField(req.body.stock_quantity ?? req.body.stock)) {
+      return res.status(400).json({ success: false, error: 'Stock quantity is required (enter the counted stock, 0 or more).' });
+    }
+    const cleanStock = Number(req.body.stock_quantity ?? req.body.stock);
     const cleanMinStock = Number(req.body.min_stock ?? req.body.minStock ?? 10);
     if (![cleanStock, cleanMinStock].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 2147483647) ||
         [req.body.stock_quantity, req.body.stock, req.body.min_stock, req.body.minStock].some(value => value !== undefined && (!['number', 'string'].includes(typeof value) || (typeof value === 'string' && !value.trim())))) {
@@ -2423,22 +2551,16 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: `Product SKU "${cleanSku}" already exists. Please use a unique SKU.` });
     }
 
-    let cleanSpecs = {};
-    if (specs && typeof specs === 'object') {
-      cleanSpecs = specs;
-    } else if (typeof specs === 'string' && specs.trim()) {
-      try {
-        cleanSpecs = JSON.parse(specs.trim());
-      } catch (e) {
-        cleanSpecs = { "Specification": specs.trim() };
-      }
-    }
+    // One "Name: Value" per line (or JSON); each line is its own specification.
+    const parsedSpecs = parseSpecifications(specs);
+    if (parsedSpecs.error) return res.status(400).json({ success: false, error: parsedSpecs.error });
+    const cleanSpecs = parsedSpecs.value;
 
     let cleanFeatures = [];
     if (Array.isArray(features)) {
       cleanFeatures = features.map(f => String(f).trim()).filter(Boolean);
     } else if (typeof features === 'string' && features.trim()) {
-      cleanFeatures = features.split(/[\n,]+/).map(f => f.trim()).filter(Boolean);
+      cleanFeatures = features.split(/\r?\n/).map(f => f.trim()).filter(Boolean); // one per line (commas allowed)
     }
 
     const rawImg = (img || image || '').trim();
@@ -2454,7 +2576,8 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
 
     const cleanDesc = (desc || short_desc || full_desc || '').trim();
     const cleanBrand = String(brand ?? '').trim(); // blank = not set (column is NOT NULL)
-    const cleanApps = (applications || 'Commercial & Domestic Water Plants').trim();
+    // Blank = not set; never a made-up default text.
+    const cleanApps = isBlankField(applications) ? null : String(applications).trim();
 
     const prodId = `prod_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
     const newProd = {
@@ -2472,9 +2595,10 @@ app.post('/api/admin/products', requireAdminAuth, async (req, res) => {
       // Blank MRP = not available (0); never estimated from the dealer price.
       mrp: optionalAmount(mrp),
       cabinet_price: cabinetPrice.value,
-      moq: moq ? (moq.toString().startsWith('MOQ:') ? moq : `MOQ: ${moq}`) : 'MOQ: 1 Unit',
+      // Blank MOQ / rating stay unset ("MOQ not set", no stars); never invented.
+      moq: isBlankField(moq) ? null : (moq.toString().startsWith('MOQ:') ? String(moq).trim() : `MOQ: ${String(moq).trim()}`),
       badge: String(badge || '').trim(),
-      rating: String(rating || '★★★★★ (5.0)').trim(),
+      rating: isBlankField(rating) ? null : String(rating).trim(),
       img: cleanImg,
       desc: cleanDesc,
       specs: cleanSpecs,
@@ -2553,92 +2677,66 @@ app.post('/api/admin/products/bulk', requireAdminAuth, async (req, res) => {
       return null;
     };
 
+    // dryRun: validate every row and report, save nothing (no images either).
+    const dryRun = req.body.dryRun === true;
     const validToImport = [];
     const skippedSKUs = [];
+    const rowResults = [];
+    const skusInUpload = new Set();
 
-    for (const raw of rawProducts) {
-      const cleanName = (raw.name || raw.product_name || raw.productName || raw.title || raw.details || raw.product_details || '').trim();
-      const cleanSku = (raw.sku || raw.sku_code || '').trim().toUpperCase();
-      const cleanBrand = (raw.brand || 'RO Wholesale').trim();
-      const cleanPurchasePrice = parseFloat(raw.purchase_price !== undefined ? raw.purchase_price : (raw.purchasePrice !== undefined ? raw.purchasePrice : 0));
-      const cleanPrice = parseFloat(raw.price !== undefined ? raw.price : (raw.dealer_price !== undefined ? raw.dealer_price : (raw.dealerPrice !== undefined ? raw.dealerPrice : 0)));
-      const cleanMrp = parseFloat(raw.mrp !== undefined ? raw.mrp : (cleanPrice * 1.25));
-      const cleanStock = Number(raw.stock_quantity ?? raw.stock ?? 50);
-      const cleanMinStock = Number(raw.min_stock ?? raw.minStock ?? 10);
-      if (![cleanStock, cleanMinStock].every(value => Number.isSafeInteger(value) && value >= 0 && value <= 2147483647) ||
-          [raw.stock_quantity, raw.stock, raw.min_stock, raw.minStock].some(value => value !== undefined && (!['number', 'string'].includes(typeof value) || (typeof value === 'string' && !value.trim())))) {
-        skippedSKUs.push({ sku: cleanSku || 'UNKNOWN', reason: 'Stock quantity and minimum stock must be nonnegative integers.' });
+    for (let index = 0; index < rawProducts.length; index++) {
+      const raw = rawProducts[index] && typeof rawProducts[index] === 'object' ? rawProducts[index] : {};
+      const rowNumber = Number.isSafeInteger(Number(raw.row)) && Number(raw.row) > 0 ? Number(raw.row) : index + 1;
+      const v = validateBulkProductRow(raw, { resolveCategory, existingSkus, skusInUpload });
+      const result = { row: rowNumber, sku: v.sku || '', name: v.name || '', status: v.status, errors: v.errors };
+      if (v.status !== 'ready') {
+        skippedSKUs.push({ row: rowNumber, sku: v.sku || 'UNKNOWN', reason: v.errors.join(' ') });
+        rowResults.push(result);
         continue;
       }
-
-      if (!cleanName || !cleanSku || isNaN(cleanPrice) || cleanPrice <= 0) {
-        skippedSKUs.push({ sku: cleanSku || 'UNKNOWN', reason: 'Missing required fields (Product Details, SKU, or Dealer Price)' });
-        continue;
-      }
-
-      const rowPriceError = productPriceError({ purchasePrice: cleanPurchasePrice, price: cleanPrice, mrp: raw.mrp });
-      if (rowPriceError) {
-        skippedSKUs.push({ sku: cleanSku, reason: rowPriceError });
-        continue;
-      }
-
-      if (existingSkus.has(cleanSku)) {
-        skippedSKUs.push({ sku: cleanSku, reason: `Duplicate SKU "${cleanSku}" already exists in database` });
-        continue;
-      }
-
-      const catObj = resolveCategory(raw.category || raw.category_key);
-      if (!catObj) {
-        skippedSKUs.push({ sku: cleanSku || 'UNKNOWN', reason: `Category "${raw.category || raw.category_key || ''}" does not exist in database.` });
-        continue;
-      }
-      existingSkus.add(cleanSku);
-      const prodId = `prod_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`;
-
-      const rawImg = (raw.img || raw.image || '').trim();
-      let cleanImg = 'purifier.jpg';
-      if (rawImg) {
-        try {
-          cleanImg = await storeProductImage(rawImg);
-        } catch (imgErr) {
-          skippedSKUs.push({ sku: cleanSku, reason: `Image could not be saved: ${imgErr.message}` });
-          existingSkus.delete(cleanSku);
-          continue;
+      skusInUpload.add(v.sku);
+      let cleanImg = 'purifier.jpg'; // placeholder name: the app shows its built-in picture
+      if (v.image) {
+        if (dryRun) result.image = 'will be saved';
+        else {
+          try {
+            cleanImg = await storeProductImage(v.image);
+          } catch (imgErr) {
+            const reason = `Image could not be saved: ${imgErr.message}`;
+            skippedSKUs.push({ row: rowNumber, sku: v.sku, reason });
+            rowResults.push({ ...result, status: 'error', errors: [reason] });
+            skusInUpload.delete(v.sku);
+            continue;
+          }
         }
       }
-
-      const newProd = {
-        id: prodId,
-        sku: cleanSku,
-        name: cleanName,
-        category: catObj.key,
-        category_id: catObj.id,
-        brand: cleanBrand,
-        purchase_price: cleanPurchasePrice,
-        purchasePrice: cleanPurchasePrice,
-        price: cleanPrice,
-        mrp: cleanMrp,
-        stock_quantity: cleanStock,
-        min_stock: cleanMinStock,
-        moq: raw.moq ? (raw.moq.toString().startsWith('MOQ:') ? raw.moq : `MOQ: ${raw.moq}`) : 'MOQ: 1 Unit',
-        badge: String(raw.badge || '').trim(),
-        rating: String(raw.rating || '★★★★★ (5.0)').trim(),
+      result.values = { ...v.product, img: v.image ? (dryRun ? '(uploaded image)' : cleanImg) : null };
+      rowResults.push(result);
+      validToImport.push({
+        id: `prod_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}_${index}`,
+        ...v.product,
+        purchasePrice: v.product.purchase_price,
         img: cleanImg,
-        desc: (raw.desc || raw.product_description || raw.productDescription || raw.description || '').trim(),
-        specs: raw.specs || {},
-        features: Array.isArray(raw.features) ? raw.features : [],
-        applications: (raw.applications || 'Commercial & Domestic Water Plants').trim(),
-        status: raw.status === 'inactive' ? 'inactive' : 'active',
         createdAt: new Date().toISOString()
-      };
+      });
+    }
 
-      validToImport.push(newProd);
+    const summary = {
+      total: rawProducts.length,
+      ready: rowResults.filter(r => r.status === 'ready').length,
+      errors: rowResults.filter(r => r.status === 'error').length,
+      duplicates: rowResults.filter(r => r.status === 'duplicate').length,
+    };
+    if (dryRun) {
+      return res.json({ success: true, dryRun: true, summary, rows: rowResults, skipped: skippedSKUs });
     }
 
     if (validToImport.length === 0) {
       return res.status(400).json({
         success: false,
         error: 'No valid products to import. All rows were either duplicates or missing required fields.',
+        summary,
+        rows: rowResults,
         skipped: skippedSKUs
       });
     }
@@ -2646,17 +2744,20 @@ app.post('/api/admin/products/bulk', requireAdminAuth, async (req, res) => {
     // Save only new SKU values. The unique constraint handles duplicates
     // that race the preflight lookup without modifying the existing product.
     const dbErrors = [];
+    const withCabinetColumn = await hasCabinetPriceColumn();
 
     for (const p of validToImport) {
       try {
+        if (p.cabinet_price !== null && !withCabinetColumn) throw Object.assign(new Error(CABINET_PRICE_NO_COLUMN), { code: 'NO_CABINET_COLUMN' });
         const [insertResult] = await pool.query(
-          `INSERT INTO products (id, category_id, category_key, sku, name, brand, purchase_price, price, mrp, moq, badge, rating, img, description, specs_json, features_json, applications, status, stock_quantity, min_stock)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO products (id, category_id, category_key, sku, name, brand, purchase_price, price, mrp, moq, badge, rating, img, description, specs_json, features_json, applications, status, stock_quantity, min_stock${withCabinetColumn ? ', cabinet_price' : ''})
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${withCabinetColumn ? ', ?' : ''})`,
           [
             p.id, p.category_id, p.category, p.sku, p.name, p.brand,
             p.purchase_price, p.price, p.mrp, p.moq, p.badge, p.rating,
             p.img, p.desc, JSON.stringify(p.specs), JSON.stringify(p.features),
-            p.applications, p.status, p.stock_quantity, p.min_stock
+            p.applications, p.status, p.stock_quantity, p.min_stock,
+            ...(withCabinetColumn ? [p.cabinet_price] : [])
           ]
         );
         if (insertResult.affectedRows !== 1) {
@@ -2668,7 +2769,7 @@ app.post('/api/admin/products/bulk', requireAdminAuth, async (req, res) => {
           sku: p.sku,
           reason: dbErr.code === 'ER_DUP_ENTRY'
             ? `Duplicate SKU "${p.sku}" already exists in database`
-            : 'database could not save this product.'
+            : dbErr.code === 'NO_CABINET_COLUMN' ? dbErr.message : 'database could not save this product.'
         });
       }
     }
@@ -2676,12 +2777,19 @@ app.post('/api/admin/products/bulk', requireAdminAuth, async (req, res) => {
     // Mirror only confirmed database writes, so failed rows can be retried safely.
     const persistedProducts = validToImport.filter(p => !dbErrors.some(e => e.sku === p.sku));
     const totalSkipped = [...skippedSKUs, ...dbErrors];
+    for (const e of dbErrors) {
+      const r = rowResults.find(x => x.sku === e.sku && x.status === 'ready');
+      if (r) { r.status = 'error'; r.errors = [e.reason]; delete r.values; }
+    }
+    rowResults.filter(r => r.status === 'ready').forEach(r => { r.status = 'imported'; });
 
     return res.status(201).json({
       success: true,
       message: `🎉 ${validToImport.length - dbErrors.length} products imported successfully!`,
       importedCount: validToImport.length - dbErrors.length,
       skippedCount: totalSkipped.length,
+      summary: { ...summary, imported: persistedProducts.length },
+      rows: rowResults,
       imported: persistedProducts,
       skipped: totalSkipped
     });
@@ -2765,22 +2873,20 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Stock quantity and minimum stock must be nonnegative integers.' });
     }
 
+    // Not sent (or a blank string) keeps the saved specifications; an object
+    // (the Admin form) or "Name: Value" lines replace them, one entry per line.
     let cleanSpecs = existing.specs || {};
-    if (specs && typeof specs === 'object') {
-      cleanSpecs = specs;
-    } else if (typeof specs === 'string' && specs.trim()) {
-      try {
-        cleanSpecs = JSON.parse(specs.trim());
-      } catch (e) {
-        cleanSpecs = { "Specification": specs.trim() };
-      }
+    if (specs !== undefined && specs !== null && !(typeof specs === 'string' && !specs.trim())) {
+      const parsedSpecs = parseSpecifications(specs);
+      if (parsedSpecs.error) return res.status(400).json({ success: false, error: parsedSpecs.error });
+      cleanSpecs = parsedSpecs.value;
     }
 
     let cleanFeatures = existing.features || [];
     if (Array.isArray(features)) {
       cleanFeatures = features.map(f => String(f).trim()).filter(Boolean);
     } else if (typeof features === 'string' && features.trim()) {
-      cleanFeatures = features.split(/[\n,]+/).map(f => f.trim()).filter(Boolean);
+      cleanFeatures = features.split(/\r?\n/).map(f => f.trim()).filter(Boolean); // one per line (commas allowed)
     }
 
     let cleanImg = existing.img || 'purifier.jpg';
@@ -2822,7 +2928,9 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
         ? String(rating).trim()
         : (existing.rating ?? null),
       img: cleanImg,
-      desc: (desc || short_desc || full_desc || existing.desc || '').trim(),
+      // A description that is sent (even empty) replaces the saved one, so an
+      // admin can also clear it; not sent keeps the saved description.
+      desc: (desc !== undefined && desc !== null ? String(desc) : (short_desc || full_desc || existing.desc || '')).trim(),
       specs: cleanSpecs,
       features: cleanFeatures,
       applications: (applications !== undefined ? applications : existing.applications || '').trim(),

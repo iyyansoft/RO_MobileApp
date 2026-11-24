@@ -33,27 +33,27 @@ test('migration 009 adds one nullable column and changes no product', async () =
 });
 
 test('Cabinet product: Cabinet Price is required and saved in its own column', async () => {
-  const missing = await admin('POST', '/api/admin/products', { name: 'Cab A', sku: 'CABT-1', category: 'cabinets', price: '1100' });
+  const missing = await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Cab A', sku: 'CABT-1', category: 'cabinets', price: '1100' });
   assert.equal(missing.status, 400);
   assert.match(missing.body.error, /Cabinet Price is required/);
   for (const bad of ['0', '-5', 'abc']) {
-    assert.equal((await admin('POST', '/api/admin/products', { name: 'Cab A', sku: 'CABT-1', category: 'cabinets', cabinet_price: bad })).status, 400, bad);
+    assert.equal((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Cab A', sku: 'CABT-1', category: 'cabinets', cabinet_price: bad })).status, 400, bad);
   }
-  const ok = await admin('POST', '/api/admin/products', { name: 'Cab A', sku: 'CABT-1', category: 'cabinets', brand: '', purchase_price: '700', price: '1100', mrp: '1500', cabinet_price: '950' });
+  const ok = await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Cab A', sku: 'CABT-1', category: 'cabinets', brand: '', purchase_price: '700', price: '1100', mrp: '1500', cabinet_price: '950' });
   assert.equal(ok.status, 201, JSON.stringify(ok.body));
   const r = await row('CABT-1');
   assert.deepEqual([Number(r.cabinet_price), Number(r.price), Number(r.purchase_price), Number(r.mrp)], [950, 1100, 700, 1500], 'other prices untouched');
   assert.equal((await listed('CABT-1')).cabinet_price, 950, 'admin list returns it');
   // Works with the other prices empty, too.
-  assert.equal((await admin('POST', '/api/admin/products', { name: 'Cab B', sku: 'CABT-2', category: 'Cabinet', cabinet_price: 1200 })).status, 201);
+  assert.equal((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Cab B', sku: 'CABT-2', category: 'Cabinet', cabinet_price: 1200 })).status, 201);
   assert.equal(Number((await row('CABT-2')).cabinet_price), 1200);
   assert.equal(Number((await row('CABT-2')).price), 0);
 });
 
 test('other categories: no Cabinet Price required, and none stored even if sent', async () => {
-  assert.equal((await admin('POST', '/api/admin/products', { name: 'Valve', sku: 'NONCAB-1', category: 'spares', price: '80' })).status, 201);
+  assert.equal((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Valve', sku: 'NONCAB-1', category: 'spares', price: '80' })).status, 201);
   assert.equal((await row('NONCAB-1')).cabinet_price, null);
-  assert.equal((await admin('POST', '/api/admin/products', { name: 'Valve 2', sku: 'NONCAB-2', category: 'spares', price: '80', cabinet_price: '999' })).status, 201);
+  assert.equal((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Valve 2', sku: 'NONCAB-2', category: 'spares', price: '80', cabinet_price: '999' })).status, 201);
   assert.equal((await row('NONCAB-2')).cabinet_price, null);
   assert.equal((await listed('NONCAB-1')).cabinet_price, null);
 });
@@ -81,7 +81,7 @@ test('editing: saved Cabinet Price is kept/changed; leaving Cabinet clears it', 
 
 test('dealer catalog (/api/products) returns Cabinet Price for Cabinet products only, and admin changes show on the next read', async () => {
   const pub = async sku => (await (await fetch(`${base}/api/products`)).json()).products.find(p => p.sku === sku);
-  assert.equal((await admin('POST', '/api/admin/products', { name: 'Cab C', sku: 'CABT-3', category: 'cabinets', price: '400', mrp: '500', cabinet_price: '375' })).status, 201);
+  assert.equal((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Cab C', sku: 'CABT-3', category: 'cabinets', price: '400', mrp: '500', cabinet_price: '375' })).status, 201);
   let p = await pub('CABT-3');
   assert.equal(p.cabinet_price, 375);
   assert.deepEqual([p.price, p.dealer_price, p.mrp], [400, 400, 500], 'Dealer Price and MRP unchanged');

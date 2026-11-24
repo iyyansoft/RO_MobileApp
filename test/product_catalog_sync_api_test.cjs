@@ -115,11 +115,11 @@ const admin = (url, body, method = 'POST') => fetch(base + url, {
 const catalog = async () => (await (await fetch(`${base}/api/products`)).json()).products;
 
 test('single product: validated, saved with its image, visible to customers', async () => {
-  const bad = await admin('/api/admin/products', { name: 'Low MRP', sku: 'LOW-1', category: 'spares', brand: 'Aqua Mars', purchase_price: 7500, price: 8500, mrp: 8000 });
+  const bad = await admin('/api/admin/products', { stock_quantity: 5, name: 'Low MRP', sku: 'LOW-1', category: 'spares', brand: 'Aqua Mars', purchase_price: 7500, price: 8500, mrp: 8000 });
   assert.equal(bad.status, 400);
   assert.match((await bad.json()).error, /MRP cannot be lower/);
 
-  const res = await admin('/api/admin/products', { name: 'Aqua Mars RO 100 GPD', sku: 'aqua-001', category: 'Spare Parts & Valves', brand: 'Aqua Mars', purchase_price: 7500, price: 8500, mrp: 12000, desc: 'Compact RO unit', img: dataUrl, status: 'active' });
+  const res = await admin('/api/admin/products', { stock_quantity: 5, name: 'Aqua Mars RO 100 GPD', sku: 'aqua-001', category: 'Spare Parts & Valves', brand: 'Aqua Mars', purchase_price: 7500, price: 8500, mrp: 12000, desc: 'Compact RO unit', img: dataUrl, status: 'active' });
   assert.equal(res.status, 201);
   const saved = (await res.json()).product;
   assert.match(saved.img, /^\/uploads\/prod_\d+_\d+\.png$/);
@@ -146,12 +146,12 @@ test('single product: validated, saved with its image, visible to customers', as
 
 test('bulk upload: valid rows saved, invalid and duplicate rows reported', async () => {
   const res = await admin('/api/admin/products/bulk', { products: [
-    { name: 'Bulk Membrane 80', sku: 'BULK-M80', category: 'membranes', brand: 'Aqua Mars', purchase_price: 500, price: 700, mrp: 950 },
-    { name: 'Bulk Valve', sku: 'BULK-V1', category: 'Spare Parts & Valves', brand: 'Aqua Mars', purchase_price: 50, price: 80, mrp: 120 },
-    { name: 'Dup in sheet', sku: 'BULK-V1', category: 'spares', brand: 'X', purchase_price: 1, price: 2, mrp: 3 },
-    { name: 'Already exists', sku: 'AQUA-001', category: 'spares', brand: 'X', purchase_price: 1, price: 2, mrp: 3 },
-    { name: 'Low MRP', sku: 'BULK-LOW', category: 'spares', brand: 'X', purchase_price: 1, price: 20, mrp: 10 },
-    { name: 'No category', sku: 'BULK-NOCAT', category: 'unknown', brand: 'X', purchase_price: 1, price: 2, mrp: 3 },
+    { stock_quantity: 5, name: 'Bulk Membrane 80', sku: 'BULK-M80', category: 'membranes', brand: 'Aqua Mars', purchase_price: 500, price: 700, mrp: 950 },
+    { stock_quantity: 5, name: 'Bulk Valve', sku: 'BULK-V1', category: 'Spare Parts & Valves', brand: 'Aqua Mars', purchase_price: 50, price: 80, mrp: 120 },
+    { stock_quantity: 5, name: 'Dup in sheet', sku: 'BULK-V1', category: 'spares', brand: 'X', purchase_price: 1, price: 2, mrp: 3 },
+    { stock_quantity: 5, name: 'Already exists', sku: 'AQUA-001', category: 'spares', brand: 'X', purchase_price: 1, price: 2, mrp: 3 },
+    { stock_quantity: 5, name: 'Low MRP', sku: 'BULK-LOW', category: 'spares', brand: 'X', purchase_price: 1, price: 20, mrp: 10 },
+    { stock_quantity: 5, name: 'No category', sku: 'BULK-NOCAT', category: 'unknown', brand: 'X', purchase_price: 1, price: 2, mrp: 3 },
   ] });
   assert.equal(res.status, 201);
   const body = await res.json();
@@ -167,7 +167,7 @@ test('bulk upload: valid rows saved, invalid and duplicate rows reported', async
 test('database image storage serves the same image from any server', async () => {
   process.env.PRODUCT_IMAGE_STORE = 'database';
   try {
-    const res = await admin('/api/admin/products', { name: 'DB Image Pump', sku: 'DB-IMG-1', category: 'spares', brand: 'Aqua Mars', purchase_price: 1, price: 2, mrp: 3, img: dataUrl });
+    const res = await admin('/api/admin/products', { stock_quantity: 5, name: 'DB Image Pump', sku: 'DB-IMG-1', category: 'spares', brand: 'Aqua Mars', purchase_price: 1, price: 2, mrp: 3, img: dataUrl });
     const saved = (await res.json()).product;
     assert.match(saved.img, /^\/api\/product-images\/img_\d+_[0-9a-f]+\.png$/);
     const img = await fetch(base + saved.img);

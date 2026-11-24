@@ -296,6 +296,7 @@ test('product images: database store is used once the table exists, disk before 
     const context = {
       pool: { query: t.query }, process, Date, Buffer, crypto, console: { error() {} },
       saveUploadedFile: () => '/uploads/disk_image.png',
+      productImageProblem: require('../storage_images').productImageProblem,
       path: require('node:path'), fs: require('node:fs'), __dirname: root,
     };
     vm.runInNewContext(

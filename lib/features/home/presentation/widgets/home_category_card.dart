@@ -17,6 +17,7 @@ class HomeCategoryCard extends StatefulWidget {
     required this.onTap,
     this.imageUrl,
     this.assetImage,
+    this.placeholderIcon,
     this.compact = false,
   });
 
@@ -34,6 +35,10 @@ class HomeCategoryCard extends StatefulWidget {
 
   /// Bundled image, used when there is no [imageUrl].
   final String? assetImage;
+
+  /// Icon shown in the picture area when there is no picture (defaults to
+  /// [icon]); the footer always uses [icon].
+  final IconData? placeholderIcon;
 
   /// Tablet/phone sizing.
   final bool compact;
@@ -234,7 +239,11 @@ class _HomeCategoryCardState extends State<HomeCategoryCard> {
 
   Widget _image() {
     final fallback = Center(
-      child: Icon(widget.icon, size: 40, color: widget.accent),
+      child: Icon(
+        widget.placeholderIcon ?? widget.icon,
+        size: 40,
+        color: widget.accent,
+      ),
     );
     if (widget.imageUrl != null) {
       return CategoryImage(url: widget.imageUrl!, fallback: fallback);

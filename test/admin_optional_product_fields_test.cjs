@@ -38,7 +38,7 @@ test('saves a product with Brand, Purchase Price, Dealer Price and MRP all empty
 });
 
 test('also when the four fields are left out of the request entirely', async () => {
-  const res = await admin('POST', '/api/admin/products', { name: 'Optional Fields Missing', sku: 'OPT-MISSING-1', category: 'spares' });
+  const res = await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Optional Fields Missing', sku: 'OPT-MISSING-1', category: 'spares' });
   assert.equal(res.status, 201, JSON.stringify(res.body));
   const saved = await adminProduct('OPT-MISSING-1');
   assert.deepEqual([saved.brand, Number(saved.price), Number(saved.mrp), Number(saved.purchase_price)], ['', 0, 0, 0]);
@@ -54,19 +54,19 @@ test('values that are given are still validated and saved exactly', async () => 
     [{ price: '500', mrp: '400' }, /MRP cannot be lower than the dealer price/],
   ];
   for (const [fields, error] of cases) {
-    const res = await admin('POST', '/api/admin/products', { name: 'Bad', sku: `OPT-BAD-${Math.random().toString(36).slice(2, 8)}`, category: 'spares', ...emptyForm, ...fields });
+    const res = await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'Bad', sku: `OPT-BAD-${Math.random().toString(36).slice(2, 8)}`, category: 'spares', ...emptyForm, ...fields });
     assert.equal(res.status, 400, JSON.stringify(fields));
     assert.match(res.body.error, error, JSON.stringify(fields));
   }
   // MRP alone (no dealer price) is fine.
-  assert.equal((await admin('POST', '/api/admin/products', { name: 'MRP only', sku: 'OPT-MRP-ONLY', category: 'spares', ...emptyForm, mrp: '900' })).status, 201);
-  const full = await admin('POST', '/api/admin/products', { name: 'All Set', sku: 'OPT-FULL-1', category: 'spares', brand: 'Aqua Mars', purchase_price: '400', price: '650', mrp: '900' });
+  assert.equal((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'MRP only', sku: 'OPT-MRP-ONLY', category: 'spares', ...emptyForm, mrp: '900' })).status, 201);
+  const full = await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'All Set', sku: 'OPT-FULL-1', category: 'spares', brand: 'Aqua Mars', purchase_price: '400', price: '650', mrp: '900' });
   assert.equal(full.status, 201);
   const saved = await adminProduct('OPT-FULL-1');
   assert.deepEqual([saved.brand, Number(saved.purchase_price), Number(saved.price), Number(saved.mrp)], ['Aqua Mars', 400, 650, 900]);
   // Other required fields are unchanged.
-  assert.match((await admin('POST', '/api/admin/products', { sku: 'OPT-NONAME', category: 'spares', ...emptyForm })).body.error, /name is required/);
-  assert.match((await admin('POST', '/api/admin/products', { name: 'No SKU', category: 'spares', ...emptyForm })).body.error, /SKU is required/);
+  assert.match((await admin('POST', '/api/admin/products', { stock_quantity: 5, sku: 'OPT-NONAME', category: 'spares', ...emptyForm })).body.error, /name is required/);
+  assert.match((await admin('POST', '/api/admin/products', { stock_quantity: 5, name: 'No SKU', category: 'spares', ...emptyForm })).body.error, /SKU is required/);
 });
 
 test('editing: empty optional fields keep the saved values; new values replace them', async () => {
