@@ -1848,9 +1848,38 @@
       #section-dashboard .kpi-card { min-height: 0; }
     }
 
+
+    /* Where saves go: PRODUCTION / LOCAL TEST COPY / test target / unknown. */
+    .admin-env-banner {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 20000;
+      padding: 6px 16px; font-size: 0.82rem; font-weight: 700; text-align: center;
+      color: #fff; background: #475569; letter-spacing: 0.01em;
+    }
+    .admin-env-banner.production { background: #B91C1C; }
+    .admin-env-banner.local-test { background: #B45309; }
+    .admin-env-banner.test-target { background: #6D28D9; }
+    body.has-env-banner { padding-top: 30px; }
+    body.has-env-banner .sidebar { top: 30px; height: calc(100vh - 30px); }
+    /* Result of the last save, kept on screen until the next one. */
+    .write-status {
+      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 20001;
+      max-width: min(720px, calc(100vw - 32px)); padding: 12px 40px 12px 16px; border-radius: 10px;
+      font-size: 0.9rem; font-weight: 600; color: #fff; box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+      display: none; white-space: pre-line;
+    }
+    .write-status.saving { display: block; background: #1D4ED8; }
+    .write-status.success { display: block; background: #047857; }
+    .write-status.failed { display: block; background: #B91C1C; }
+    .write-status.warning { display: block; background: #B45309; }
+    .write-status button {
+      position: absolute; top: 8px; right: 10px; background: transparent; border: 0;
+      color: #fff; font-size: 1.1rem; cursor: pointer;
+    }
   </style>
 </head>
 <body>
+  <div id="adminEnvBanner" class="admin-env-banner" role="status">Checking where changes are saved…</div>
+  <div id="writeStatus" class="write-status" role="alert" aria-live="assertive"><span id="writeStatusText"></span><button type="button" aria-label="Close" onclick="hideWriteStatus()">×</button></div>
 
   <!-- =======================================================================
        ADMIN LOGIN SCREEN OVERLAY (AUTHENTICATION GATE)
@@ -2808,7 +2837,7 @@
               <label class="form-label">Product Image</label>
               <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                 <input type="text" id="prodImg" class="form-control" style="flex: 1; min-width: 220px;" placeholder="Image URL, or Upload Image, or Choose from Supabase" onpaste="handleProductImagePaste(event)" oninput="pendingProductImage = ''; this.setCustomValidity(''); showProductImagePreview(this.value, '')">
-                <button type="button" class="btn-secondary" style="white-space: nowrap;" onclick="document.getElementById('singleProdFileInput').click()">
+                <button type="button" class="btn-secondary" id="prodUploadImageBtn" style="white-space: nowrap; display: none;" onclick="document.getElementById('singleProdFileInput').click()">
                   <i class="fa-solid fa-upload"></i> Upload Image
                 </button>
                 <button type="button" class="btn-secondary" id="openStoragePickerBtn" style="white-space: nowrap;" onclick="openStoragePicker()">
@@ -3180,6 +3209,226 @@
       return res;
     }
 
+    // -------------------------------------------------------------------------
+    // WHERE SAVES GO (PRODUCTION / LOCAL TEST COPY) AND VERIFIED WRITES
+    // -------------------------------------------------------------------------
+    // mode: 'production' (Render, or scripts/admin_production.cjs),
+    //       'local-test' (the in-memory sandbox), 'unknown' (writes disabled).
+    const ADMIN_ENV = { mode: 'detecting', realProduction: false, target: '', name: '' };
+
+    async function isLocalSandbox() {
+      try {
+        const res = await fetch('/__sandbox/outbox', { cache: 'no-store' });
+        return res.ok;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    async function detectAdminEnvironment() {
+      const injected = window.__ADMIN_ENV || null;
+      const local = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(location.hostname);
+      if (injected && injected.mode === 'production') {
+        const real = injected.realProduction === true;
+        Object.assign(ADMIN_ENV, { mode: 'production', realProduction: real, target: String(injected.target || ''), name: real ? 'Production' : 'Test target' });
+      } else if (injected && injected.mode === 'local-test') {
+        Object.assign(ADMIN_ENV, { mode: 'local-test', name: 'LOCAL TEST COPY' });
+      } else if (!local) {
+        // Served by a deployed backend (Render): its own Production database.
+        Object.assign(ADMIN_ENV, { mode: 'production', realProduction: true, target: location.origin, name: 'Production' });
+      } else if (await isLocalSandbox()) {
+        Object.assign(ADMIN_ENV, { mode: 'local-test', name: 'LOCAL TEST COPY' });
+      } else {
+        Object.assign(ADMIN_ENV, { mode: 'unknown', name: 'Unknown server' });
+      }
+      renderAdminEnvironment();
+    }
+
+    function renderAdminEnvironment() {
+      const banner = document.getElementById('adminEnvBanner');
+      document.body.classList.add('has-env-banner');
+      banner.className = 'admin-env-banner';
+      if (ADMIN_ENV.mode === 'production' && ADMIN_ENV.realProduction) {
+        banner.classList.add('production');
+        banner.textContent = '● PRODUCTION — every save goes to the live database and appears in the Web and Android apps';
+      } else if (ADMIN_ENV.mode === 'production') {
+        banner.classList.add('test-target');
+        banner.textContent = `TEST TARGET (not Production): ${ADMIN_ENV.target}`;
+      } else if (ADMIN_ENV.mode === 'local-test') {
+        banner.classList.add('local-test');
+        banner.textContent = 'LOCAL TEST COPY — changes are NOT saved to Production and are lost when the local server restarts';
+      } else {
+        banner.textContent = 'Unknown server — saving is disabled here. Use the Production Admin or the local test copy.';
+      }
+      // Uploaded pictures would be stored in the database, not Supabase Storage:
+      // in Production use "Choose from Supabase" or paste the picture's URL.
+      const upload = document.getElementById('prodUploadImageBtn');
+      if (upload) upload.style.display = ADMIN_ENV.mode === 'local-test' ? '' : 'none';
+      const imgInput = document.getElementById('prodImg');
+      if (imgInput && ADMIN_ENV.mode !== 'local-test') imgInput.placeholder = 'Paste a Supabase image URL, or Choose from Supabase';
+    }
+
+    let writeStatusTimer = null;
+    function setWriteStatus(state, text) {
+      const box = document.getElementById('writeStatus');
+      document.getElementById('writeStatusText').textContent = text;
+      box.className = `write-status ${state}`;
+      box.dataset.state = state;
+      clearTimeout(writeStatusTimer);
+      if (state === 'success') writeStatusTimer = setTimeout(hideWriteStatus, 12000);
+    }
+    function hideWriteStatus() {
+      const box = document.getElementById('writeStatus');
+      box.className = 'write-status';
+      box.dataset.state = '';
+    }
+
+    function writeTargetName() {
+      return ADMIN_ENV.mode === 'local-test' ? 'LOCAL TEST COPY' : ADMIN_ENV.name;
+    }
+    function saveFailedText() {
+      return ADMIN_ENV.mode === 'local-test'
+        ? 'LOCAL TEST COPY save failed. Changes were not saved.'
+        : `${ADMIN_ENV.name} save failed. Changes were not saved.`;
+    }
+    function saveSucceededText() {
+      return ADMIN_ENV.mode === 'local-test'
+        ? 'Successfully saved to the LOCAL TEST COPY only — NOT saved to Production.'
+        : `Successfully saved to ${ADMIN_ENV.name}.`;
+    }
+
+    /** Fresh read from the server (never from the browser cache). */
+    async function adminRead(url, key) {
+      const res = await adminFetch(url, { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success || !Array.isArray(data[key])) throw new Error(data.error || `status ${res.status}`);
+      return data[key];
+    }
+
+    let adminWriteInFlight = false;
+    /**
+     * Every Admin change goes through here. Success is shown only when the
+     * server accepted the change AND a fresh read shows the saved values.
+     *  conflictCheck(): { ok } | { ok: false, reason } — before writing.
+     *  verify(data): { ok } | { ok: false, reason, unchanged } — after writing.
+     */
+    async function adminWrite({ method, url, body, headers = {}, conflictCheck, verify }) {
+      if (ADMIN_ENV.mode !== 'production' && ADMIN_ENV.mode !== 'local-test') {
+        setWriteStatus('failed', 'Saving is disabled: this Admin Panel is not connected to Production or to the local test copy. Changes were not saved.');
+        return { ok: false };
+      }
+      if (adminWriteInFlight) {
+        setWriteStatus('warning', 'Another save is still in progress. Wait for it to finish.');
+        return { ok: false, busy: true };
+      }
+      adminWriteInFlight = true;
+      const target = writeTargetName();
+      setWriteStatus('saving', `Saving to ${target}...`);
+      try {
+        if (conflictCheck) {
+          let check;
+          try { check = await conflictCheck(); }
+          catch (error) { check = { ok: false, reason: `Could not check the current data (${error.message}).` }; }
+          if (!check.ok) {
+            setWriteStatus('failed', `${saveFailedText()}\n${check.reason}`);
+            return { ok: false, conflict: true };
+          }
+        }
+        let res = null;
+        let data = {};
+        let outcomeUnknown = false;
+        try {
+          res = await adminFetch(url, {
+            method,
+            cache: 'no-store',
+            headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
+            body: body === undefined ? undefined : JSON.stringify(body),
+          });
+          data = await res.json().catch(() => ({}));
+          if (data && data.outcomeUnknown) outcomeUnknown = true;
+          else if (res.status === 502 || res.status === 504) outcomeUnknown = true;
+        } catch (_) {
+          outcomeUnknown = true; // no answer: maybe saved, maybe not
+        }
+        if (!outcomeUnknown) {
+          if (res.status === 401) {
+            setWriteStatus('failed', `${saveFailedText()}\nYour admin session has expired. Sign in again.`);
+            return { ok: false, status: 401 };
+          }
+          if (!(res.ok && data.success)) {
+            const reason = data.error || (res.status === 413 ? 'The request is too large.' : `The server returned status ${res.status}.`);
+            setWriteStatus('failed', `${saveFailedText()}\n${reason}`);
+            return { ok: false, status: res.status, data };
+          }
+        }
+        setWriteStatus('saving', outcomeUnknown
+          ? `No answer from ${target}. Reading the data back to see whether it was saved...`
+          : `Confirming the saved data in ${target}...`);
+        let check;
+        try { check = await verify(data || {}); }
+        catch (error) { check = { ok: false, reason: `The saved data could not be read back (${error.message}).` }; }
+        if (check.ok) {
+          setWriteStatus('success', saveSucceededText());
+          return { ok: true, data };
+        }
+        if (outcomeUnknown && check.unchanged) {
+          setWriteStatus('failed', `${saveFailedText()}\n${target} did not answer, and the data is unchanged.`);
+          return { ok: false };
+        }
+        setWriteStatus('warning', outcomeUnknown
+          ? `${target} did not answer, and the read-back does not match what you entered (${check.reason}). Reload and check before trying again.`
+          : `${target} reported success, but the read-back does not match (${check.reason}). Reload and check before trying again.`);
+        return { ok: false, mismatch: true };
+      } finally {
+        adminWriteInFlight = false;
+      }
+    }
+
+    // --- Products: what the form loaded, conflicts and read-back -------------
+    const PRODUCT_COMPARE_FIELDS = ['name', 'sku', 'category', 'brand', 'purchase_price', 'price', 'mrp', 'cabinet_price', 'moq', 'badge', 'rating', 'img', 'desc', 'specs', 'features', 'applications', 'stock_quantity', 'min_stock', 'status'];
+    function productFingerprint(p) {
+      return JSON.stringify(PRODUCT_COMPARE_FIELDS.map(f => p ? (p[f] ?? null) : null));
+    }
+    function changedProductFields(a, b) {
+      return PRODUCT_COMPARE_FIELDS.filter(f => JSON.stringify(a[f] ?? null) !== JSON.stringify(b[f] ?? null));
+    }
+    // The product exactly as it was when the edit form was opened.
+    let productFormSnapshot = null;
+
+    async function productConflictCheck(snapshot) {
+      const fresh = (await adminRead('/api/admin/products', 'products')).find(p => p.id === snapshot.id);
+      if (!fresh) return { ok: false, reason: 'This product no longer exists (it was deleted by someone else).' };
+      if (productFingerprint(fresh) !== productFingerprint(snapshot)) {
+        return { ok: false, reason: `This product was changed by someone else after you opened it (${changedProductFields(snapshot, fresh).join(', ')}). Close the form, reload, and enter your changes again.` };
+      }
+      return { ok: true };
+    }
+
+    /** Fields that do not match what the form sent ([] = saved exactly). */
+    function productReadBackDifferences(sent, saved, isCabinet) {
+      const diffs = [];
+      const text = v => String(v ?? '').trim();
+      const amount = (s, v, label) => { if (text(s) !== '' && Number(v) !== Number(s)) diffs.push(label); };
+      if (text(saved.name) !== text(sent.name)) diffs.push('name');
+      if (text(saved.sku) !== text(sent.sku).toUpperCase()) diffs.push('SKU');
+      if (text(saved.category) !== text(sent.category)) diffs.push('category');
+      if (text(sent.brand) !== '' && text(saved.brand) !== text(sent.brand)) diffs.push('brand');
+      amount(sent.purchase_price, saved.purchase_price, 'purchase price');
+      amount(sent.price, saved.price, 'dealer price');
+      amount(sent.mrp, saved.mrp, 'MRP');
+      if (isCabinet) amount(sent.cabinet_price, saved.cabinet_price, 'Cabinet Price');
+      if (text(sent.moq) !== '' && text(saved.moq) !== text(sent.moq) && text(saved.moq) !== `MOQ: ${text(sent.moq)}`) diffs.push('MOQ');
+      if (Number(saved.stock_quantity) !== Number(sent.stock_quantity)) diffs.push('stock');
+      if (Number(saved.min_stock) !== Number(sent.min_stock)) diffs.push('minimum stock');
+      if (!/^data:/i.test(sent.img || '') && text(saved.img) !== text(sent.img)) diffs.push('image');
+      if (text(saved.desc) !== text(sent.desc)) diffs.push('description');
+      if (JSON.stringify(saved.specs || {}) !== JSON.stringify(sent.specs || {})) diffs.push('specifications');
+      if (JSON.stringify(saved.features || []) !== JSON.stringify(sent.features || [])) diffs.push('features');
+      if (text(saved.badge) !== text(sent.badge)) diffs.push('badge');
+      if ((saved.status || 'active') !== sent.status) diffs.push('status');
+      return diffs;
+    }
+
     function showAdminLoginScreen() {
       const loginScreen = document.getElementById('adminLoginScreen');
       const sidebar = document.getElementById('sidebar');
@@ -3322,6 +3571,7 @@
 
     // Init Page
     document.addEventListener('DOMContentLoaded', async () => {
+      await detectAdminEnvironment();
       const isAuth = await checkAdminSession();
       if (isAuth) {
         loadStats();
@@ -3800,7 +4050,7 @@
                 <button class="btn-action-icon" title="Approve Dealer" onclick="setUserStatus('${u.id}', 'Approved')"><i class="fa-solid fa-check" style="color:var(--success)"></i></button>
                 <button class="btn-action-icon danger" title="Reject Application" onclick="setUserStatus('${u.id}', 'Rejected')"><i class="fa-solid fa-xmark" style="color:var(--danger)"></i></button>
                 <button class="btn-action-icon" title="Reset Status" onclick="setUserStatus('${u.id}', 'Pending')"><i class="fa-solid fa-rotate-left"></i></button>
-                <button class="btn-action-icon danger" title="Delete User" onclick="promptDeleteUser('${u.id}', '${(u.name || u.owner || 'User').replace(/'/g, "\\'")}', '${(u.email || '').replace(/'/g, "\\'")}')"><i class="fa-solid fa-trash" style="color:var(--danger)"></i></button>
+                <!-- Delete dealer: hidden, the backend has no delete endpoint (it always failed). -->
               </div>
             </td>
           </tr>
@@ -3817,22 +4067,19 @@
     }
 
     async function setUserStatus(userId, status) {
-      try {
-        const res = await adminFetch('/api/admin/set-status', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identifier: userId, status: status.toLowerCase() })
-        });
-        const data = await res.json();
-        if (res.ok && data.success) {
-          showToast(`User status updated to ${status}`, '#10B981');
-          await Promise.all([loadUsers(), loadStats()]);
-        } else {
-          showToast(data.error || 'Error updating status', '#EF4444');
-        }
-      } catch (err) {
-        showToast('Error updating status', '#EF4444');
-      }
+      const wanted = status.toLowerCase();
+      await adminWrite({
+        method: 'POST',
+        url: '/api/admin/set-status',
+        body: { identifier: userId, status: wanted },
+        verify: async () => {
+          const dealer = (await adminRead('/api/admin/dealers', 'dealers')).find(u => String(u.id) === String(userId));
+          if (!dealer) return { ok: false, reason: 'the dealer is not in the list' };
+          // One field: any other value means the change did not happen.
+          return String(dealer.status || '').toLowerCase() === wanted ? { ok: true } : { ok: false, reason: `status is "${dealer.status}"`, unchanged: true };
+        },
+      });
+      await Promise.all([loadUsers(), loadStats()]);
     }
 
     function promptDeleteUser(userId, userName, userEmail) {
@@ -4257,6 +4504,7 @@
       const form = document.getElementById('productForm');
       form.reset();
       pendingProductImage = '';
+      productFormSnapshot = null;
       const previewBox = document.getElementById('singleProdImgPreview');
       if (previewBox) previewBox.style.display = 'none';
       const fileInput = document.getElementById('singleProdFileInput');
@@ -4269,6 +4517,9 @@
       if (prodId) {
         const p = allProducts.find(item => item.id === prodId || item.sku === prodId);
         if (p) {
+          // Compared again just before saving: a change by someone else in
+          // the meantime stops the save instead of being overwritten.
+          productFormSnapshot = JSON.parse(JSON.stringify(p));
           document.getElementById('prodModalTitle').innerText = 'Edit Product';
           document.getElementById('prodEditId').value = p.id;
           document.getElementById('prodName').value = p.name || '';
@@ -4429,34 +4680,51 @@
         status: document.getElementById('prodStatus').value
       };
 
+      // Uploaded pictures are stored in the database, not in Supabase Storage.
+      if (/^data:/i.test(payload.img) && ADMIN_ENV.mode !== 'local-test') {
+        setWriteStatus('failed', `${saveFailedText()}\nUploading a picture is not available here. Use "Choose from Supabase" or paste the picture's Supabase URL.`);
+        return;
+      }
+      const snapshot = isEdit ? productFormSnapshot : null;
+      if (isEdit && (!snapshot || snapshot.id !== editId)) {
+        setWriteStatus('failed', `${saveFailedText()}\nThe product's original values are not available. Close the form, reload, and try again.`);
+        return;
+      }
+      const isCabinet = isCabinetCategorySelected();
+
       const saveBtn = document.getElementById('prodSaveBtn');
       saveBtn.disabled = true;
-      saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving...';
+      saveBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Saving to ${writeTargetName()}...`;
       try {
-        const url = isEdit ? `/api/admin/products/${encodeURIComponent(editId)}` : '/api/admin/products';
-        const method = isEdit ? 'PUT' : 'POST';
-
-        const res = await adminFetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+        const result = await adminWrite({
+          method: isEdit ? 'PUT' : 'POST',
+          url: isEdit ? `/api/admin/products/${encodeURIComponent(editId)}` : '/api/admin/products',
+          body: payload,
+          // Phase 2 servers refuse the write (409) if the row changed since it was loaded.
+          headers: snapshot && snapshot.version ? { 'If-Match': `"${snapshot.version}"` } : {},
+          conflictCheck: snapshot ? () => productConflictCheck(snapshot) : async () => {
+            const taken = (await adminRead('/api/admin/products', 'products'))
+              .some(p => String(p.sku || '').toUpperCase() === payload.sku.toUpperCase());
+            return taken ? { ok: false, reason: `SKU "${payload.sku.toUpperCase()}" is already used by another product.` } : { ok: true };
+          },
+          verify: async () => {
+            const products = await adminRead('/api/admin/products', 'products');
+            const saved = isEdit
+              ? products.find(p => p.id === editId)
+              : products.find(p => String(p.sku || '').toUpperCase() === payload.sku.toUpperCase());
+            if (!saved) return { ok: false, reason: isEdit ? 'the product is missing' : 'the new product is not in the list', unchanged: !isEdit };
+            const diffs = productReadBackDifferences(payload, saved, isCabinet);
+            if (!diffs.length) return { ok: true };
+            return { ok: false, reason: `different: ${diffs.join(', ')}`, unchanged: isEdit && productFingerprint(saved) === productFingerprint(snapshot) };
+          },
         });
-        let data = {};
-        try { data = await res.json(); } catch (_) {
-          data = { success: false, error: res.status === 413 ? 'Image is too large to upload.' : `Server returned status ${res.status}.` };
-        }
-
-        if (res.ok && data.success) {
-          showToast(data.message || 'Product saved successfully!', '#10B981');
+        if (result.ok) {
           pendingProductImage = '';
           closeProductModal();
-          loadProducts();
-          loadStats();
-        } else if (res.status !== 401) {
-          showToast(`⚠️ ${data.error || 'Product could not be saved.'}`, '#EF4444');
         }
-      } catch (err) {
-        showToast('⚠️ Could not reach the server. The product was not saved.', '#EF4444');
+        // The list always shows what is really saved (also after a failure).
+        loadProducts();
+        loadStats();
       } finally {
         saveBtn.disabled = false;
         saveBtn.innerHTML = 'Save Product';
@@ -4464,20 +4732,29 @@
     }
 
     async function deleteProduct(id, name) {
-      if (!confirm(`Are you sure you want to delete product "${name}"?`)) return;
-      try {
-        const res = await adminFetch(`/api/admin/products/${id}`, { method: 'DELETE' });
-        const data = await res.json();
-        if (data.success) {
-          showToast('Product deleted successfully!', '#10B981');
-          loadProducts();
-          loadStats();
-        } else {
-          showToast(`⚠️ ${data.error}`, '#EF4444');
-        }
-      } catch (err) {
-        showToast('Error deleting product', '#EF4444');
+      const listed = allProducts.find(p => p.id === id);
+      if (!listed) { setWriteStatus('failed', 'This product is not in the list any more. Reload and try again.'); return; }
+      const snapshot = JSON.parse(JSON.stringify(listed));
+      const sku = String(snapshot.sku || '').toUpperCase();
+      const where = ADMIN_ENV.mode === 'local-test' ? 'the LOCAL TEST COPY' : (ADMIN_ENV.realProduction ? 'PRODUCTION' : ADMIN_ENV.name);
+      const typed = prompt(`PERMANENTLY delete "${name}" (${sku}) from ${where}?\n\nThis cannot be undone${ADMIN_ENV.realProduction ? ' and it disappears from the live Web and Android apps' : ''}.\n\nType the SKU ${sku} to confirm:`);
+      if (typed === null) return;
+      if (String(typed).trim().toUpperCase() !== sku) {
+        setWriteStatus('failed', `Not deleted: the SKU you typed does not match ${sku}.`);
+        return;
       }
+      await adminWrite({
+        method: 'DELETE',
+        url: `/api/admin/products/${encodeURIComponent(id)}`,
+        headers: snapshot.version ? { 'If-Match': `"${snapshot.version}"` } : {},
+        conflictCheck: () => productConflictCheck(snapshot),
+        verify: async () => {
+          const still = (await adminRead('/api/admin/products', 'products')).find(p => p.id === id);
+          return still ? { ok: false, reason: 'the product is still there', unchanged: true } : { ok: true };
+        },
+      });
+      loadProducts();
+      loadStats();
     }
 
     // -------------------------------------------------------------------------
@@ -5040,41 +5317,30 @@
       importBtn.disabled = true;
       importBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Importing ${productsToImport.length} products...`;
 
+      // SKUs the dry run found ready: after the import every one must be in a fresh read.
+      const readySkus = (preview.rows || []).filter(r => r.status === 'ready').map(r => String(r.sku || '').toUpperCase());
       try {
-        const res = await adminFetch('/api/admin/products/bulk', {
+        const result = await adminWrite({
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ products: productsToImport })
+          url: '/api/admin/products/bulk',
+          body: { products: productsToImport },
+          verify: async () => {
+            const saved = new Set((await adminRead('/api/admin/products', 'products')).map(p => String(p.sku || '').toUpperCase()));
+            const missing = readySkus.filter(sku => !saved.has(sku));
+            if (!missing.length) return { ok: true };
+            return { ok: false, reason: `not found: ${missing.join(', ')}`, unchanged: missing.length === readySkus.length };
+          },
         });
-
-        const statusCode = res.status;
-        let data = {};
-        try {
-          data = await res.json();
-        } catch (jsonErr) {
-          const rawText = await res.text().catch(() => '');
-          showBulkImportErrorModal(`Status: ${statusCode}`, rawText || jsonErr.message);
-          return;
+        if (result.ok) {
+          const data = result.data || {};
+          const addedCount = data.importedCount !== undefined ? data.importedCount : readySkus.length;
+          showBulkImportResultModal(addedCount, Array.isArray(data.skipped) ? data.skipped : []);
+        } else if (result.data && result.data.error) {
+          showBulkImportErrorModal(`Status: ${result.status || ''}`, result.data.error);
         }
-
-        if (!res.ok || !data.success) {
-          showBulkImportErrorModal(
-            `Status: ${statusCode} ${res.statusText || ''}`,
-            data.error || data.message || JSON.stringify(data, null, 2)
-          );
-          return;
-        }
-
-        // Success response
-        const addedCount = data.importedCount !== undefined ? data.importedCount : productsToImport.length;
-        const skippedList = Array.isArray(data.skipped) ? data.skipped : [];
-
-        showBulkImportResultModal(addedCount, skippedList);
-        // Show the new products in the list behind the summary straight away.
-        if (addedCount > 0) { loadProducts(); loadStats(); }
-
-      } catch (err) {
-        showBulkImportErrorModal('Network / Client Error', err.message || String(err));
+        // The list always shows what is really saved.
+        loadProducts();
+        loadStats();
       } finally {
         importBtn.disabled = false;
         importBtn.innerHTML = `<i class="fa-solid fa-file-import"></i> Import Products`;
@@ -5278,46 +5544,48 @@
         description: document.getElementById('catDesc').value.trim()
       };
 
-      try {
-        const url = isEdit ? `/api/admin/categories/${editId}` : '/api/admin/categories';
-        const method = isEdit ? 'PUT' : 'POST';
-
-        const res = await adminFetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await res.json();
-
-        if (data.success) {
-          showToast(data.message || 'Category saved successfully!', '#10B981');
-          closeCategoryModal();
-          loadCategories();
-          loadStats();
-        } else {
-          showToast(`⚠️ ${data.error}`, '#EF4444');
-        }
-      } catch (err) {
-        showToast('Error saving category', '#EF4444');
-      }
+      const before = isEdit ? allCategories.find(c => String(c.id) === String(editId)) : null;
+      const result = await adminWrite({
+        method: isEdit ? 'PUT' : 'POST',
+        url: isEdit ? `/api/admin/categories/${encodeURIComponent(editId)}` : '/api/admin/categories',
+        body: payload,
+        conflictCheck: before ? async () => {
+          const fresh = (await adminRead('/api/admin/categories', 'categories')).find(c => String(c.id) === String(editId));
+          if (!fresh) return { ok: false, reason: 'This category no longer exists.' };
+          const same = ['title', 'key_name', 'description', 'image_url'].every(f => (fresh[f] ?? null) === (before[f] ?? null));
+          return same ? { ok: true } : { ok: false, reason: 'This category was changed by someone else after you opened it. Close the form, reload, and try again.' };
+        } : undefined,
+        verify: async () => {
+          const categories = await adminRead('/api/admin/categories', 'categories');
+          const saved = isEdit
+            ? categories.find(c => String(c.id) === String(editId))
+            : categories.find(c => String(c.title || '').trim().toLowerCase() === payload.name.toLowerCase());
+          if (!saved) return { ok: false, reason: 'the category is not in the list', unchanged: !isEdit };
+          const diffs = [];
+          if (String(saved.title || '').trim() !== payload.name) diffs.push('name');
+          if (String(saved.description || '').trim() !== payload.description) diffs.push('description');
+          return diffs.length ? { ok: false, reason: `different: ${diffs.join(', ')}` } : { ok: true };
+        },
+      });
+      if (result.ok) closeCategoryModal();
+      loadCategories();
+      loadStats();
     }
 
     async function deleteCategory(id, title) {
-      if (!confirm(`Are you sure you want to delete category "${title}"? Any products will be safely reassigned to Spares.`)) return;
-      try {
-        const res = await adminFetch(`/api/admin/categories/${id}`, { method: 'DELETE' });
-        const data = await res.json();
-        if (data.success) {
-          showToast(data.message || 'Category deleted safely!', '#10B981');
-          loadCategories();
-          loadProducts();
-          loadStats();
-        } else {
-          showToast(`⚠️ ${data.error}`, '#EF4444');
-        }
-      } catch (err) {
-        showToast('Error deleting category', '#EF4444');
-      }
+      const where = ADMIN_ENV.mode === 'local-test' ? 'the LOCAL TEST COPY' : (ADMIN_ENV.realProduction ? 'PRODUCTION' : ADMIN_ENV.name);
+      if (!confirm(`PERMANENTLY delete category "${title}" from ${where}? Any products in it will be reassigned to Spares.`)) return;
+      await adminWrite({
+        method: 'DELETE',
+        url: `/api/admin/categories/${encodeURIComponent(id)}`,
+        verify: async () => {
+          const still = (await adminRead('/api/admin/categories', 'categories')).some(c => String(c.id) === String(id));
+          return still ? { ok: false, reason: 'the category is still there', unchanged: true } : { ok: true };
+        },
+      });
+      loadCategories();
+      loadProducts();
+      loadStats();
     }
 
     // -------------------------------------------------------------------------
@@ -5358,17 +5626,16 @@
     async function decideRewardClaim(id, status) {
       const verb = status === 'approved' ? 'Approve' : 'Reject';
       if (!confirm(`${verb} this reward claim?${status === 'rejected' ? ' The points go back to the dealer.' : ''}`)) return;
-      try {
-        const res = await adminFetch(`/api/admin/reward-claims/${id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status })
-        });
-        const data = await res.json();
-        showToast(data.success ? `Claim ${status}.` : (data.error || 'Could not update the claim.'), data.success ? '#10B981' : '#EF4444');
-      } catch (err) {
-        showToast('Could not update the claim.', '#EF4444');
-      }
+      await adminWrite({
+        method: 'PUT',
+        url: `/api/admin/reward-claims/${encodeURIComponent(id)}`,
+        body: { status },
+        verify: async () => {
+          const claim = (await adminRead('/api/admin/reward-claims', 'claims')).find(c => Number(c.id) === Number(id));
+          if (!claim) return { ok: false, reason: 'the claim is not in the list' };
+          return claim.status === status ? { ok: true } : { ok: false, reason: `status is "${claim.status}"`, unchanged: true };
+        },
+      });
       loadRewardClaims();
     }
 
@@ -5467,22 +5734,24 @@
       return ['cod', 'cash on delivery'].includes(String(order.paymentMethod || '').trim().toLowerCase());
     }
 
-    async function saveOrderField(url, body, successMessage, select) {
+    async function saveOrderField(url, body, successMessage, select, orderId) {
       if (select) select.disabled = true;
       try {
-        const res = await adminFetch(url, {
+        await adminWrite({
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body)
+          url,
+          body,
+          verify: async (data) => {
+            const order = (await adminRead('/api/admin/orders', 'orders')).find(o => String(o.orderId) === String(orderId));
+            if (!order) return { ok: false, reason: 'the order is not in the list' };
+            if (body.paymentStatus !== undefined) {
+              return order.paymentStatus === body.paymentStatus ? { ok: true } : { ok: false, reason: `payment status is "${order.paymentStatus}"`, unchanged: true };
+            }
+            const wanted = String(data.status || body.status || '').toLowerCase();
+            return [order.orderStatus, order.status].some(s => String(s || '').toLowerCase() === wanted)
+              ? { ok: true } : { ok: false, reason: `order status is "${order.orderStatus || order.status}"`, unchanged: true };
+          },
         });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.success) {
-          showToast(successMessage, '#10B981');
-        } else if (res.status !== 401) {
-          showToast(`⚠️ ${data.error || 'The change was not saved.'}`, '#EF4444');
-        }
-      } catch (err) {
-        showToast('⚠️ Could not reach the server. The change was not saved.', '#EF4444');
       } finally {
         // Reload from the database either way, so the table never shows an
         // unsaved value.
@@ -5492,12 +5761,12 @@
 
     function updateOrderStatus(orderId, newStatus, select) {
       return saveOrderField(`/api/admin/orders/${encodeURIComponent(orderId)}/status`,
-        { status: newStatus }, `Order status updated to "${newStatus}"`, select);
+        { status: newStatus }, `Order status updated to "${newStatus}"`, select, orderId);
     }
 
     function updatePaymentStatus(orderId, paymentStatus, select) {
       return saveOrderField(`/api/admin/orders/${encodeURIComponent(orderId)}/payment-status`,
-        { paymentStatus }, `Payment status updated to ${paymentStatus.toUpperCase()}`, select);
+        { paymentStatus }, `Payment status updated to ${paymentStatus.toUpperCase()}`, select, orderId);
     }
 
     function viewOrderDetails(orderId) {

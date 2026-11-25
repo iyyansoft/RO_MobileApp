@@ -2457,6 +2457,41 @@ app.get('/api/admin/storage-images', requireAdminAuth, async (req, res) => {
   }
 });
 
+// Admin edit conflicts (optimistic concurrency, no schema change): a product's
+// version is a hash of its saved row. The Admin Panel sends the version it
+// loaded as `If-Match`; if the row has changed since, the write is refused
+// with 409 and nothing is saved. Requests without If-Match work as before.
+function productVersion(row) {
+  const norm = v => (v == null ? null
+    : v instanceof Date ? v.toISOString()
+      : typeof v === 'object' && !Buffer.isBuffer(v) ? v
+        : String(v));
+  const pairs = Object.keys(row).sort().map(k => [k, norm(row[k])]);
+  return crypto.createHash('sha256').update(JSON.stringify(pairs)).digest('hex').slice(0, 32);
+}
+function expectedProductVersion(req) {
+  const raw = String(req.get('if-match') || '').trim().replace(/^W\//, '').replace(/^"|"$/g, '');
+  return /^[0-9a-f]{32}$/.test(raw) ? raw : null;
+}
+const PRODUCT_CONFLICT_ERROR = 'This product was changed by someone else after you opened it. Your changes were not saved. Reload the product and enter your changes again.';
+/** Runs `write(conn)` only while the locked row still has `version`; false = conflict (nothing written). */
+async function writeIfProductUnchanged(lockSql, lockParams, version, write) {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.query(lockSql, lockParams);
+    if (!rows[0] || productVersion(rows[0]) !== version) { await conn.rollback(); return false; }
+    await write(conn);
+    await conn.commit();
+    return true;
+  } catch (error) {
+    await conn.rollback().catch(() => {});
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
 // Admin Endpoint: Get all products (active + inactive)
 app.get('/api/admin/products', requireAdminAuth, async (req, res) => {
   try {
@@ -2488,7 +2523,9 @@ app.get('/api/admin/products', requireAdminAuth, async (req, res) => {
           applications: p.applications,
           stock_quantity: p.stock_quantity == null ? null : Number(p.stock_quantity),
           min_stock: p.min_stock == null ? null : Number(p.min_stock),
-          status: p.status || 'active'
+          status: p.status || 'active',
+          // Sent back as If-Match when editing or deleting (409 if changed since).
+          version: productVersion(p)
     }));
     return res.json({ success: true, count: products.length, products });
   } catch (err) {
@@ -2815,6 +2852,10 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
     const [databaseProducts] = await pool.query('SELECT * FROM products WHERE id = ? OR sku = ? LIMIT 1', [targetId, targetId]);
     const databaseProduct = databaseProducts[0];
     if (!databaseProduct) return res.status(404).json({ success: false, error: 'Product not found.' });
+    const wantedVersion = expectedProductVersion(req);
+    if (wantedVersion && productVersion(databaseProduct) !== wantedVersion) {
+      return res.status(409).json({ success: false, conflict: true, error: PRODUCT_CONFLICT_ERROR });
+    }
     // Optional money fields: a value is validated; blank keeps the saved value.
     const cleanPrice = optionalAmount(price, Number(databaseProduct.price || 0));
     if (!isBlankField(price) && (isNaN(cleanPrice) || cleanPrice <= 0)) return res.status(400).json({ success: false, error: 'Dealer price must be greater than zero.' });
@@ -2945,9 +2986,8 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
       if (databaseProduct[column] == null && isEmptyValue(updatedProd[field])) updatedProd[field] = null;
     }
 
-    await pool.query(
-      `UPDATE products SET category_id = ?, category_key = ?, sku = ?, name = ?, brand = ?, purchase_price = ?, price = ?, mrp = ?, moq = ?, badge = ?, rating = ?, img = ?, description = ?, specs_json = ?, features_json = ?, applications = ?, status = ?, stock_quantity = ?, min_stock = ?${withCabinetColumn ? ', cabinet_price = ?' : ''} WHERE id = ?`,
-      [
+    const updateSql = `UPDATE products SET category_id = ?, category_key = ?, sku = ?, name = ?, brand = ?, purchase_price = ?, price = ?, mrp = ?, moq = ?, badge = ?, rating = ?, img = ?, description = ?, specs_json = ?, features_json = ?, applications = ?, status = ?, stock_quantity = ?, min_stock = ?${withCabinetColumn ? ', cabinet_price = ?' : ''} WHERE id = ?`;
+    const updateParams = [
         updatedProd.category_id, updatedProd.category, updatedProd.sku, updatedProd.name, updatedProd.brand,
         updatedProd.purchase_price, updatedProd.price, updatedProd.mrp, updatedProd.moq, updatedProd.badge, updatedProd.rating,
         updatedProd.img, updatedProd.desc,
@@ -2956,8 +2996,15 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
         updatedProd.applications, updatedProd.status, updatedProd.stock_quantity, updatedProd.min_stock,
         ...(withCabinetColumn ? [updatedProd.cabinet_price] : []),
         databaseProduct.id
-      ]
-    );
+    ];
+    if (wantedVersion) {
+      // Re-checked under a row lock, so two admins can never overwrite each other.
+      const written = await writeIfProductUnchanged('SELECT * FROM products WHERE id = ? FOR UPDATE', [databaseProduct.id], wantedVersion,
+        conn => conn.query(updateSql, updateParams));
+      if (!written) return res.status(409).json({ success: false, conflict: true, error: PRODUCT_CONFLICT_ERROR });
+    } else {
+      await pool.query(updateSql, updateParams);
+    }
     return res.status(200).json({
       success: true,
       message: `🎉 Product "${cleanName}" updated successfully!`,
@@ -2973,7 +3020,17 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
 app.delete('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
   try {
     const targetId = req.params.id;
-    const [result] = await pool.query(`DELETE FROM products WHERE id = ? OR sku = ?`, [targetId, targetId]);
+    const wantedVersion = expectedProductVersion(req);
+    let result;
+    if (wantedVersion) {
+      const [found] = await pool.query('SELECT id FROM products WHERE id = ? OR sku = ? LIMIT 1', [targetId, targetId]);
+      if (!found.length) return res.status(404).json({ success: false, error: 'Product not found.' });
+      const written = await writeIfProductUnchanged('SELECT * FROM products WHERE id = ? FOR UPDATE', [found[0].id], wantedVersion,
+        async conn => { [result] = await conn.query('DELETE FROM products WHERE id = ?', [found[0].id]); });
+      if (!written) return res.status(409).json({ success: false, conflict: true, error: 'This product was changed by someone else after you opened the list. It was not deleted. Reload and check it first.' });
+    } else {
+      [result] = await pool.query(`DELETE FROM products WHERE id = ? OR sku = ?`, [targetId, targetId]);
+    }
     if (!result.affectedRows) return res.status(404).json({ success: false, error: 'Product not found.' });
     return res.status(200).json({
       success: true,
@@ -3692,6 +3749,12 @@ app.get(['/admin', '/admin/', '/admin/login', '/admin/dashboard', '/admin/*'], (
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
+  // The local sandbox sets ADMIN_ENV_LABEL=local-test so its Admin Panel shows
+  // "LOCAL TEST COPY" (never Production). Render does not set it.
+  if (process.env.ADMIN_ENV_LABEL === 'local-test') {
+    const html = fs.readFileSync(path.join(__dirname, 'web_preview', 'admin.html'), 'utf8');
+    return res.type('html').send(html.replace('<head>', '<head>\n<script>window.__ADMIN_ENV = { mode: "local-test" };</script>'));
+  }
   res.sendFile(path.join(__dirname, 'web_preview', 'admin.html'));
 });
 

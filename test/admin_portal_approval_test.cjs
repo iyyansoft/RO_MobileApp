@@ -39,18 +39,35 @@ function backend({ missing = false, failure = false } = {}) {
   } };
 }
 
-function frontend(fetch) {
-  const toasts = [], refreshes = [], storage = new Map([['admin_token', testToken]]);
+// The Admin Panel's real code, run against a fake page. Every save goes
+// through adminWrite(): "Saving to Production..." -> the request -> a fresh
+// read of the dealer list -> "Successfully saved to Production." only when the
+// read-back shows the new status.
+function frontend(fetch, api) {
+  const toasts = [], refreshes = [], statuses = [], storage = new Map([['admin_token', testToken]]);
+  const text = {};
+  const box = { className: '', dataset: {} };
+  Object.defineProperty(text, 'textContent', { get() { return this.value || ''; }, set(v) { this.value = v; statuses.push(v); } });
+  const reads = async (url, options) => {
+    if (url === '/api/admin/dealers') {
+      return { ok: true, status: 200, json: async () => ({ success: true, dealers: [{ id: api.dealer.id, status: api.dealer.status }] }) };
+    }
+    return fetch(url, options);
+  };
   const context = vm.createContext({
-    fetch, sessionStorage: { getItem: key => storage.get(key), removeItem: key => storage.delete(key) },
+    fetch: reads, sessionStorage: { getItem: key => storage.get(key), removeItem: key => storage.delete(key) },
     localStorage: { removeItem: key => storage.delete(key) },
+    document: { getElementById: id => (id === 'writeStatusText' ? text : box) },
+    setTimeout: () => 0, clearTimeout: () => {},
     showAdminLoginScreen: () => refreshes.push('login'),
     showToast: (message, color) => toasts.push({ message, color }),
     loadUsers: async () => refreshes.push('users'), loadStats: async () => refreshes.push('stats'),
   });
   vm.runInContext(portal.slice(portal.indexOf('    function getAdminToken()'), portal.indexOf('    function showAdminLoginScreen()')), context);
   vm.runInContext(portal.slice(portal.indexOf('    async function setUserStatus('), portal.indexOf('    function promptDeleteUser(')), context);
-  return { toasts, refreshes, storage, approve: () => context.setUserStatus('dealer-1', 'Approved') };
+  // As served by Render (Production Admin).
+  vm.runInContext("Object.assign(ADMIN_ENV, { mode: 'production', realProduction: true, name: 'Production' })", context);
+  return { toasts, refreshes, storage, statuses, state: () => box.dataset.state, approve: () => context.setUserStatus('dealer-1', 'Approved') };
 }
 
 test('green tick sends the authenticated canonical payload and updates PostgreSQL approval flags', async () => {
@@ -63,7 +80,7 @@ test('green tick sends the authenticated canonical payload and updates PostgreSQ
     const body = JSON.parse(options.body);
     assert.deepEqual(body, { identifier: 'dealer-1', status: 'approved' });
     return api.call(body, { authorization: options.headers.Authorization });
-  });
+  }, api);
   await ui.approve();
   assert.deepEqual(api.dealer, { id: 'dealer-1', status: 'approved', is_approved: true });
   // Email matches case-insensitively; id and mobile match exactly as sent
@@ -71,7 +88,8 @@ test('green tick sends the authenticated canonical payload and updates PostgreSQ
   assert.equal(api.calls[0].sql, 'UPDATE users SET status = $1, is_approved = $2 WHERE lower(email) = $3 OR id = $4 OR mobile = $5');
   assert.deepEqual(api.calls[0].values, ['approved', true, 'dealer-1', 'dealer-1', 'dealer-1']);
   assert.deepEqual(ui.refreshes, ['users', 'stats']);
-  assert.equal(ui.toasts[0].color, '#10B981');
+  assert.deepEqual(ui.statuses, ['Saving to Production...', 'Confirming the saved data in Production...', 'Successfully saved to Production.']);
+  assert.equal(ui.state(), 'success');
 });
 
 test('older portal userId and existing email callers remain compatible', async () => {
@@ -112,32 +130,44 @@ test('missing dealers return 404 rather than false success', async () => {
   assert.equal((await api.call({ identifier: 'dealer-1', status: 'approved' })).status, 404);
 });
 
-test('database failures show the existing error toast without refreshing or logging details', async () => {
+test('database failures show "Production save failed" without logging details', async () => {
   const api = backend({ failure: true });
-  const ui = frontend(async (url, options) => api.call(JSON.parse(options.body)));
+  const ui = frontend(async (url, options) => api.call(JSON.parse(options.body)), api);
   await ui.approve();
-  assert.match(ui.toasts[0].message, /status was not changed/);
-  assert.equal(ui.toasts[0].color, '#EF4444');
-  assert.deepEqual(ui.refreshes, []);
+  assert.equal(ui.state(), 'failed');
+  assert.match(ui.statuses.at(-1), /^Production save failed\. Changes were not saved\.\n.*status was not changed/);
+  assert.ok(!ui.statuses.some(t => /^Successfully/.test(t)));
+  // The list is reloaded so it shows what is really saved.
+  assert.deepEqual(ui.refreshes, ['users', 'stats']);
+  assert.equal(api.dealer.status, 'pending');
   assert.equal(JSON.stringify(api.logs), JSON.stringify([['[API ERROR] Admin set-status:', 'TEST_DB_FAILURE']]));
 });
 
 test('expired portal session still clears tokens and displays login', async () => {
   const api = backend();
-  const ui = frontend(async (url, options) => api.call(JSON.parse(options.body), {}));
+  const ui = frontend(async (url, options) => api.call(JSON.parse(options.body), {}), api);
   await ui.approve();
   assert.equal(ui.storage.has('admin_token'), false);
-  assert.deepEqual(ui.refreshes, ['login']);
-  assert.match(ui.toasts[0].message, /Unauthorized/);
+  assert.equal(ui.refreshes[0], 'login');
+  assert.equal(ui.state(), 'failed');
+  assert.match(ui.statuses.at(-1), /Changes were not saved\.\nYour admin session has expired/);
+  assert.equal(api.dealer.status, 'pending');
 });
 
-test('non-JSON errors and network failures display the error toast', async () => {
-  for (const fetch of [async () => { throw new Error('offline'); }, async () => ({ json: async () => { throw new SyntaxError('html'); } })]) {
-    const ui = frontend(fetch);
-    await ui.approve();
-    assert.equal(ui.toasts[0].message, 'Error updating status');
-    assert.deepEqual(ui.refreshes, []);
-  }
+test('non-JSON errors and network failures are never shown as saved', async () => {
+  // Network failure: the outcome is unknown, so the dealer list is read back;
+  // the status did not change -> "save failed".
+  let api = backend();
+  let ui = frontend(async () => { throw new Error('offline'); }, api);
+  await ui.approve();
+  assert.equal(ui.state(), 'failed');
+  assert.match(ui.statuses.at(-1), /^Production save failed\. Changes were not saved\.\nProduction did not answer, and the data is unchanged\.$/);
+  // An HTML error page instead of JSON.
+  api = backend();
+  ui = frontend(async () => ({ ok: false, status: 500, json: async () => { throw new SyntaxError('html'); } }), api);
+  await ui.approve();
+  assert.equal(ui.state(), 'failed');
+  assert.equal(ui.statuses.at(-1), 'Production save failed. Changes were not saved.\nThe server returned status 500.');
 });
 
 test('Approved filter displays lowercase statuses returned by Express', () => {

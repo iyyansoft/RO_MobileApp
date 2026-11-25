@@ -278,6 +278,8 @@ async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, 
   const admin = adminFromEnv || credentials.admin;
   Object.assign(process.env, {
     PORT: String(port),
+    // The Admin Panel here always shows "LOCAL TEST COPY" (never Production).
+    ADMIN_ENV_LABEL: 'local-test',
     ...(liveSnapshot ? { RO_LISTEN_HOST: '127.0.0.1' } : {}),
     // PDF catalogue preview: its stock is 0 (no inventory in the PDFs), so stock
     // checks are off here only. order_rules.js ignores this whenever a real
