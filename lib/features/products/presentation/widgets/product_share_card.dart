@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 
 import '../../../../core/network/api_client.dart';
 import '../../../../core/widgets/brand_logo.dart' show kBrandLogoAsset;
+import '../../domain/category_price_view.dart';
+import '../../domain/share_text_cleaner.dart';
 import '../../domain/models/product_model.dart';
 import '../../domain/models/product_share.dart';
 
@@ -24,25 +26,42 @@ const Color _line = Color(0xFFE2E8F0);
 const String _logoAsset = kBrandLogoAsset;
 
 /// The text printed on the share card, top to bottom: category, name, SKU and
-/// MRP only (description, specifications and features go in the WhatsApp
-/// message text, so the product photo stays large). Prices come only from
-/// [ProductModel.mrp]: the dealer and purchase prices are never read.
-List<String> shareCardText(ProductModel product) => [
-  if (product.categoryName.trim().isNotEmpty)
-    product.categoryName.trim().toUpperCase(),
-  product.name.trim(),
-  if (product.sku.trim().isNotEmpty) 'SKU: ${product.sku.trim()}',
-  if (product.mrp > 0) 'MRP',
-  if (product.mrp > 0) mrpSharePrice(product),
-];
+/// one price (description, specifications and features go in the WhatsApp
+/// message text, so the product photo stays large). The price is
+/// [sharePrice]: MRP, or the Cabinet Price only when shared from the Cabinet
+/// page; the dealer and purchase prices are never read.
+List<String> shareCardText(
+  ProductModel product, {
+  ProductPriceView view = ProductPriceView.standard,
+}) {
+  final price = sharePrice(product, view: view);
+  return [
+    if (product.categoryName.trim().isNotEmpty)
+      product.categoryName.trim().toUpperCase(),
+    cleanShareItem(product.name),
+    if (product.sku.trim().isNotEmpty) 'SKU: ${product.sku.trim()}',
+    if (price != null) price.label,
+    if (price != null) price.value,
+  ];
+}
 
 /// Builds the WhatsApp product card (PNG) from the product's own photo bytes.
+/// Without a usable photo (null, or bytes that are not an image) the photo
+/// panel shows the app's water-drop placeholder: no other picture is used.
 Future<Uint8List> renderProductShareCard(
   ProductModel product,
-  Uint8List photoBytes, {
+  Uint8List? photoBytes, {
   Uint8List? logoBytes,
+  ProductPriceView view = ProductPriceView.standard,
 }) async {
-  final photo = await _decode(photoBytes);
+  ui.Image? photo;
+  if (photoBytes != null && photoBytes.isNotEmpty) {
+    try {
+      photo = await _decode(photoBytes);
+    } catch (_) {
+      photo = null; // not an image: placeholder
+    }
+  }
   ui.Image? logo;
   try {
     final logoData = logoBytes ?? await _loadLogo();
@@ -51,9 +70,9 @@ Future<Uint8List> renderProductShareCard(
     logo = null; // the card is still complete without the logo
   }
   try {
-    return await _paintShareCard(product, photo, logo);
+    return await _paintShareCard(product, photo, logo, view);
   } finally {
-    photo.dispose();
+    photo?.dispose();
     logo?.dispose();
   }
 }
@@ -130,8 +149,9 @@ TextPainter _text(
 
 Future<Uint8List> _paintShareCard(
   ProductModel product,
-  ui.Image photo,
+  ui.Image? photo,
   ui.Image? logo,
+  ProductPriceView view,
 ) async {
   const contentWidth = _cardWidth - _inset * 2;
   const headerHeight = 148.0;
@@ -151,7 +171,7 @@ Future<Uint8List> _paintShareCard(
           maxWidth: contentWidth - 48,
         );
   final name = _text(
-    product.name.trim(),
+    cleanShareItem(product.name),
     size: 54,
     weight: FontWeight.w800,
     maxLines: 3,
@@ -159,15 +179,16 @@ Future<Uint8List> _paintShareCard(
   final sku = product.sku.trim().isEmpty
       ? null
       : _text('SKU: ${product.sku.trim()}', size: 32, color: _muted);
-  final hasMrp = product.mrp > 0;
+  final price = sharePrice(product, view: view);
+  final hasMrp = price != null;
   final mrpLabel = _text(
-    'MRP',
+    price?.label ?? '',
     size: 28,
     weight: FontWeight.w700,
     color: _muted,
   );
   final mrpValue = _text(
-    mrpSharePrice(product),
+    price?.value ?? '',
     size: 84,
     weight: FontWeight.w900,
     color: _accent,
@@ -217,17 +238,21 @@ Future<Uint8List> _paintShareCard(
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2,
   );
-  canvas.save();
-  canvas.clipRRect(photoPanel);
-  // Trim the white border around the product so it fills the panel.
-  final content = await _contentBounds(photo);
-  _drawContained(
-    canvas,
-    photo,
-    photoPanel.outerRect.deflate(40),
-    source: content,
-  );
-  canvas.restore();
+  if (photo != null) {
+    canvas.save();
+    canvas.clipRRect(photoPanel);
+    // Trim the white border around the product so it fills the panel.
+    final content = await _contentBounds(photo);
+    _drawContained(
+      canvas,
+      photo,
+      photoPanel.outerRect.deflate(40),
+      source: content,
+    );
+    canvas.restore();
+  } else {
+    _paintPlaceholder(canvas, photoPanel.outerRect);
+  }
 
   // Category pill.
   if (categoryText != null) {
@@ -247,7 +272,7 @@ Future<Uint8List> _paintShareCard(
   name.paint(canvas, Offset(_inset, nameTop));
   sku?.paint(canvas, Offset(_inset, skuTop));
 
-  // MRP block (the only price on the card).
+  // Price block (the only price on the card: MRP or Cabinet Price).
   if (hasMrp) {
     final box = RRect.fromRectAndRadius(
       Rect.fromLTWH(
@@ -285,6 +310,32 @@ Future<Uint8List> _paintShareCard(
     image.dispose();
     picture.dispose();
   }
+}
+
+/// The app's water-drop placeholder, centred in the photo panel, used when
+/// the product's own image cannot be loaded (no other picture is used).
+void _paintPlaceholder(Canvas canvas, Rect panel) {
+  canvas.drawRRect(
+    RRect.fromRectAndRadius(panel.deflate(2), const Radius.circular(34)),
+    Paint()..color = const Color(0xFFF1F7FD),
+  );
+  const icon = Icons.water_drop_rounded;
+  final painter = TextPainter(
+    text: TextSpan(
+      text: String.fromCharCode(icon.codePoint),
+      style: TextStyle(
+        fontSize: 220,
+        fontFamily: icon.fontFamily,
+        package: icon.fontPackage,
+        color: const Color(0xFF93C5FD),
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  painter.paint(
+    canvas,
+    panel.center - Offset(painter.width / 2, painter.height / 2),
+  );
 }
 
 /// The part of [image] that is not near-white background (whole image when

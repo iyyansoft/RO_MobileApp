@@ -20,10 +20,16 @@ class ProductListingScreen extends ConsumerWidget {
   final String? initialCategoryId;
   final String? initialCategoryName;
 
+  /// Sort the page opens with (null: the dealer's last chosen sort). Home
+  /// Best Sellers' View All opens with the default sort, so the list is in
+  /// the same order as the slider.
+  final SortOption? initialSortOption;
+
   const ProductListingScreen({
     super.key,
     this.initialCategoryId,
     this.initialCategoryName,
+    this.initialSortOption,
   });
 
   @override
@@ -40,7 +46,7 @@ class ProductListingScreen extends ConsumerWidget {
           (ref) => ProductNotifier(
             initialState: ProductFilterState(
               selectedCategoryId: initialCategoryId,
-              sortOption: preferences.sortOption,
+              sortOption: initialSortOption ?? preferences.sortOption,
               isGridView: preferences.isGridView,
             ),
           ),

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ro_wholesale_dealer_app/features/home/domain/home_best_sellers.dart';
 import 'package:ro_wholesale_dealer_app/features/home/presentation/widgets/home_product_card.dart';
 import 'package:ro_wholesale_dealer_app/features/home/presentation/widgets/home_product_carousel.dart';
+import 'package:ro_wholesale_dealer_app/features/products/domain/cabinet_display_order.dart';
 import 'package:ro_wholesale_dealer_app/features/products/domain/models/category_model.dart';
 import 'package:ro_wholesale_dealer_app/features/products/domain/models/product_model.dart';
 import 'package:ro_wholesale_dealer_app/features/products/presentation/providers/product_provider.dart';
@@ -37,6 +38,9 @@ final catalog = [
     ),
   p('MUK-21', 'filters', 100, 520),
   p('DOM-02', 'filters', 50, 500),
+  p('RO-SYS-25', 'systems', 16500, 22000),
+  p('MUK-24', 'systems', 6200, 12500),
+  p('RO-SYS-10L', 'systems', 7500, 10000),
 ];
 
 List<String> skus(Iterable<ProductModel> l) => [for (final x in l) x.sku];
@@ -57,6 +61,14 @@ const categories = [
     description: '',
     databaseId: 'CAT_CAB',
   ),
+  CategoryModel(
+    id: 'systems',
+    name: 'RO Systems',
+    imagePath: '',
+    productCount: 0,
+    description: '',
+    databaseId: 'CAT_SYS',
+  ),
 ];
 
 /// Slider input for the widget tests (41 Cabinet products).
@@ -66,9 +78,8 @@ final slider = [
 ];
 
 void main() {
-  List<ProductModel> cabinetPage(ProviderContainer c) {
-    final n = c.read(productFilterProvider.notifier);
-    n.selectCategory('cabinets');
+  List<ProductModel> categoryPage(ProviderContainer c, String id) {
+    c.read(productFilterProvider.notifier).selectCategory(id);
     return c.read(filteredProductsProvider);
   }
 
@@ -86,57 +97,85 @@ void main() {
     return c;
   }
 
-  test(
-    'Best Sellers = the Cabinet category page list, same products and order',
-    () {
-      final c = container(catalog);
-      final home = c.read(cabinetCategoryProductsProvider);
-      final page = cabinetPage(c);
-      expect(skus(home), skus(page));
-      expect(home.length, 41);
-      expect(home.map((x) => x.id).toSet().length, 41, reason: 'no duplicates');
-      expect(skus(home.skip(35)).toSet(), {
-        'CAB-36',
-        'CAB-37',
-        'CAB-38',
-        'CAB-39',
-        'CAB-40',
-        'CAB-41',
-      }, reason: 'same Cabinet-page rule: the six 20" housings last');
-      expect(
-        home.every((x) => x.categoryId == 'cabinets'),
-        isTrue,
-        reason: 'no unrelated products',
+  test('Best Sellers = the complete RO Systems page list, same SKU sequence', () {
+    final c = container(catalog);
+    final home = skus(c.read(roSystemsBestSellersProvider));
+    final page = skus(categoryPage(c, 'systems'));
+    expect(home, page, reason: 'identical count and order');
+    expect(home.length, 3 + 41, reason: 'own products + cross-listed Cabinets');
+    expect(home.toSet().length, home.length, reason: 'no duplicates');
+    expect(home, containsAll(['RO-SYS-25', 'MUK-24', 'RO-SYS-10L', 'CAB-15']));
+  });
+
+  test('View All opens with the default sort, so it matches the slider', () {
+    List<String> page(SortOption sort) {
+      final c = ProviderContainer(
+        overrides: [
+          allProductsProvider.overrideWithValue(catalog),
+          categoriesProvider.overrideWithValue(categories),
+          productFilterProvider.overrideWith(
+            (ref) => ProductNotifier(
+              initialState: ProductFilterState(
+                selectedCategoryId: 'systems',
+                sortOption: sort,
+              ),
+            ),
+          ),
+        ],
       );
-      expect(
-        identical(home.firstWhere((x) => x.sku == 'CAB-40'), catalog[2]),
-        isTrue,
-      );
-    },
-  );
+      addTearDown(c.dispose);
+      return skus(c.read(filteredProductsProvider));
+    }
+
+    final slider = skus(container(catalog).read(roSystemsBestSellersProvider));
+    // ProductListingScreen(initialSortOption: const ProductFilterState().sortOption)
+    expect(page(const ProductFilterState().sortOption), slider);
+    // Without it, a dealer's saved "Price: High to Low" would reorder View All.
+    expect(page(SortOption.priceHighToLow), isNot(slider));
+  });
+
+  test('ties keep the catalogue order (stable sort, >32 products: web = Android)', () {
+    final c = container(catalog);
+    final expected = skus(cabinetDisplayOrder([
+      for (final x in catalog)
+        if (x.categoryId == 'systems' || x.categoryId == 'cabinets') x,
+    ]));
+    expect(expected.length, greaterThan(32));
+    expect(skus(c.read(roSystemsBestSellersProvider)), expected);
+    expect(skus(categoryPage(c, 'systems')), expected);
+  });
+
+  test('refresh / reload: the same catalogue always gives the same sequence', () {
+    final first = skus(container(catalog).read(roSystemsBestSellersProvider));
+    final again = skus(container([...catalog]).read(roSystemsBestSellersProvider));
+    expect(again, first);
+  });
 
   test('admin add / edit / remove shows up from the latest catalogue', () {
     final edited = [
       for (final x in catalog)
-        if (x.sku != 'CAB-02') // removed
-          x.sku == 'CAB-01' ? p('CAB-01', 'cabinets', 999, 2000) : x, // edited
-      p('CAB-42', 'cabinets', 500, 900), // added
+        if (x.sku != 'MUK-24') // removed
+          x.sku == 'RO-SYS-25' ? p('RO-SYS-25', 'systems', 999, 2000) : x, // edited
+      p('RO-SYS-99', 'systems', 500, 900), // added
+      p('CAB-99', 'cabinets', 500, 900), // new Cabinet: cross-listed, so shown
+      p('MEM-99', 'membranes', 500, 900), // other categories never appear
     ];
     final c = container(edited);
-    final home = c.read(cabinetCategoryProductsProvider);
-    expect(skus(home), skus(cabinetPage(c)));
-    expect(skus(home), isNot(contains('CAB-02')));
-    expect(skus(home), contains('CAB-42'));
-    expect(home.firstWhere((x) => x.sku == 'CAB-01').dealerPrice, 999);
+    final home = c.read(roSystemsBestSellersProvider);
+    expect(skus(home), isNot(contains('MUK-24')));
+    expect(skus(home), containsAll(['RO-SYS-99', 'CAB-99']));
+    expect(skus(home), isNot(contains('MEM-99')));
+    expect(home.firstWhere((x) => x.sku == 'RO-SYS-25').dealerPrice, 999);
+    expect(skus(home), skus(categoryPage(c, 'systems')));
   });
 
-  test('no Cabinet category: empty, Home falls back to the previous rule', () {
+  test('no RO Systems category: empty, Home falls back to the previous rule', () {
     final others = [
       p('MUK-21', 'filters', 100, 520),
       p('A', 'filters', 90, 100),
     ];
     final c = container(others, cats: [categories.first]);
-    expect(c.read(cabinetCategoryProductsProvider), isEmpty);
+    expect(c.read(roSystemsBestSellersProvider), isEmpty);
     expect(skus(homeBestSellersFallback(others)), ['MUK-21']);
     expect(skus(homeBestSellersFallback([p('A', 'filters', 90, 100)])), ['A']);
   });

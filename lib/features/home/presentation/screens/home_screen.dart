@@ -29,7 +29,7 @@ import '../../../products/presentation/screens/product_details_screen.dart';
 import '../../../products/presentation/screens/product_listing_screen.dart';
 import '../../domain/home_best_sellers.dart';
 import '../widgets/home_product_carousel.dart';
-import '../../../products/domain/cabinet_display_order.dart';
+import '../../../products/domain/category_price_view.dart';
 import '../widgets/home_category_card.dart';
 
 const _homeBlue = AppColors.primaryLight;
@@ -268,18 +268,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final featuredProducts = allProducts.where((p) => p.isFeatured).isNotEmpty
         ? allProducts.where((p) => p.isFeatured).toList()
         : allProducts.where((p) => p.discountPercentage > 0).take(4).toList();
-    // Best Sellers: the Cabinet category page's products, in its order, from
-    // the same (auto-refreshed) catalogue, as a horizontal slider. View All
-    // opens that page. Without a Cabinet category: the previous rule.
-    final cabinetProducts = ref.watch(cabinetCategoryProductsProvider);
-    final bestSellersAreCabinets = cabinetProducts.isNotEmpty;
-    final bestSellers = bestSellersAreCabinets
-        ? cabinetProducts
-        : homeBestSellersFallback(allProducts);
-    final cabinetMatches = categories.where(isCabinetCategory);
-    final cabinetCategory = cabinetMatches.isEmpty
+    // Best Sellers: the RO Systems category page's complete list (its own
+    // products and the cross-listed Cabinet products) in that page's order,
+    // from the same (auto-refreshed) catalogue, as a horizontal slider. View
+    // All opens that page in the same order. Without an RO Systems category:
+    // the previous rule.
+    final roSystemsProducts = ref.watch(roSystemsBestSellersProvider);
+    final roSystemsMatches = categories.where(isRoSystemsCategory);
+    final roSystemsCategory = roSystemsMatches.isEmpty
         ? null
-        : cabinetMatches.first;
+        : roSystemsMatches.first;
+    final bestSellersAreRoSystems =
+        roSystemsCategory != null && roSystemsProducts.isNotEmpty;
+    final bestSellers = bestSellersAreRoSystems
+        ? roSystemsProducts
+        : homeBestSellersFallback(allProducts);
     // /api/products is ordered by category and name, so order by the date
     // each product was added to surface products just created by the admin.
     final newArrivals = ProductModel.newestFirst(allProducts);
@@ -391,22 +394,24 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               context,
                               title: 'Best Sellers',
                               actionLabel: 'View All',
-                              onAction:
-                                  bestSellersAreCabinets &&
-                                      cabinetCategory != null
+                              onAction: bestSellersAreRoSystems
                                   ? () => _pushHomeRoute(
                                       context,
                                       ProductListingScreen(
-                                        initialCategoryId: cabinetCategory.id,
+                                        initialCategoryId: roSystemsCategory.id,
                                         initialCategoryName:
-                                            cabinetCategory.name,
+                                            roSystemsCategory.name,
+                                        // Same order as the slider.
+                                        initialSortOption:
+                                            const ProductFilterState()
+                                                .sortOption,
                                       ),
                                       useRootNavigator: false,
                                     )
                                   : () => context.go('/products'),
                               isDark: isDark,
                             ),
-                            if (bestSellersAreCabinets)
+                            if (bestSellersAreRoSystems)
                               _buildBestSellersCarousel(context, bestSellers)
                             else
                               _buildResponsiveProductGrid(
@@ -1400,7 +1405,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   // Responsive 4-Column Product Grid (Desktop: 4, Tablet: 3, Mobile: 2)
-  /// Best Sellers slider: 4 Cabinet cards across on desktop (3 on tablet,
+  /// Best Sellers slider (RO Systems products): 4 cards across on desktop (3 on tablet,
   /// 2 on phone); the rest by swiping, mouse drag or the arrows.
   Widget _buildBestSellersCarousel(
     BuildContext context,
@@ -1419,9 +1424,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ? homeBestSellerVisibleTablet
                   : homeBestSellerVisiblePhone),
         spacing: isDesktop ? 20.0 : (isTablet ? 14.0 : 12.0),
+        // RO Systems format: Dealer Price + MRP, never the Cabinet Price;
+        // details and sharing open in the RO Systems context.
+        showCabinetPrice: false,
         onTap: (product, heroTag) => _pushHomeRoute(
           context,
-          ProductDetailsScreen(product: product, heroTag: heroTag),
+          ProductDetailsScreen(
+            product: product,
+            heroTag: heroTag,
+            priceView: ProductPriceView.roSystems,
+          ),
         ),
         onAddToCart: (product) => addProductToCart(context, ref, product),
       ),

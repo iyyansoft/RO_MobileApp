@@ -19,7 +19,6 @@ import 'product_listing_screen.dart';
 import '../widgets/cabinet_price_text.dart';
 import '../../domain/cabinet_display_order.dart';
 import '../../domain/category_price_view.dart';
-import '../../domain/categories_image_policy.dart';
 
 class CategoriesScreen extends ConsumerStatefulWidget {
   const CategoriesScreen({super.key});
@@ -1179,32 +1178,26 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                 clipBehavior: Clip.none,
                 alignment: Alignment.center,
                 children: [
-                  // Product Image. On every platform this page shows only
-                  // Supabase Storage pictures; anything else gets the
-                  // placeholder (the saved image and all other screens are
-                  // unchanged).
+                  // Product Image: the product's saved image, resolved exactly
+                  // as on the category listing pages ([displayImageUrl]), the
+                  // same on every platform and whichever category it is
+                  // shown under. The water drop only when the saved value is
+                  // empty/invalid or the image fails to load.
                   Padding(
                     padding: const EdgeInsets.fromLTRB(5, 5, 5, 10),
-                    child: categoriesPageUsesPlaceholder(product.imageUrl)
-                        ? Center(
-                            key: const ValueKey('categories-image-placeholder'),
-                            child: Icon(
-                              Icons.water_drop_outlined,
-                              size: 24,
-                              color: Colors.grey.shade400,
-                            ),
-                          )
-                        : AppImage(
-                            product.displayImageUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stack) => Center(
-                              child: Icon(
-                                Icons.water_drop_outlined,
-                                size: 24,
-                                color: Colors.grey.shade400,
-                              ),
-                            ),
-                          ),
+                    child: AppImage(
+                      product.displayImageUrl,
+                      key: ValueKey('categories-image-${product.id}'),
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stack) => Center(
+                        key: const ValueKey('categories-image-placeholder'),
+                        child: Icon(
+                          Icons.water_drop_outlined,
+                          size: 24,
+                          color: Colors.grey.shade400,
+                        ),
+                      ),
+                    ),
                   ),
 
                   // Teal status pill badge

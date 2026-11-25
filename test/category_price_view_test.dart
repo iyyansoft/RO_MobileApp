@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:ro_wholesale_dealer_app/features/cart/domain/models/cart_item_model.dart';
 import 'package:ro_wholesale_dealer_app/core/network/api_client.dart';
+import 'package:ro_wholesale_dealer_app/core/widgets/app_image.dart';
 import 'package:ro_wholesale_dealer_app/features/cart/presentation/providers/cart_provider.dart';
 import 'package:ro_wholesale_dealer_app/features/products/domain/category_price_view.dart';
 import 'package:ro_wholesale_dealer_app/features/products/domain/models/category_model.dart';
@@ -282,6 +283,11 @@ void main() {
     expect(find.byKey(const ValueKey('details-mrp')), findsNothing);
     expect(find.textContaining('OFF WHOLESALE'), findsNothing);
     expect(find.textContaining('Total:'), findsNothing);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('details-sku-category'))).data,
+      endsWith('Category: Cabinet'),
+      reason: 'header follows the page it was opened from',
+    );
 
     await _pumpListing(tester, 'systems');
     await tester.tap(find.text('Product CAB-15').first);
@@ -290,6 +296,11 @@ void main() {
     expect(find.text('₹4,650'), findsOneWidget);
     expect(find.text('MRP ₹13,500'), findsOneWidget);
     expect(find.textContaining('Cabinet Price'), findsNothing);
+    expect(
+      tester.widget<Text>(find.byKey(const ValueKey('details-sku-category'))).data,
+      endsWith('Category: RO Systems'),
+      reason: 'header follows the page it was opened from',
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -348,4 +359,75 @@ void main() {
     expect(find.text('₹13,500'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'Categories page: a product shows its saved image under RO Systems and Cabinet alike',
+    (tester) async {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(1400, 3000);
+      addTearDown(tester.view.reset);
+      ProductModel withImage(String id, CategoryModel cat, String img) =>
+          ProductModel(
+            id: id,
+            name: 'Product $id',
+            sku: id,
+            categoryId: cat.id,
+            categoryName: cat.name,
+            brand: '',
+            mrp: 13500,
+            dealerPrice: 4650,
+            cabinetPrice: 1850,
+            imageUrl: img,
+            stockStatus: StockStatus.inStock,
+            moq: 1,
+          );
+      const backend = '/api/product-images/img_1795000000000_1bb572d3da58aca5.jpg';
+      const storage =
+          'https://abc123.supabase.co/storage/v1/object/public/ro-product-images/cabinets/a.jpg';
+      final products = [
+        withImage('CAB-15', _cabinets, backend), // the app's own upload
+        withImage('CAB-18', _cabinets, storage), // Supabase Storage URL
+        withImage('CAB-02', _cabinets, ''), // nothing saved
+        withImage('SYS-1', _systems, 'purifier.jpg'), // bundled demo name
+      ];
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            catalogProductsProvider.overrideWith((ref) async => products),
+            catalogCategoriesProvider.overrideWith((ref) async => _categories),
+            cartProvider.overrideWith((ref) => _RecordingCart()),
+          ],
+          child: const MaterialApp(home: CategoriesScreen()),
+        ),
+      );
+      await tester.pumpAndSettle();
+      String source(String id) => tester
+          .widget<AppImage>(find.byKey(ValueKey('categories-image-$id')))
+          .source;
+
+      final seen = <String, Map<String, String>>{};
+      for (final page in ['systems', 'cabinets']) {
+        await tester.tap(find.byKey(ValueKey('category-sidebar-$page')));
+        await tester.pumpAndSettle();
+        seen[page] = {
+          for (final id in ['CAB-15', 'CAB-18', 'CAB-02']) id: source(id),
+        };
+      }
+      // Identical saved image on both pages, as the listing pages resolve it.
+      expect(seen['systems'], seen['cabinets']);
+      expect(seen['cabinets']!['CAB-15'], products[0].displayImageUrl);
+      expect(seen['cabinets']!['CAB-15'], backend, reason: 'not hidden');
+      expect(seen['cabinets']!['CAB-18'], storage);
+      // Nothing saved: AppImage shows the water drop (as on the listing
+      // pages). Network images cannot load in widget tests, so the drop for
+      // a failed load is checked on the real app instead.
+      expect(seen['cabinets']!['CAB-02'], '');
+      // The RO Systems product keeps its existing bundled picture rule.
+      await tester.tap(find.byKey(const ValueKey('category-sidebar-systems')));
+      await tester.pumpAndSettle();
+      expect(source('SYS-1'), products[3].displayImageUrl);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }
+

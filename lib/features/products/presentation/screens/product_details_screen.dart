@@ -19,6 +19,7 @@ import '../widgets/cart_actions.dart' show cartErrorText, showAddedToCartToast;
 import '../widgets/max_quantity_dialog.dart';
 import '../widgets/cabinet_price_text.dart';
 import '../../domain/category_price_view.dart';
+import '../../domain/product_share_category.dart';
 import '../../../../core/widgets/app_toast.dart';
 
 class ProductDetailsScreen extends ConsumerStatefulWidget {
@@ -58,12 +59,26 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
     _pageController = PageController();
     // Build the WhatsApp share card now, so the Share icon can share it in
     // one tap (browsers allow sharing only right after the tap).
-    ProductShareCards.prepare(widget.product, ProductSharer()).ignore();
+    ProductShareCards.prepare(
+      _shareProduct(),
+      ProductSharer(),
+      view: widget.priceView,
+    ).ignore();
     _tabController = TabController(length: 3, vsync: this)
       ..addListener(() {
         if (mounted) setState(() {});
       });
   }
+
+  /// The product as shared: its category is the page it was opened from
+  /// ([widget.priceView]: RO Systems or Cabinet, for products that page lists),
+  /// otherwise its saved category (see [productForSharing]). The same in
+  /// every share path (text, card image, WhatsApp/native share, link).
+  ProductModel _shareProduct() => productForSharing(
+    widget.product,
+    ref.read(categoriesProvider),
+    view: widget.priceView,
+  );
 
   @override
   void dispose() {
@@ -227,7 +242,8 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
                       // One tap: image + every detail in one share.
                       await shareProductInOneClick(
                         context,
-                        product: widget.product,
+                        product: _shareProduct(),
+                        view: widget.priceView,
                       );
                     } finally {
                       if (mounted) setState(() => _isSharing = false);
@@ -381,6 +397,11 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
   /// Badges, name, SKU and category.
   Widget _buildHeaderInfo(bool isDark, {required bool large}) {
     final p = widget.product;
+    final category = shareCategoryName(
+      p,
+      ref.watch(categoriesProvider),
+      view: widget.priceView,
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -417,7 +438,13 @@ class _ProductDetailsScreenState extends ConsumerState<ProductDetailsScreen>
         ),
         const SizedBox(height: 8),
         Text(
-          'SKU: ${p.sku} • Category: ${p.categoryName}',
+          // The category of the page it was opened from (RO Systems /
+          // Cabinet), else its saved category: the same as its share.
+          [
+            'SKU: ${p.sku}',
+            if (category.isNotEmpty) 'Category: $category',
+          ].join(' • '),
+          key: const ValueKey('details-sku-category'),
           style: TextStyle(
             fontSize: large ? 13 : 12,
             color: _muted,

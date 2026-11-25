@@ -197,6 +197,39 @@ class ProductModel {
     this.createdAt,
   });
 
+  /// The same product with another category name (everything else equal).
+  ProductModel withCategoryName(String name) => ProductModel(
+    id: id,
+    name: this.name,
+    sku: sku,
+    categoryId: categoryId,
+    categoryName: name,
+    brand: brand,
+    mrp: mrp,
+    dealerPrice: dealerPrice,
+    purchasePrice: purchasePrice,
+    cabinetPrice: cabinetPrice,
+    bulkPrice: bulkPrice,
+    bulkMinQty: bulkMinQty,
+    bulkStep: bulkStep,
+    bulkPackLabel: bulkPackLabel,
+    imageUrl: imageUrl,
+    galleryImages: galleryImages,
+    stockStatus: stockStatus,
+    moq: moq,
+    moqSet: moqSet,
+    moqUnit: moqUnit,
+    stockQuantity: stockQuantity,
+    maxOrderQuantity: maxOrderQuantity,
+    rating: rating,
+    reviewCount: reviewCount,
+    isFeatured: isFeatured,
+    description: description,
+    specifications: specifications,
+    features: features,
+    createdAt: createdAt,
+  );
+
   static const Map<String, int> _catalogSpriteBySku = {
     'RO-FLT-CTO': 0,
     'RO-FLT-INLINE': 1,

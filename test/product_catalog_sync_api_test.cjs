@@ -32,6 +32,7 @@ async function query(sql, params = []) {
   if (s.startsWith('SELECT id, key_name FROM categories')) return [categoryMatch(params[0])];
   if (s.startsWith('SELECT id, key_name, title FROM categories')) return [categories];
   if (s.startsWith('SELECT * FROM categories')) return [categories];
+  if (s.startsWith('SELECT title FROM categories WHERE key_name = ?')) return [categories.filter(c => c.key_name === params[0]).map(c => ({ title: c.title }))];
   if (s.startsWith('SELECT sku FROM products WHERE UPPER(sku)')) return [products.filter(p => p.sku.toUpperCase() === params[0])];
   if (s.startsWith('SELECT UPPER(sku) as sku FROM products')) return [products.map(p => ({ sku: p.sku.toUpperCase() }))];
   if (s.startsWith('INSERT INTO products')) {
@@ -52,7 +53,7 @@ async function query(sql, params = []) {
     if (!p) return [[]];
     const c = categories.find(x => x.id === p.category_id || x.key_name === p.category_key);
     // Only the columns the share query selects.
-    return [[{ id: p.id, name: p.name, sku: p.sku, brand: p.brand, mrp: p.mrp, img: p.img, description: p.description, status: p.status, category_key: p.category_key, category_title: c ? c.title : p.category_key }]];
+    return [[{ id: p.id, name: p.name, sku: p.sku, brand: p.brand, mrp: p.mrp, cabinet_price: p.cabinet_price, img: p.img, description: p.description, status: p.status, category_key: p.category_key, category_title: c ? c.title : p.category_key }]];
   }
   if (s.startsWith('INSERT INTO product_images')) {
     images.set(params[0], { content_type: params[1], bytes: params[2] });
@@ -199,7 +200,8 @@ test('share page: rich preview with image and MRP only, never dealer or purchase
   assert.equal(og('og:image:width'), String(png.readUInt32BE(16)));
   assert.equal(og('og:image:height'), String(png.readUInt32BE(20)));
   assert.match(og('og:url'), new RegExp(`/share/products/${p.id}$`));
-  assert.match(html, /View product in store/);
+  // No product / store link on the page (sharing carries no URL).
+  assert.doesNotMatch(html, /View product in store|<a\s[^>]*href=/);
   // Dealer price 8,500 and purchase price 7,500 appear nowhere.
   for (const hidden of ['8500', '8,500', '7500', '7,500', 'Dealer Price', 'dealer_price', 'purchase']) {
     assert.equal(html.includes(hidden), false, `share page must not contain ${hidden}`);
@@ -301,4 +303,68 @@ test('GET /share/products/:id/image returns each product\'s own image file', asy
 
   assert.equal((await get('does-not-exist')).status, 404);
   assert.equal((await get('HIDDEN')).status, 404);
+});
+
+test('share page: category of the page it is shared from (RO Systems lists Cabinet products)', async () => {
+  const extra = [
+    { id: 'CAT_SYS', key_name: 'systems', title: 'RO Systems', display_order: 1 },
+    { id: 'CAT_CAB', key_name: 'cabinets', title: 'Cabinet', display_order: 7 },
+  ];
+  categories.push(...extra);
+  const add = (id, category_key, category_id) => products.push({ id, category_id, category_key, sku: id, name: id, brand: 'B', purchase_price: 1, price: 2, mrp: 3, cabinet_price: category_key === 'cabinets' ? 1850 : null, img: '', description: '', status: 'active', created_at: new Date() });
+  add('CTX_CAB', 'cabinets', 'CAT_CAB');
+  add('CTX_SYS', 'systems', 'CAT_SYS');
+  try {
+    const page = async (id, query = '') => {
+      const html = await (await fetch(`${base}/share/products/${id}${query}`)).text();
+      return {
+        html,
+        price: (html.match(/<p class="mrp"><small>([^<]*)<\/small>([^<]*)<\/p>/) || []).slice(1).join(' '),
+        title: (html.match(/<meta property="og:title" content="([^"]*)"/) || [])[1],
+        category: (html.match(/<dt>Category<\/dt><dd>([^<]*)<\/dd>/) || [])[1],
+        ogUrl: (html.match(/<meta property="og:url" content="([^"]*)"/) || [])[1],
+        links: (html.match(/<a\s[^>]*href=/g) || []).length,
+      };
+    };
+    const fromRo = await page('CTX_CAB', '?view=ro-systems');
+    assert.equal(fromRo.category, 'RO Systems');
+    assert.match(fromRo.ogUrl, /\/share\/products\/CTX_CAB\?view=ro-systems$/);
+    assert.equal(fromRo.links, 0, 'no store link');
+    const fromCab = await page('CTX_CAB', '?view=cabinet');
+    assert.equal(fromCab.category, 'Cabinet');
+    // Shared from the Cabinet page: Cabinet Price only, no MRP / Dealer Price.
+    assert.equal(fromCab.price, 'Cabinet Price ₹1,850');
+    assert.equal(fromCab.title, 'CTX_CAB — Cabinet Price ₹1,850');
+    for (const hidden of ['MRP', 'Dealer Price', '₹3']) assert.equal(fromCab.html.includes(hidden), false, hidden);
+    assert.equal(fromRo.price, 'MRP ₹3', 'RO Systems page: MRP');
+    assert.equal((await page('CTX_CAB')).price, 'MRP ₹3', 'no page: MRP');
+    // A failed picture shows the water-drop placeholder, never another photo.
+    assert.equal(fromCab.html.includes('purifier.jpg'), false);
+    assert.match(fromCab.html, /onerror="this.onerror=null;this.src='data:image\/svg\+xml,/);
+    assert.equal((await page('CTX_CAB')).category, 'Cabinet', 'no page: saved category');
+    assert.equal((await page('CTX_SYS', '?view=ro-systems')).category, 'RO Systems');
+    // A page never claims products it does not list; unknown values are ignored.
+    const membrane = await page('SAMPLE_1', '?view=ro-systems');
+    assert.equal(membrane.category, 'Membranes');
+    assert.match(membrane.ogUrl, /\/share\/products\/SAMPLE_1$/);
+    assert.equal((await page('CTX_SYS', '?view=cabinet')).category, 'RO Systems');
+    assert.equal((await page('CTX_CAB', '?view=__proto__')).category, 'Cabinet');
+  } finally {
+    for (const c of extra) categories.splice(categories.indexOf(c), 1);
+    for (const id of ['CTX_CAB', 'CTX_SYS']) products.splice(products.findIndex(p => p.id === id), 1);
+  }
+});
+
+test('share page: no supplier/distributor references in the shared description', async () => {
+  products.push({ id: 'DIST_1', category_id: 'CAT_SPR', category_key: 'spares', sku: 'DIST-1', name: 'Cabinet X', brand: '', purchase_price: 1, price: 2, mrp: 3,
+    img: '', status: 'active', created_at: new Date(),
+    description: 'Aqua cabinet in black (supplier photo). Distributors describe the Aqua 2090 cabinet as a 10-litre storage cabinet. The supplier lists a 1-year warranty.' });
+  try {
+    const html = await (await fetch(`${base}/share/products/DIST_1`)).text();
+    assert.doesNotMatch(html, /distributor|supplier|price list|\(\s*\)/i);
+    assert.match(html, /Aqua cabinet in black\. The Aqua 2090 cabinet is a 10-litre storage cabinet\. It comes with a 1-year warranty\./);
+    assert.equal(products.find(p => p.id === 'DIST_1').description.includes('Distributors describe'), true, 'saved data unchanged');
+  } finally {
+    products.splice(products.findIndex(p => p.id === 'DIST_1'), 1);
+  }
 });

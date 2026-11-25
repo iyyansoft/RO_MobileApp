@@ -65,28 +65,12 @@ void main() {
     expect(text, isNot(contains('900')));
     expect(text, isNot(contains('500')));
     expect(text, isNot(contains('View product')));
-
-    final link = productShareUrl(
-      product,
-      apiBaseUrl: 'https://api.example.com/api/',
-    );
-    expect(
-      link.toString(),
-      'https://api.example.com/share/products/filter-share',
-    );
-    expect(
-      productShareText(product, link: link),
-      endsWith(
-        'View product: https://api.example.com/share/products/filter-share',
-      ),
-    );
+    expect(text, isNot(contains('http')), reason: 'no product link');
+    expect(text, isNot(contains('share/products')));
   });
 
-  test('WhatsApp link carries name, MRP, SKU, brand, category, description and page link only', () {
-    final uri = whatsAppShareUri(
-      product,
-      apiBaseUrl: 'https://api.example.com/api/',
-    );
+  test('WhatsApp message carries name, MRP, SKU, brand, category and details, no product link', () {
+    final uri = whatsAppShareUri(product);
     expect(uri.host, 'wa.me');
     final text = uri.queryParameters['text']!;
     expect(text, startsWith('Product Name: Public Filter'));
@@ -109,12 +93,9 @@ void main() {
       contains('KEY FEATURES:\n- Improves taste\n- Easy replacement'),
     );
     expect(text, contains('Contact us for orders and enquiries.'));
-    expect(
-      text,
-      contains(
-        'Product Link: https://api.example.com/share/products/filter-share',
-      ),
-    );
+    for (final url in ['Product Link', 'http', 'share/products', 'onrender']) {
+      expect(text, isNot(contains(url)), reason: 'no product URL');
+    }
     expect(text, endsWith('Contact us for orders and enquiries.'));
     for (final hidden in ['900', '500', 'Dealer', 'Purchase']) {
       expect(text, isNot(contains(hidden)));
@@ -187,27 +168,6 @@ void main() {
     },
   );
 
-  test('shared links never use localhost or LAN addresses', () {
-    for (final api in [
-      'http://localhost:8080/api/',
-      'http://127.0.0.1:8081/api/',
-      'http://10.0.2.2:8081/api/',
-      'http://192.168.1.20:8081/api/',
-    ]) {
-      expect(
-        productShareUrl(product, apiBaseUrl: api).toString(),
-        '$kPublicShareOrigin/share/products/filter-share',
-      );
-    }
-    expect(
-      productShareUrl(
-        product,
-        publicBaseUrl: 'https://shop.example.com',
-      ).toString(),
-      'https://shop.example.com/share/products/filter-share',
-    );
-  });
-
   final otherProduct = ProductModel.fromJson({
     'id': 'pump-share',
     'name': 'Booster Pump 300',
@@ -263,8 +223,8 @@ void main() {
     bool textReachesWhatsApp = true,
     List<(ProductModel, List<int>)>? cards,
   }) => ProductSharer(
-    buildCard: (p, photo) async {
-      cards?.add((p, photo.bytes));
+    buildCard: (p, photo, view) async {
+      cards?.add((p, photo?.bytes ?? const <int>[]));
       return ShareImageFile(
         bytes: cardBytesFor(p),
         mimeType: 'image/png',
@@ -459,34 +419,39 @@ void main() {
     },
   );
 
-  testWidgets('if the image cannot be loaded nothing is shared without it', (
-    tester,
-  ) async {
-    final shared = <(ShareImageFile, String)>[];
-    final launched = <Uri>[];
-    await openSheet(
-      tester,
-      fakeSharer(
-        canAttach: true,
-        fetchFails: true,
-        shared: shared,
-        launched: launched,
-      ),
-    );
-    expect(find.byKey(const ValueKey('share-image-error')), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('share-whatsapp')));
-    await tester.pumpAndSettle();
-    expect(shared, isEmpty);
-    expect(launched, isEmpty);
-  });
+  testWidgets(
+    'if the saved image cannot be loaded, the placeholder card is still shared',
+    (tester) async {
+      final shared = <(ShareImageFile, String)>[];
+      final cards = <(ProductModel, List<int>)>[];
+      await openSheet(
+        tester,
+        fakeSharer(
+          canAttach: true,
+          fetchFails: true,
+          shared: shared,
+          cards: cards,
+        ),
+      );
+      expect(find.byKey(const ValueKey('share-image-error')), findsNothing);
+      expect(cards.single.$2, isEmpty, reason: 'no photo: placeholder card');
+      await tester.tap(find.byKey(const ValueKey('share-whatsapp')));
+      await tester.pumpAndSettle();
+      expect(shared.single.$1.bytes, cardBytesFor(product));
+      expect(shared.single.$2, whatsAppShareText(product));
+    },
+  );
 
-  testWidgets('copy link copies the public product page', (tester) async {
+  testWidgets('copy copies the share message, never a product link', (tester) async {
     final clipboard = captureClipboard(tester);
     await openSheet(tester, fakeSharer(canAttach: true));
-    await tester.tap(find.byKey(const ValueKey('share-copy-link')));
+    expect(find.byKey(const ValueKey('share-copy-link')), findsNothing);
+    expect(find.text('Copy product link'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('share-copy-details')));
     await tester.pumpAndSettle();
-    expect(clipboard.single, '$kPublicShareOrigin/share/products/filter-share');
-    expect(find.text('Product link copied'), findsOneWidget);
+    expect(clipboard.single, whatsAppShareText(product));
+    expect(clipboard.single, isNot(contains('http')));
+    expect(find.text('Product details copied'), findsOneWidget);
   });
 
   test('product image file URL uses the app backend (works locally too)', () {
@@ -634,11 +599,12 @@ void main() {
         'Fit: Universal',
         '- Improves taste',
         '- Easy replacement',
-        'Product Link: ',
         'Contact us for orders and enquiries.',
       ]) {
         expect(text, contains(part));
       }
+      expect(text, isNot(contains('Product Link')));
+      expect(text, isNot(contains('http')));
       expect(find.byType(BottomSheet), findsNothing, reason: 'no sheet');
       expect(find.byType(AlertDialog), findsNothing, reason: 'no modal');
       expect(clipboard, isEmpty, reason: 'WhatsApp gets the caption');

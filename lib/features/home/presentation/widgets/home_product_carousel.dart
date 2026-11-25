@@ -31,7 +31,11 @@ class HomeProductCarousel extends StatefulWidget {
     this.spacing = 20,
     this.autoScroll,
     this.autoScrollSpeed = 28,
+    this.showCabinetPrice = true,
   });
+
+  /// Passed to every [HomeProductCard] (false: never the Cabinet Price line).
+  final bool showCabinetPrice;
 
   final List<ProductModel> products;
   final int visibleCount;
@@ -207,6 +211,7 @@ class _HomeProductCarouselState extends State<HomeProductCarousel>
                 ),
                 product: product,
                 heroTag: heroTag,
+                showCabinetPrice: widget.showCabinetPrice,
                 onTap: () => widget.onTap(product, heroTag),
                 onAddToCart: () => widget.onAddToCart(product),
               ),

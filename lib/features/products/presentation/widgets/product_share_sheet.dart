@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/platform/file_share_support.dart' as platform;
+import '../../domain/category_price_view.dart';
 import '../../domain/models/product_model.dart';
 import '../../domain/models/product_share.dart';
 import 'product_share_card.dart';
@@ -33,16 +34,22 @@ class ProductSharer {
     this.downloader = platform.downloadBytes,
     this.launcher = _launchExternal,
     this.textReachesWhatsApp = platform.whatsAppKeepsSharedText,
-    Future<ShareImageFile> Function(ProductModel product, ShareImageFile photo)?
+    Future<ShareImageFile> Function(
+      ProductModel product,
+      ShareImageFile? photo,
+      ProductPriceView view,
+    )?
     buildCard,
   }) : fetchImage = fetchImage ?? fetchProductImageFile,
        buildCard = buildCard ?? buildProductShareCardFile;
 
   /// Turns the product photo into the shared product card (image with name,
-  /// SKU, category and MRP).
+  /// SKU, category and the share price for [ProductPriceView]). A null photo
+  /// (the image could not be loaded) gives the water-drop placeholder card.
   final Future<ShareImageFile> Function(
     ProductModel product,
-    ShareImageFile photo,
+    ShareImageFile? photo,
+    ProductPriceView view,
   )
   buildCard;
 
@@ -115,13 +122,19 @@ Future<ShareImageFile> fetchProductImageFile(ProductModel product) async {
   );
 }
 
-/// The WhatsApp product card for [product], built from its own [photo].
-/// Shows MRP only (never the dealer or purchase price).
+/// The WhatsApp product card for [product], built from its own [photo]
+/// (null: water-drop placeholder). One price: MRP, or the Cabinet Price when
+/// shared from the Cabinet page (never the dealer or purchase price).
 Future<ShareImageFile> buildProductShareCardFile(
   ProductModel product,
-  ShareImageFile photo,
-) async {
-  final bytes = await renderProductShareCard(product, photo.bytes);
+  ShareImageFile? photo, [
+  ProductPriceView view = ProductPriceView.standard,
+]) async {
+  final bytes = await renderProductShareCard(
+    product,
+    photo?.bytes,
+    view: view,
+  );
   return ShareImageFile(
     bytes: bytes,
     mimeType: 'image/png',
@@ -138,20 +151,37 @@ class ProductShareCards {
   static final _pending = <String, Future<ShareImageFile>>{};
   static final _ready = <String, ShareImageFile>{};
 
-  /// Changes whenever what the card shows changes.
-  static String _key(ProductModel p) =>
-      [p.id, p.name, p.sku, p.mrp, p.categoryName, p.imageUrl].join('|');
+  /// Changes whenever what the card shows changes (including the page it is
+  /// shared from, which decides its price).
+  static String _key(ProductModel p, ProductPriceView view) => [
+    p.id,
+    p.name,
+    p.sku,
+    p.mrp,
+    p.cabinetPrice,
+    p.categoryName,
+    p.imageUrl,
+    view.name,
+  ].join('|');
 
-  /// Builds (once) the card for [product].
+  /// Builds (once) the card for [product] shared from [view]. If the
+  /// product's image cannot be loaded, the card uses the water-drop
+  /// placeholder, so an image failure never blocks sharing.
   static Future<ShareImageFile> prepare(
     ProductModel product,
-    ProductSharer sharer,
-  ) {
-    final key = _key(product);
+    ProductSharer sharer, {
+    ProductPriceView view = ProductPriceView.standard,
+  }) {
+    final key = _key(product, view);
     return _pending.putIfAbsent(key, () async {
       try {
-        final photo = await sharer.fetchImage(product);
-        final card = await sharer.buildCard(product, photo);
+        ShareImageFile? photo;
+        try {
+          photo = await sharer.fetchImage(product);
+        } catch (_) {
+          photo = null; // saved image unavailable: placeholder card
+        }
+        final card = await sharer.buildCard(product, photo, view);
         _ready[key] = card;
         return card;
       } catch (_) {
@@ -162,7 +192,10 @@ class ProductShareCards {
   }
 
   /// The finished card, or null while it is still being built.
-  static ShareImageFile? ready(ProductModel product) => _ready[_key(product)];
+  static ShareImageFile? ready(
+    ProductModel product, {
+    ProductPriceView view = ProductPriceView.standard,
+  }) => _ready[_key(product, view)];
 
   @visibleForTesting
   static void clear() {
@@ -179,13 +212,19 @@ Future<void> shareProductInOneClick(
   BuildContext context, {
   required ProductModel product,
   ProductSharer? sharer,
+  ProductPriceView view = ProductPriceView.standard,
 }) async {
   final s = sharer ?? ProductSharer();
-  final card = ProductShareCards.ready(product);
+  final card = ProductShareCards.ready(product, view: view);
   if (card == null) {
-    return showProductShareSheet(context, product: product, sharer: s);
+    return showProductShareSheet(
+      context,
+      product: product,
+      sharer: s,
+      view: view,
+    );
   }
-  shareProductCard(context, product: product, card: card, sharer: s);
+  shareProductCard(context, product: product, card: card, sharer: s, view: view);
 }
 
 /// Shares [card] with the full details as its caption, in one share. Must be
@@ -195,8 +234,9 @@ void shareProductCard(
   required ProductModel product,
   required ShareImageFile card,
   required ProductSharer sharer,
+  ProductPriceView view = ProductPriceView.standard,
 }) {
-  final details = whatsAppShareText(product);
+  final details = whatsAppShareText(product, view: view);
   if (!sharer.canShareFile(card)) {
     // No image + text sharing in this browser: say so, keep both.
     Clipboard.setData(ClipboardData(text: details)).catchError((_) {});
@@ -205,6 +245,7 @@ void shareProductCard(
       product: product,
       card: card,
       sharer: sharer,
+      view: view,
     );
     return;
   }
@@ -224,6 +265,7 @@ void shareProductCard(
         card: card,
         sharer: sharer,
         reason: outcome,
+        view: view,
       );
     } else if (outcome == 'shared' && !keepsText) {
       AppToast.success(
@@ -244,6 +286,7 @@ Future<void> showShareCompatibilityFallback(
   required ShareImageFile card,
   required ProductSharer sharer,
   String? reason,
+  ProductPriceView view = ProductPriceView.standard,
 }) async {
   final saved = await sharer.downloader(
     card.bytes,
@@ -302,7 +345,7 @@ Future<void> showShareCompatibilityFallback(
           label: const Text('Details only (text)'),
           onPressed: () {
             Navigator.of(dialogContext).pop();
-            sharer.launcher(whatsAppShareUri(product));
+            sharer.launcher(whatsAppShareUri(product, view: view));
           },
         ),
         FilledButton.icon(
@@ -329,6 +372,7 @@ Future<void> showProductShareSheet(
   BuildContext context, {
   required ProductModel product,
   ProductSharer? sharer,
+  ProductPriceView view = ProductPriceView.standard,
 }) {
   return showModalBottomSheet<void>(
     context: context,
@@ -338,6 +382,7 @@ Future<void> showProductShareSheet(
       product: product,
       sharer: sharer ?? ProductSharer(),
       hostContext: context,
+      view: view,
     ),
   );
 }
@@ -347,11 +392,15 @@ class _ProductShareSheet extends StatefulWidget {
     required this.product,
     required this.sharer,
     required this.hostContext,
+    this.view = ProductPriceView.standard,
   });
 
   final ProductModel product;
   final ProductSharer sharer;
   final BuildContext hostContext;
+
+  /// The page the product is shared from (decides its category and price).
+  final ProductPriceView view;
 
   @override
   State<_ProductShareSheet> createState() => _ProductShareSheetState();
@@ -378,6 +427,7 @@ class _ProductShareSheetState extends State<_ProductShareSheet> {
       final image = await ProductShareCards.prepare(
         widget.product,
         widget.sharer,
+        view: widget.view,
       );
       if (!mounted) return;
       setState(() {
@@ -398,6 +448,7 @@ class _ProductShareSheetState extends State<_ProductShareSheet> {
       product: widget.product,
       card: image,
       sharer: widget.sharer,
+      view: widget.view,
     );
     Navigator.of(context).pop();
   }
@@ -416,6 +467,7 @@ class _ProductShareSheetState extends State<_ProductShareSheet> {
           card: image,
           sharer: widget.sharer,
           reason: outcome,
+          view: widget.view,
         );
       }
       return;
@@ -538,18 +590,19 @@ class _ProductShareSheetState extends State<_ProductShareSheet> {
               onTap: _download,
             ),
             ListTile(
-              key: const ValueKey('share-copy-link'),
-              leading: const CircleAvatar(child: Icon(Icons.link_rounded)),
-              title: const Text('Copy product link'),
+              key: const ValueKey('share-copy-details'),
+              leading: const CircleAvatar(child: Icon(Icons.copy_rounded)),
+              title: const Text('Copy product details'),
               onTap: () async {
                 final host = widget.hostContext;
                 Navigator.of(context).pop();
+                // The same message as the share (no product link).
                 await Clipboard.setData(
                   ClipboardData(
-                    text: productShareUrl(widget.product).toString(),
+                    text: whatsAppShareText(widget.product, view: widget.view),
                   ),
                 );
-                if (host.mounted) _snack(host, 'Product link copied');
+                if (host.mounted) _snack(host, 'Product details copied');
               },
             ),
           ],

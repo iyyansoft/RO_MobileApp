@@ -1,0 +1,15 @@
+{
+  "description": "Share-text cleanup: removes supplier/distributor references from shared product content (WhatsApp/native share, copy, share card, public share page). Applied in order, case-insensitive, to the text only; saved product data is never changed. The Flutter app keeps an identical copy (lib/features/products/domain/share_text_cleaner.dart); test/share_text_cleaner_test.dart fails if they differ.",
+  "rules": [
+    ["\\s*\\([^()]*\\b(?:suppliers?|supplier's|distributors?|distributor's|price list)\\b[^()]*\\)", ""],
+    ["\\b(?:the )?(?:suppliers?|distributors?) describes? (?:the |this )?(.+?) as ", "The $1 is "],
+    ["\\bthe (?:suppliers?|distributors?) lists? (?:this model|this product|it) as ", "This model is "],
+    ["\\bthe (?:suppliers?|distributors?) lists? (an? )", "It comes with $1"],
+    ["\\bthe (?:suppliers?|distributors?)(?:'s)? photo shows (the |an? )?", "This is $1"],
+    ["\\s+offered by the (?:suppliers?|distributors?)\\b", ""],
+    ["\\s+by the (?:suppliers?|distributors?)\\b", ""],
+    ["\\s+(?:in|from|of) the (?:suppliers?|distributors?)(?:'s?)? (?:photo|range|price list|catalogue|catalog|list)\\b", ""],
+    ["\\b(?:suppliers?|distributors?)(?:'s)? (catalogue|catalog|photo|range|price list)\\b", "$1"]
+  ],
+  "leftover": "\\b(?:suppliers?|supplier's|distributors?|distributor's)\\b"
+}

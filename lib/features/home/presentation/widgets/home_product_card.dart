@@ -17,12 +17,17 @@ class HomeProductCard extends StatefulWidget {
     required this.onTap,
     required this.onAddToCart,
     this.heroTag,
+    this.showCabinetPrice = true,
   });
 
   final ProductModel product;
   final VoidCallback onTap;
   final VoidCallback onAddToCart;
   final String? heroTag;
+
+  /// False where the section uses the RO Systems price format (Best
+  /// Sellers): Dealer Price + MRP only, never the Cabinet Price line.
+  final bool showCabinetPrice;
 
   /// Height the grid should give each card (content-sized, no empty gap).
   static double extentFor(double cardWidth) =>
@@ -267,10 +272,11 @@ class _HomeProductCardState extends State<HomeProductCard> {
                                           ),
                                       ],
                                     ),
-                                    CabinetPriceText(
-                                      p,
-                                      fontSize: compact ? 11 : 12,
-                                    ),
+                                    if (widget.showCabinetPrice)
+                                      CabinetPriceText(
+                                        p,
+                                        fontSize: compact ? 11 : 12,
+                                      ),
                                   ],
                                 ),
                               ),

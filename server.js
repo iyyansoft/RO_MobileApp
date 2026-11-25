@@ -14,6 +14,7 @@ const { rewardSummary, requestRewardClaim, decideRewardClaim, reverseOrderReward
 const { purchaseMode, bulkQuantityProblem, modeConflict, bulkOrdersReady, bulkFields } = require('./bulk_orders');
 const { rateLimit } = require('./rate_limit');
 const { parseSpecifications, specificationLines, parseFeatures } = require('./product_info');
+const { cleanShareText } = require('./share_text');
 const { STORAGE_BUCKET, STORAGE_FOLDERS, CATEGORY_FOLDERS, categoryFolders, storageListRequest, listStorageFolders, listStorageImages, productImageProblem } = require('./storage_images');
 const { requireDealerSession, DEALER_DATA_ROUTES } = require('./dealer_auth');
 const { orderQuantityProblem, availability, minOrderQuantity, maxOrderQuantity, stockEnforced } = require('./order_rules');
@@ -2151,6 +2152,13 @@ const escapeShareHtml = value => String(value ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
+// The app's water-drop placeholder, shown when the product's own picture
+// cannot be loaded (never another product's photo).
+const SHARE_PLACEHOLDER_SVG = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48"><rect width="64" height="48" rx="4" fill="#F1F7FD"/>'
+  + '<path d="M32 10c-6 8-10 13-10 18a10 10 0 0 0 20 0c0-5-4-10-10-18z" fill="#93C5FD"/></svg>'
+).replace(/'/g, '%27');
+
 function shareRupees(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return '';
@@ -2165,17 +2173,6 @@ function requestOrigin(req) {
   const proto = String(req.get('x-forwarded-proto') || req.protocol || 'http').split(',')[0].trim();
   const host = String(req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
   return `${proto}://${host}`;
-}
-
-function storefrontUrl(req) {
-  const configured = String(process.env.STOREFRONT_URL || '').trim().replace(/\/+$/, '');
-  if (configured) return configured;
-  // A public share address is configured: never link to a local storefront.
-  if (String(process.env.PUBLIC_BASE_URL || '').trim()) return '';
-  const host = String(req.get('x-forwarded-host') || req.get('host') || '');
-  // Local development: the Flutter web app is served on port 8080.
-  if (/^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host)) return `http://${host.split(':')[0]}:8080`;
-  return '';
 }
 
 function absoluteImageUrl(img, origin) {
@@ -2332,12 +2329,37 @@ app.get('/share/products/:id/image', async (req, res) => {
   }
 });
 
+// Category page a product is shared from (the app's `?view=` value). The RO
+// Systems page also lists every Cabinet product (same records), so a product
+// shared from a page shows that page's category, like the app's share text.
+const SHARE_VIEW_PAGES = {
+  'ro-systems': { categoryKey: 'systems', lists: ['systems', 'cabinets'] },
+  cabinet: { categoryKey: 'cabinets', lists: ['cabinets'] },
+};
+
+function shareViewPage(view, product) {
+  const page = Object.prototype.hasOwnProperty.call(SHARE_VIEW_PAGES, view) ? SHARE_VIEW_PAGES[view] : null;
+  return page && page.lists.includes(String(product.category_key || '').toLowerCase()) ? page : null;
+}
+
+// The category shown on the share page: the page's category title for products
+// that page lists, otherwise the product's saved category.
+async function shareCategoryTitle(product, page) {
+  if (!page) return product.category_title;
+  try {
+    const [rows] = await pool.query('SELECT title FROM categories WHERE key_name = ? LIMIT 1', [page.categoryKey]);
+    return (rows[0] && rows[0].title) || product.category_title;
+  } catch (err) {
+    return product.category_title;
+  }
+}
+
 app.get(['/share/products/:id', '/share/products/:id/'], async (req, res) => {
   res.set('Cache-Control', 'public, max-age=300');
   let product;
   try {
     const [rows] = await pool.query(
-      `SELECT p.id, p.name, p.sku, p.brand, p.mrp, p.img, p.description, p.status, p.category_key,
+      `SELECT p.id, p.name, p.sku, p.brand, p.mrp, p.cabinet_price, p.img, p.description, p.status, p.category_key,
               COALESCE(c.title, p.category_key) AS category_title
          FROM products p
          LEFT JOIN categories c ON c.id = p.category_id OR c.key_name = p.category_key
@@ -2353,18 +2375,26 @@ app.get(['/share/products/:id', '/share/products/:id/'], async (req, res) => {
     return res.status(404).type('html').send('<!doctype html><meta name="robots" content="noindex"><title>Product not found</title><p>This product is no longer available.</p>');
   }
 
+  const view = String(req.query.view || '');
+  const viewPage = shareViewPage(view, product);
+  const viewQuery = viewPage ? `?view=${encodeURIComponent(view)}` : '';
+  const categoryTitle = await shareCategoryTitle(product, viewPage);
   const origin = requestOrigin(req);
-  const pageUrl = `${origin}/share/products/${encodeURIComponent(product.id)}`;
+  const pageUrl = `${origin}/share/products/${encodeURIComponent(product.id)}${viewQuery}`;
   const preview = sharePreviewImage(productShareImagePath(product), origin);
   const imageUrl = preview.url;
-  const mrp = shareRupees(product.mrp);
-  const store = storefrontUrl(req);
-  const storeLink = store ? `${store}/#/products/${encodeURIComponent(product.id)}` : '';
-  const description = String(product.description || '').trim();
+  // One price, as in the app's share: the Cabinet Price only when shared from
+  // the Cabinet page (and the product has one), otherwise MRP. Never the
+  // dealer or purchase price.
+  const cabinetPrice = viewPage && view === 'cabinet' ? shareRupees(product.cabinet_price) : '';
+  const priceLabel = cabinetPrice ? 'Cabinet Price' : 'MRP';
+  const mrp = cabinetPrice || shareRupees(product.mrp);
+  // Shared text never names a supplier/distributor (same rules as the app).
+  const description = cleanShareText(product.description);
   const summary = [
-    mrp && `MRP ${mrp}`,
+    mrp && `${priceLabel} ${mrp}`,
     product.brand && `Brand: ${product.brand}`,
-    product.category_title && `Category: ${product.category_title}`,
+    categoryTitle && `Category: ${categoryTitle}`,
     product.sku && `SKU: ${product.sku}`,
   ].filter(Boolean).join(' · ');
   const ogDescription = [summary, description].filter(Boolean).join(' — ').slice(0, 280);
@@ -2380,7 +2410,7 @@ app.get(['/share/products/:id', '/share/products/:id/'], async (req, res) => {
 <link rel="canonical" href="${e(pageUrl)}">
 <meta property="og:type" content="product">
 <meta property="og:site_name" content="RO Wholesale">
-<meta property="og:title" content="${e(product.name)}${mrp ? ` — MRP ${e(mrp)}` : ''}">
+<meta property="og:title" content="${e(product.name)}${mrp ? ` — ${priceLabel} ${e(mrp)}` : ''}">
 <meta property="og:description" content="${e(ogDescription)}">
 <meta property="og:url" content="${e(pageUrl)}">
 <meta property="og:image" content="${e(imageUrl)}">
@@ -2409,25 +2439,23 @@ ${preview.width && preview.height ? `<meta property="og:image:width" content="${
   dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 16px 0; font-size: 14px; }
   dt { color: #64748B; } dd { margin: 0; font-weight: 600; word-break: break-word; }
   p.desc { color: #334155; line-height: 1.55; white-space: pre-line; }
-  a.cta { display: block; text-align: center; background: #0F62FE; color: #fff; font-weight: 700; text-decoration: none; padding: 14px; border-radius: 12px; margin-top: 18px; }
   footer { text-align: center; color: #64748B; font-size: 12px; margin-top: 18px; }
 </style>
 </head>
 <body>
 <main>
   <article class="card">
-    <div class="photo"><img src="${e(imageUrl)}" alt="${e(product.name)}" onerror="this.onerror=null;this.src='${e(origin)}/purifier.jpg'"></div>
+    <div class="photo"><img src="${e(imageUrl)}" alt="${e(product.name)}" onerror="this.onerror=null;this.src='${SHARE_PLACEHOLDER_SVG}'"></div>
     <div class="body">
       ${product.brand ? `<div class="brand">${e(product.brand)}</div>` : ''}
       <h1>${e(product.name)}</h1>
-      ${mrp ? `<p class="mrp"><small>MRP</small>${e(mrp)}</p>` : ''}
+      ${mrp ? `<p class="mrp"><small>${priceLabel}</small>${e(mrp)}</p>` : ''}
       <dl>
         ${product.sku ? `<dt>SKU</dt><dd>${e(product.sku)}</dd>` : ''}
-        ${product.category_title ? `<dt>Category</dt><dd>${e(product.category_title)}</dd>` : ''}
+        ${categoryTitle ? `<dt>Category</dt><dd>${e(categoryTitle)}</dd>` : ''}
         ${product.brand ? `<dt>Brand</dt><dd>${e(product.brand)}</dd>` : ''}
       </dl>
       ${description ? `<p class="desc">${e(description)}</p>` : ''}
-      ${storeLink ? `<a class="cta" href="${e(storeLink)}">View product in store</a>` : ''}
     </div>
   </article>
   <footer>RO Wholesale · Dealer prices are available after signing in.</footer>

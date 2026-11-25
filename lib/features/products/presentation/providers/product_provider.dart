@@ -331,8 +331,8 @@ final filteredProductsProvider = Provider<List<ProductModel>>((ref) {
 
 /// The products a listing page shows for [filterState]: search, category,
 /// price, stock and brand filters, then the sort. Shared by the listing
-/// pages and the Home Best Sellers slider (which shows the Cabinet category
-/// exactly as its category page does).
+/// pages and the Home Best Sellers slider (which shows the RO Systems
+/// category exactly as its category page does).
 List<ProductModel> listingProducts(
   List<ProductModel> allProducts,
   List<CategoryModel> categories,
@@ -397,21 +397,23 @@ List<ProductModel> listingProducts(
     return true;
   }).toList();
 
-  // Sort
+  // Sort (stable: equal products keep the catalogue order, the same on
+  // every platform and after every refresh).
   switch (filterState.sortOption) {
     case SortOption.priceLowToHigh:
-      filtered.sort((a, b) => price(a).compareTo(price(b)));
+      _stableSort(filtered, (a, b) => price(a).compareTo(price(b)));
       break;
     case SortOption.priceHighToLow:
-      filtered.sort((a, b) => price(b).compareTo(price(a)));
+      _stableSort(filtered, (a, b) => price(b).compareTo(price(a)));
       break;
     case SortOption.discountHighToLow:
-      filtered.sort(
+      _stableSort(
+        filtered,
         (a, b) => b.discountPercentage.compareTo(a.discountPercentage),
       );
       break;
     case SortOption.popularity:
-      filtered.sort((a, b) => b.rating.compareTo(a.rating));
+      _stableSort(filtered, (a, b) => b.rating.compareTo(a.rating));
       break;
     case SortOption.newest:
       filtered = ProductModel.newestFirst(filtered);
@@ -429,16 +431,35 @@ List<ProductModel> listingProducts(
   return filtered;
 }
 
-/// The Cabinet category page's products in its default order (Popularity),
-/// recomputed from the latest catalogue; empty when there is no Cabinet
-/// category. Used by the Home Best Sellers slider.
-final cabinetCategoryProductsProvider = Provider<List<ProductModel>>((ref) {
+/// Sorts [list] in place by [compare]; products that compare equal keep their
+/// existing (catalogue) order. `List.sort` alone may reorder them on lists
+/// longer than 32, differently on the web and on Android.
+void _stableSort(
+  List<ProductModel> list,
+  int Function(ProductModel a, ProductModel b) compare,
+) {
+  final indexed = [for (var i = 0; i < list.length; i++) (i, list[i])];
+  indexed.sort((a, b) {
+    final byValue = compare(a.$2, b.$2);
+    return byValue != 0 ? byValue : a.$1.compareTo(b.$1);
+  });
+  for (var i = 0; i < indexed.length; i++) {
+    list[i] = indexed[i].$2;
+  }
+}
+
+/// Home Best Sellers: exactly the RO Systems category page's list in its
+/// default order (Popularity), the same [listingProducts] call that page
+/// makes: its own products and the cross-listed Cabinet products, nothing
+/// selected separately. Recomputed from the latest catalogue; empty when
+/// there is no RO Systems category.
+final roSystemsBestSellersProvider = Provider<List<ProductModel>>((ref) {
   final categories = ref.watch(categoriesProvider);
-  final cabinet = categories.where(isCabinetCategory);
-  if (cabinet.isEmpty) return const [];
+  final roSystems = categories.where(isRoSystemsCategory);
+  if (roSystems.isEmpty) return const [];
   return listingProducts(
     ref.watch(allProductsProvider),
     categories,
-    ProductFilterState(selectedCategoryId: cabinet.first.id),
+    ProductFilterState(selectedCategoryId: roSystems.first.id),
   );
 });

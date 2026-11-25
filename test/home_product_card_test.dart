@@ -72,4 +72,32 @@ void main() {
       }
     });
   }
+
+  testWidgets('Best Sellers format: Dealer Price + MRP, never the Cabinet Price', (tester) async {
+    final withCabinetPrice = ProductModel.fromJson({
+      'id': 'cab', 'name': 'Cabinet', 'sku': 'CAB-1', 'price': 4650, 'mrp': 13500,
+      'cabinet_price': 1700, 'moq': 1,
+    });
+    Future<void> pump(bool showCabinetPrice) => tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: HomeProductCard.extentFor(300),
+              child: HomeProductCard(
+                product: withCabinetPrice,
+                onTap: () {},
+                onAddToCart: () {},
+                showCabinetPrice: showCabinetPrice,
+              ),
+            ),
+          ),
+        ));
+    await pump(false);
+    expect(find.text('₹4,650'), findsOneWidget);
+    expect(find.text('₹13,500'), findsOneWidget);
+    expect(find.textContaining('Cabinet Price'), findsNothing);
+    await pump(true);
+    expect(find.text('Cabinet Price: ₹1,700'), findsOneWidget, reason: 'other sections unchanged');
+  });
 }
+
