@@ -70,8 +70,16 @@ let server;
 let token;
 const uploadsBefore = new Set();
 let uploadsDir;
+// Cleanup removes only files created during this test. The list of files that
+// were already there is taken FIRST, so a setup failure can never make the
+// cleanup delete existing (tracked) uploads.
+let uploadsRecorded = false;
 
 test.before(async () => {
+  for (const dir of [path.join(root, 'web_preview', 'uploads'), path.join(root, 'uploads')]) {
+    if (fs.existsSync(dir)) { uploadsDir = uploadsDir || dir; for (const f of fs.readdirSync(dir)) uploadsBefore.add(path.join(dir, f)); }
+  }
+  uploadsRecorded = true;
   process.env.PORT = '0';
   process.env.ADMIN_EMAIL = 'admin@test.local';
   process.env.ADMIN_PASSWORD = 'test-password';
@@ -87,14 +95,12 @@ test.before(async () => {
   const login = await fetch(`${base}/api/admin/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'admin@test.local', password: 'test-password' }) });
   token = (await login.json()).token;
   assert.ok(token, 'admin login');
-  for (const dir of [path.join(root, 'web_preview', 'uploads'), path.join(root, 'uploads')]) {
-    if (fs.existsSync(dir)) { uploadsDir = uploadsDir || dir; for (const f of fs.readdirSync(dir)) uploadsBefore.add(path.join(dir, f)); }
-  }
 });
 
 test.after(async () => {
-  // Remove only the image files this test wrote.
-  for (const dir of [path.join(root, 'web_preview', 'uploads'), path.join(root, 'uploads')]) {
+  // Remove only the image files this test wrote (never anything if the list of
+  // existing files was not recorded).
+  for (const dir of uploadsRecorded ? [path.join(root, 'web_preview', 'uploads'), path.join(root, 'uploads')] : []) {
     if (!fs.existsSync(dir)) continue;
     for (const f of fs.readdirSync(dir)) {
       const full = path.join(dir, f);

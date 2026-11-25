@@ -301,7 +301,7 @@ async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, 
   const outbox = [];
   const dbPath = require.resolve(path.join(root, 'db.js'));
   const realDb = require(dbPath);
-  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { ...realDb, pool, testConnection: async () => true } };
+  require.cache[dbPath] = { id: dbPath, filename: dbPath, loaded: true, exports: { ...realDb, pool, testConnection: async () => true, connectionTarget: () => ({ remote: false }) } };
   const emailPath = require.resolve(path.join(root, 'email_provider.js'));
   const realEmail = require(emailPath);
   require.cache[emailPath] = {

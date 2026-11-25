@@ -212,9 +212,21 @@ async function testConnection() {
   }
 }
 
+/**
+ * Whether this pool connects to a remote database (anything other than this
+ * computer). server.js uses it to refuse starting on a developer computer
+ * against the remote Production database by accident. Never returns the host.
+ */
+function connectionTarget() {
+  const host = String(pgPool.options.host || '').trim().toLowerCase();
+  const local = !host || host === 'localhost' || host === '127.0.0.1' || host === '::1' || host.startsWith('/');
+  return { remote: !local };
+}
+
 module.exports = {
   pool,
   testConnection,
+  connectionTarget,
   toPostgresPlaceholders,
   adaptResult,
   normalizeDatabaseError,

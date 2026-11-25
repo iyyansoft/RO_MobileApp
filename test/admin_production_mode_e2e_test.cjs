@@ -241,3 +241,43 @@ test('an unidentified local server: banner says so and saving is disabled', { sk
   assert.equal(staticPuts.length, before, 'nothing was sent');
   await page.close();
 });
+
+test('unreleased local Admin UI: warning banner, save refused by the page AND by the proxy', { skip }, async () => {
+  const id = await product();
+  const before = await row(id);
+  // Target: the fake Production API, but a different deployed /admin page.
+  const target = http.createServer(async (req, res) => {
+    if (req.url.startsWith('/admin')) { res.writeHead(200, { 'content-type': 'text/html' }); return res.end('<html><head></head><body>older deployed admin</body></html>'); }
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const up = await fetch(`http://127.0.0.1:${fake.port}${req.url}`, { method: req.method, headers: Object.fromEntries(Object.entries(req.headers).filter(([k]) => ['content-type', 'authorization'].includes(k))), body: chunks.length ? Buffer.concat(chunks) : undefined });
+    res.writeHead(up.status, { 'content-type': up.headers.get('content-type') || 'application/json' });
+    res.end(Buffer.from(await up.arrayBuffer()));
+  });
+  await new Promise(r => target.listen(0, '127.0.0.1', r));
+  const blockedProxy = await startAdminProduction({ port: 0, target: `http://127.0.0.1:${target.address().port}`, quiet: true, uiCheckTimeoutMs: 2000 });
+  try {
+    const page = await openAdmin(`http://127.0.0.1:${blockedProxy.port}/admin`);
+    const banner = await page.evaluate(() => document.getElementById('adminEnvBanner').textContent);
+    assert.match(banner, /^⚠ LOCAL UNRELEASED ADMIN UI — This local Admin page differs from the deployed Production Admin/);
+    assert.match(banner, /Saving to Test target is disabled\.$/);
+    await editProduct(page, id, 'Unreleased UI edit');
+    await submit(page);
+    const s = await finalStatus(page);
+    assert.equal(s.state, 'failed');
+    assert.match(s.text, /^Saving is disabled\. This local Admin page differs/);
+    // Even if the page's own check were bypassed, the proxy refuses the write.
+    const direct = await page.evaluate(async (pid) => {
+      const r = await adminFetch(`/api/admin/products/${encodeURIComponent(pid)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'x', sku: 'E2E-01', desc: 'bypass' }) });
+      return { status: r.status, body: await r.json() };
+    }, id);
+    assert.equal(direct.status, 423);
+    assert.equal(direct.body.writesBlocked, true);
+    assert.deepEqual(await row(id), before, 'nothing changed');
+    await page.close();
+  } finally {
+    await blockedProxy.close();
+    target.closeAllConnections();
+    await new Promise(r => target.close(r));
+  }
+});

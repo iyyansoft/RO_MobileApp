@@ -19,6 +19,12 @@
 //    The admin password goes only to Render's own login endpoint.
 //  - Writes are never retried. If Render does not answer, the Admin Panel is
 //    told the outcome is unknown and reads the data back to find out.
+//  - Unreleased Admin UI is never used on Production data: the local
+//    admin.html is compared with the one the deployed backend serves at
+//    /admin. If they differ (or the comparison cannot be made), the page says
+//    so and every save is refused HERE (423), before it reaches Production.
+//    Sign-in and reading still work. Deploy the reviewed change, or use the
+//    Production Admin on Render directly.
 'use strict';
 const http = require('node:http');
 const fs = require('node:fs');
@@ -44,8 +50,47 @@ function adminEnvironment(target) {
   return { mode: 'production', realProduction, target };
 }
 
-function adminPage(target) {
-  const env = JSON.stringify(adminEnvironment(target)).replace(/</g, '\\u003c');
+// Admin UI check: local admin.html vs the deployed one. Line endings and an
+// injected environment label are ignored; anything else counts as different.
+const UI_CHECK_TTL_MS = 30 * 1000;
+const UI_CHECK_TIMEOUT_MS = 60 * 1000;
+const WRITE_ALLOWED_WHEN_BLOCKED = new Set(['/api/admin/login', '/api/admin/logout']);
+function comparableAdminHtml(html) {
+  return String(html)
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n?<script>window\.__ADMIN_ENV = [^<]*<\/script>/g, '');
+}
+
+function createUiCheck(target, timeoutMs = UI_CHECK_TIMEOUT_MS) {
+  let cached = null;
+  let pending = null;
+  const run = async () => {
+    try {
+      const res = await fetch(`${target}/admin`, { headers: { 'user-agent': 'neeroplus-local-admin' }, signal: AbortSignal.timeout(timeoutMs) });
+      if (!res.ok) return { state: 'unknown', at: Date.now() };
+      const deployed = comparableAdminHtml(await res.text());
+      const local = comparableAdminHtml(fs.readFileSync(ADMIN_HTML, 'utf8'));
+      return { state: deployed === local ? 'match' : 'differs', at: Date.now() };
+    } catch (_) {
+      return { state: 'unknown', at: Date.now() };
+    }
+  };
+  return async () => {
+    if (cached && Date.now() - cached.at < UI_CHECK_TTL_MS) return cached;
+    pending = pending || run().then(result => { cached = result; pending = null; return result; });
+    return pending;
+  };
+}
+
+function uiBlockedReason(state) {
+  if (state === 'match') return null;
+  return state === 'differs'
+    ? 'This local Admin page differs from the deployed Production Admin (unreleased local changes).'
+    : 'Could not confirm that this local Admin page matches the deployed Production Admin.';
+}
+
+function adminPage(target, uiState) {
+  const env = JSON.stringify({ ...adminEnvironment(target), uiCheck: uiState, writesBlocked: uiBlockedReason(uiState) }).replace(/</g, '\\u003c');
   return fs.readFileSync(ADMIN_HTML, 'utf8').replace('<head>', `<head>\n<script>window.__ADMIN_ENV = ${env};</script>`);
 }
 
@@ -110,6 +155,7 @@ async function forward(req, res, target, { timeoutMs = UPSTREAM_TIMEOUT_MS } = {
 }
 
 function createHandler(target, options = {}) {
+  const uiCheck = createUiCheck(target, options.uiCheckTimeoutMs);
   return async (req, res) => {
     try {
       const pathname = new URL(req.url, 'http://local').pathname;
@@ -118,8 +164,16 @@ function createHandler(target, options = {}) {
         return res.end();
       }
       if ((pathname === '/admin' || pathname.startsWith('/admin/')) && SAFE_METHODS.has(req.method)) {
+        const { state } = await uiCheck();
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        return res.end(req.method === 'HEAD' ? undefined : adminPage(target));
+        return res.end(req.method === 'HEAD' ? undefined : adminPage(target, state));
+      }
+      if (pathname.startsWith('/api/') && !SAFE_METHODS.has(req.method) && !WRITE_ALLOWED_WHEN_BLOCKED.has(pathname)) {
+        const blocked = uiBlockedReason((await uiCheck()).state);
+        if (blocked) {
+          req.resume();
+          return sendJson(res, 423, { success: false, writesBlocked: true, error: `Saving is blocked. ${blocked} Nothing was sent to Production. Deploy the reviewed change first, or use the Production Admin on Render.` });
+        }
       }
       if (pathname.startsWith('/api/')) return await forward(req, res, target, options);
       if (SAFE_METHODS.has(req.method)) return await forward(req, res, target, options);
@@ -131,9 +185,9 @@ function createHandler(target, options = {}) {
   };
 }
 
-async function startAdminProduction({ port = 8110, target = PRODUCTION_ORIGIN, quiet = false, timeoutMs } = {}) {
+async function startAdminProduction({ port = 8110, target = PRODUCTION_ORIGIN, quiet = false, timeoutMs, uiCheckTimeoutMs } = {}) {
   const origin = normaliseTarget(target);
-  const server = http.createServer(createHandler(origin, timeoutMs ? { timeoutMs } : {}));
+  const server = http.createServer(createHandler(origin, { ...(timeoutMs ? { timeoutMs } : {}), ...(uiCheckTimeoutMs ? { uiCheckTimeoutMs } : {}) }));
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', resolve);

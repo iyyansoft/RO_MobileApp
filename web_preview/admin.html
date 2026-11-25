@@ -1858,6 +1858,7 @@
     .admin-env-banner.production { background: #B91C1C; }
     .admin-env-banner.local-test { background: #B45309; }
     .admin-env-banner.test-target { background: #6D28D9; }
+    .admin-env-banner.ui-blocked { background: #111827; color: #FDE68A; }
     body.has-env-banner { padding-top: 30px; }
     body.has-env-banner .sidebar { top: 30px; height: calc(100vh - 30px); }
     /* Result of the last save, kept on screen until the next one. */
@@ -3231,6 +3232,9 @@
       if (injected && injected.mode === 'production') {
         const real = injected.realProduction === true;
         Object.assign(ADMIN_ENV, { mode: 'production', realProduction: real, target: String(injected.target || ''), name: real ? 'Production' : 'Test target' });
+        // Local Production Admin: this page differs from the deployed one (or
+        // that could not be checked). The proxy refuses every save; say so here.
+        if (injected.writesBlocked) ADMIN_ENV.writesBlocked = String(injected.writesBlocked);
       } else if (injected && injected.mode === 'local-test') {
         Object.assign(ADMIN_ENV, { mode: 'local-test', name: 'LOCAL TEST COPY' });
       } else if (!local) {
@@ -3248,7 +3252,10 @@
       const banner = document.getElementById('adminEnvBanner');
       document.body.classList.add('has-env-banner');
       banner.className = 'admin-env-banner';
-      if (ADMIN_ENV.mode === 'production' && ADMIN_ENV.realProduction) {
+      if (ADMIN_ENV.mode === 'production' && ADMIN_ENV.writesBlocked) {
+        banner.classList.add('ui-blocked');
+        banner.textContent = `⚠ LOCAL UNRELEASED ADMIN UI — ${ADMIN_ENV.writesBlocked} Saving to ${ADMIN_ENV.realProduction ? 'Production' : ADMIN_ENV.name} is disabled.`;
+      } else if (ADMIN_ENV.mode === 'production' && ADMIN_ENV.realProduction) {
         banner.classList.add('production');
         banner.textContent = '● PRODUCTION — every save goes to the live database and appears in the Web and Android apps';
       } else if (ADMIN_ENV.mode === 'production') {
@@ -3316,6 +3323,10 @@
       if (ADMIN_ENV.mode !== 'production' && ADMIN_ENV.mode !== 'local-test') {
         setWriteStatus('failed', 'Saving is disabled: this Admin Panel is not connected to Production or to the local test copy. Changes were not saved.');
         return { ok: false };
+      }
+      if (ADMIN_ENV.writesBlocked) {
+        setWriteStatus('failed', `Saving is disabled. ${ADMIN_ENV.writesBlocked} Changes were not saved. Deploy the reviewed change first, or use the Production Admin on Render.`);
+        return { ok: false, blocked: true };
       }
       if (adminWriteInFlight) {
         setWriteStatus('warning', 'Another save is still in progress. Wait for it to finish.');

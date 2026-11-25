@@ -29,7 +29,21 @@ const sendTransactionalEmail = createEmailSender({
 });
 
 // Supabase PostgreSQL connection pool
-const { pool, testConnection } = require('./db');
+const { pool, testConnection, connectionTarget } = require('./db');
+
+// Never run this backend from a developer computer against the remote
+// (Production) database by accident: local code that is not reviewed or
+// deployed would write to live data. Render sets RENDER=true and
+// RENDER_SERVICE_ID on every service (either one is enough). Anywhere else a
+// remote database needs ALLOW_LOCAL_PRODUCTION_DB=yes. (Test doubles and the
+// in-memory local sandbox are not remote.)
+const runningOnRender = Boolean(String(process.env.RENDER || '').trim() || String(process.env.RENDER_SERVICE_ID || '').trim());
+const databaseTarget = typeof connectionTarget === 'function' ? connectionTarget() : null;
+if (databaseTarget && databaseTarget.remote && !runningOnRender && process.env.ALLOW_LOCAL_PRODUCTION_DB !== 'yes') {
+  throw new Error('Refusing to start: this backend is not running on Render but is configured for a remote (Production) database. '
+    + 'For local work use the local test copy (node scripts/local_sandbox.cjs) or the Local Production Admin (node scripts/admin_production.cjs). '
+    + 'Only if you really intend to run this local code against the remote database, set ALLOW_LOCAL_PRODUCTION_DB=yes.');
+}
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -99,14 +113,20 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 // own cart, orders, invoices, addresses, rewards and profile.
 app.use(DEALER_DATA_ROUTES, requireDealerSession(SESSION_SECRET));
 
-// Readiness endpoint used by Railway and deployment smoke tests. It exposes no
-// database details and performs only a read-only query.
+// Readiness endpoint used by deployment checks. It exposes no database details
+// and performs only a read-only query. `commit` is the Git commit Render built
+// this server from (RENDER_GIT_COMMIT, set by Render; the repository is public),
+// so every deployment can be verified; null when not running on Render.
+const DEPLOYED_COMMIT = /^[0-9a-f]{7,40}$/i.test(String(process.env.RENDER_GIT_COMMIT || '').trim())
+  ? String(process.env.RENDER_GIT_COMMIT).trim().toLowerCase()
+  : null;
 app.get('/health', async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
   try {
     await pool.query('SELECT 1 AS ok');
-    return res.status(200).json({ status: 'ok' });
+    return res.status(200).json({ status: 'ok', commit: DEPLOYED_COMMIT });
   } catch (_error) {
-    return res.status(503).json({ status: 'unavailable' });
+    return res.status(503).json({ status: 'unavailable', commit: DEPLOYED_COMMIT });
   }
 });
 
