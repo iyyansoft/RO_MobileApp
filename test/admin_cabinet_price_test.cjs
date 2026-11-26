@@ -58,7 +58,7 @@ test('other categories: no Cabinet Price required, and none stored even if sent'
   assert.equal((await listed('NONCAB-1')).cabinet_price, null);
 });
 
-test('editing: saved Cabinet Price is kept/changed; leaving Cabinet clears it', async () => {
+test('editing: saved Cabinet Price is kept/changed; leaving Cabinet keeps it (hidden), never deleted', async () => {
   const id = (await row('CABT-1')).id;
   const base = { name: 'Cab A', sku: 'CABT-1', price: '', purchase_price: '', mrp: '', brand: '' };
   assert.equal((await admin('PUT', `/api/admin/products/${id}`, { ...base, category: 'cabinets', cabinet_price: '' })).status, 200);
@@ -68,15 +68,23 @@ test('editing: saved Cabinet Price is kept/changed; leaving Cabinet clears it', 
   assert.equal((await admin('PUT', `/api/admin/products/${id}`, { ...base, category: 'cabinets', cabinet_price: '980' })).status, 200);
   r = await row('CABT-1');
   assert.deepEqual([Number(r.cabinet_price), Number(r.price), Number(r.purchase_price), Number(r.mrp)], [980, 1100, 700, 1500]);
-  // Moved to another category: Cabinet Price cleared, prices unchanged.
-  assert.equal((await admin('PUT', `/api/admin/products/${id}`, { ...base, category: 'spares', cabinet_price: '980' })).status, 200);
+  // Moved to another category: the saved Cabinet Price is preserved exactly
+  // (a value sent for it is ignored), other prices unchanged, and dealers do
+  // not see it outside the Cabinet category.
+  assert.equal((await admin('PUT', `/api/admin/products/${id}`, { ...base, category: 'filters', cabinet_price: '' })).status, 200);
   r = await row('CABT-1');
-  assert.equal(r.cabinet_price, null);
-  assert.equal(Number(r.price), 1100);
-  // Back to Cabinet: it must be entered again.
-  const back = await admin('PUT', `/api/admin/products/${id}`, { ...base, category: 'cabinets' });
-  assert.equal(back.status, 400);
-  assert.match(back.body.error, /Cabinet Price is required/);
+  assert.equal(r.category_key, 'filters');
+  assert.equal(Number(r.cabinet_price), 980, 'kept when the Admin form sends it blank');
+  assert.equal((await admin('PUT', `/api/admin/products/${id}`, { ...base, category: 'filters', cabinet_price: '1' })).status, 200);
+  r = await row('CABT-1');
+  assert.equal(Number(r.cabinet_price), 980, 'not overwritten outside Cabinet');
+  assert.deepEqual([Number(r.price), Number(r.purchase_price), Number(r.mrp)], [1100, 700, 1500]);
+  assert.equal((await listed('CABT-1')).cabinet_price, 980, 'Admin still shows the saved value');
+  const pub = (await (await fetch(`http://localhost:${sandbox.port}/api/products`)).json()).products.find(p => p.sku === 'CABT-1');
+  assert.equal(pub.cabinet_price, null, 'not shown to dealers outside Cabinet');
+  // Back to Cabinet: the preserved Cabinet Price applies again (blank keeps it).
+  assert.equal((await admin('PUT', `/api/admin/products/${id}`, { ...base, category: 'cabinets' })).status, 200);
+  assert.equal(Number((await row('CABT-1')).cabinet_price), 980);
 });
 
 test('dealer catalog (/api/products) returns Cabinet Price for Cabinet products only, and admin changes show on the next read', async () => {

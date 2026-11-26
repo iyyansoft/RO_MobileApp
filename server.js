@@ -2951,7 +2951,13 @@ app.put('/api/admin/products/:id', requireAdminAuth, async (req, res) => {
     // Cabinet Price: required for Cabinet (blank keeps the saved one); moving the
     // product to another category clears it.
     const savedCabinetPrice = databaseProduct.cabinet_price == null ? null : Number(databaseProduct.cabinet_price);
-    const cabinetPrice = cabinetPriceFor(isCabinetCategory(categoryRow.id, categoryRow.key_name), req.body.cabinet_price ?? req.body.cabinetPrice, savedCabinetPrice);
+    // Cabinet products: required (blank keeps the saved one). Any other
+    // category: the saved Cabinet Price is kept exactly as it is (never
+    // deleted or overwritten); it is shown only on the Cabinet page, so it
+    // applies again if the product returns to Cabinet.
+    const cabinetPrice = isCabinetCategory(categoryRow.id, categoryRow.key_name)
+      ? cabinetPriceFor(true, req.body.cabinet_price ?? req.body.cabinetPrice, savedCabinetPrice)
+      : { value: savedCabinetPrice };
     if (cabinetPrice.error) return res.status(400).json({ success: false, error: cabinetPrice.error });
     const withCabinetColumn = await hasCabinetPriceColumn();
     if (cabinetPrice.value !== null && !withCabinetColumn) return res.status(503).json({ success: false, error: CABINET_PRICE_NO_COLUMN });
