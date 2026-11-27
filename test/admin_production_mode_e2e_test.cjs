@@ -218,6 +218,12 @@ test('real Production wording (no request leaves this computer)', { skip }, asyn
   const page = await openAdmin(`${staticBase}/admin`, { env });
   const banner = await page.evaluate(() => document.getElementById('adminEnvBanner').textContent);
   assert.equal(banner, '● PRODUCTION — every save goes to the live database and appears in the Web and Android apps');
+  // Hidden on the login page, shown again after sign-in.
+  const shown = () => page.evaluate(() => getComputedStyle(document.getElementById('adminEnvBanner')).display !== 'none');
+  await page.evaluate(() => showAdminLoginScreen());
+  assert.equal(await shown(), false, 'no Production banner on the login page');
+  await page.evaluate(() => hideAdminLoginScreen());
+  assert.equal(await shown(), true, 'Production banner after sign-in');
   await page.evaluate(() => adminWrite({ method: 'PUT', url: '/api/admin/products/fail', body: {}, verify: async () => ({ ok: true }) }));
   let s = await finalStatus(page);
   assert.equal(s.text, 'Production save failed. Changes were not saved.\ndatabase is unavailable.');

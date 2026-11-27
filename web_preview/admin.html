@@ -1856,6 +1856,8 @@
       color: #fff; background: #475569; letter-spacing: 0.01em;
     }
     .admin-env-banner.production { background: #B91C1C; }
+    /* Login page: no Production banner (it is shown again after sign-in). */
+    body.on-login .admin-env-banner.production { display: none; }
     .admin-env-banner.local-test { background: #B45309; }
     .admin-env-banner.test-target { background: #6D28D9; }
     .admin-env-banner.ui-blocked { background: #111827; color: #FDE68A; }
@@ -1878,7 +1880,7 @@
     }
   </style>
 </head>
-<body>
+<body class="on-login">
   <div id="adminEnvBanner" class="admin-env-banner" role="status">Checking where changes are saved…</div>
   <div id="writeStatus" class="write-status" role="alert" aria-live="assertive"><span id="writeStatusText"></span><button type="button" aria-label="Close" onclick="hideWriteStatus()">×</button></div>
 
@@ -3445,6 +3447,7 @@
       const sidebar = document.getElementById('sidebar');
       const mainWrapper = document.querySelector('.main-wrapper');
 
+      document.body.classList.add('on-login');
       if (loginScreen) loginScreen.style.display = 'flex';
       if (sidebar) sidebar.style.display = 'none';
       if (mainWrapper) mainWrapper.style.display = 'none';
@@ -3455,6 +3458,7 @@
       const sidebar = document.getElementById('sidebar');
       const mainWrapper = document.querySelector('.main-wrapper');
 
+      document.body.classList.remove('on-login');
       if (loginScreen) loginScreen.style.display = 'none';
       if (sidebar) sidebar.style.display = 'flex';
       if (mainWrapper) mainWrapper.style.display = 'flex';
