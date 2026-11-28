@@ -21,6 +21,16 @@
 //       --pdf-import also applies the prepared PDF catalogue import (memory only).
 //   --storage-browse (any mode): keep SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY so the
 //       Admin "Choose from Supabase" picker can list Storage pictures (list only).
+//   --data-dir=<folder> (any mode): keep this sandbox's database on disk in
+//       <folder> (use a git-ignored one, e.g. backups/sandbox_db/8106), so local
+//       orders, rewards and Admin changes survive a restart. The first start fills
+//       it as usual and writes <folder>/sandbox_ready.json; every later start opens
+//       that database as it is: no schema, no snapshot, no Production read at all.
+//       A non-empty folder without sandbox_ready.json is refused and left untouched.
+//   --seed-from=<backup.json> (with a new --data-dir): fill the new database from
+//       a sandbox backup (sandbox_8106_full.json format) instead of Production.
+//       Every table's row count and fingerprint must match the backup exactly, or
+//       the start fails and the folder is not marked ready.
 //
 // Sandbox-only endpoints (only exist in this process):
 //   GET  /__sandbox/outbox       captured emails (OTP codes etc.)
@@ -165,12 +175,35 @@ async function readLiveSnapshot() {
       if (SNAPSHOT_SKIP.has(name)) continue;
       tables[name] = (await client.query({ text: `SELECT * FROM public."${name.replace(/"/g, '""')}"`, types })).rows;
     }
+    // What this Local Admin starts from, as exact text, from the same snapshot.
+    // scripts/data-migrations/capture.cjs uses it so that only fields changed
+    // here are captured (a stale local value never undoes a newer Production one).
+    const base = {};
+    for (const name of ['products', 'categories']) {
+      if (!names.includes(name)) continue;
+      const columns = (await client.query(`SELECT attname FROM pg_attribute WHERE attrelid = 'public.${name}'::regclass AND attnum > 0 AND NOT attisdropped ORDER BY attnum`)).rows.map(r => r.attname);
+      base[name] = { columns, rows: (await client.query(`SELECT ${columns.map(c => `"${c}"::text AS "${c}"`).join(', ')} FROM public.${name} ORDER BY id`)).rows };
+    }
     await client.query('ROLLBACK');
+    saveSandboxBase(base);
   } finally {
     client.release();
     await live.end();
   }
   return tables;
+}
+
+/** backups/sandbox_base/<time>/base_*.json (git-ignored) + LATEST.txt. */
+function saveSandboxBase(base) {
+  if (!base.products || !base.categories) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dir = path.join(root, 'backups', 'sandbox_base', stamp);
+  fs.mkdirSync(dir, { recursive: true });
+  const takenAt = new Date().toISOString();
+  for (const name of ['products', 'categories']) {
+    fs.writeFileSync(path.join(dir, `base_${name}.json`), JSON.stringify({ takenAt, ...base[name] }));
+  }
+  fs.writeFileSync(path.join(root, 'backups', 'sandbox_base', 'LATEST.txt'), `${stamp}\n`);
 }
 
 /** After the snapshot nothing in this process may open a connection to a real database. */
@@ -214,6 +247,192 @@ async function loadSnapshot(db, tables) {
   return loaded;
 }
 
+// Local Admin look, added only by this sandbox process to the page it serves
+// (web_preview/admin.html, server.js, Render and the 8110 Production Admin are
+// unchanged): no full-width orange banner; a small LOCAL badge in the header
+// after sign-in and "LOCAL ·" in the tab title (nothing on the sign-in card).
+const LOCAL_ADMIN_LOOK = `<style id="sandbox-local-admin">
+  .admin-env-banner.local-test { display: none !important; }
+  body.has-env-banner { padding-top: 0 !important; }
+  body.has-env-banner .sidebar { top: 0 !important; height: 100vh !important; }
+  .sandbox-local-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px;
+    background: #FEF3C7; color: #92400E; border: 1px solid #F59E0B; font-size: 12px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; }
+</style>
+<script id="sandbox-local-admin-badge">
+  document.addEventListener('DOMContentLoaded', () => {
+    const badge = text => { const b = document.createElement('span'); b.className = 'sandbox-local-badge'; b.title = 'Local sandbox on this computer: not Production'; b.textContent = text; return b; };
+    document.querySelector('.header-right')?.prepend(badge('LOCAL'));
+    const role = document.querySelector('.admin-profile-pill .role');
+    if (role) role.textContent = 'Local sandbox · not Production';
+    document.title = 'LOCAL · ' + document.title;
+  });
+</script>
+<style id="sandbox-order-thumbs">
+  .order-id-cell { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+  .order-thumb { position: relative; flex: 0 0 48px; width: 48px; height: 48px; }
+  .order-thumb img, .order-thumb .order-thumb-fallback { width: 48px; height: 48px; border-radius: 8px; border: 1px solid #E2E8F0; background: #F8FAFC; display: block; }
+  .order-thumb img { object-fit: cover; }
+  .order-thumb .order-thumb-fallback { display: flex; align-items: center; justify-content: center; color: #94A3B8; font-size: 18px; }
+  .order-thumb-more { position: absolute; right: -6px; bottom: -6px; min-width: 20px; padding: 1px 5px; border-radius: 999px; background: #1E40AF; color: #fff;
+    border: 2px solid #fff; font-size: 10px; font-weight: 700; line-height: 14px; text-align: center; }
+</style>
+<script id="sandbox-order-thumbs-script">
+  // Orders table: the first product's picture left of each Order ID, "+N" for
+  // more products. Uses the image saved on the order line (imgSrc, already in
+  // the /api/admin/orders answer) or, if that is missing, the same product's
+  // picture from the product list the page already loaded. No extra requests.
+  (function () {
+    var usable = function (s) { s = String(s || '').trim(); return /^(https?:\\/\\/|\\/)/i.test(s) ? s : ''; };
+    function thumbSrc(item) {
+      var saved = usable(item && item.imgSrc);
+      if (saved) return saved;
+      var list = typeof allProducts !== 'undefined' && Array.isArray(allProducts) ? allProducts : [];
+      var product = list.find(function (p) { return item && String(p.id) === String(item.id); });
+      return usable(product && product.img);
+    }
+    function fallback(label) {
+      var f = document.createElement('span');
+      f.className = 'order-thumb-fallback';
+      f.setAttribute('role', 'img');
+      f.setAttribute('aria-label', label);
+      f.title = label;
+      f.innerHTML = '<i class="fa-solid fa-box-open" aria-hidden="true"></i>';
+      return f;
+    }
+    function decorate(row, orders) {
+      var cell = row.cells && row.cells[0];
+      var code = cell && cell.querySelector(':scope > code');
+      if (!code || cell.querySelector('.order-id-cell')) return;
+      var order = orders.find(function (o) { return String(o.orderId) === code.textContent.trim(); });
+      if (!order) return;
+      var items = Array.isArray(order.items) ? order.items : [];
+      var first = items[0];
+      var thumb = document.createElement('span');
+      thumb.className = 'order-thumb';
+      var src = thumbSrc(first);
+      var name = (first && first.name) || 'product';
+      if (src) {
+        var img = document.createElement('img');
+        img.width = 48; img.height = 48; img.loading = 'lazy'; img.decoding = 'async';
+        img.alt = 'Product image: ' + name;
+        img.addEventListener('error', function () { img.replaceWith(fallback('No product image: ' + name)); }, { once: true });
+        img.src = src;
+        thumb.appendChild(img);
+      } else {
+        thumb.appendChild(fallback(first ? 'No product image: ' + name : 'No products in this order'));
+      }
+      if (items.length > 1) {
+        var more = document.createElement('span');
+        more.className = 'order-thumb-more';
+        more.textContent = '+' + (items.length - 1);
+        more.title = (items.length - 1) + ' more product(s) in this order';
+        thumb.appendChild(more);
+      }
+      var wrap = document.createElement('div');
+      wrap.className = 'order-id-cell';
+      wrap.appendChild(thumb);
+      wrap.appendChild(code);
+      cell.appendChild(wrap);
+    }
+    function decorateAll(body) {
+      var orders = typeof allOrders !== 'undefined' && Array.isArray(allOrders) ? allOrders : [];
+      Array.prototype.forEach.call(body.rows, function (row) { decorate(row, orders); });
+    }
+    document.addEventListener('DOMContentLoaded', function () {
+      var body = document.getElementById('ordersTableBody');
+      if (!body) return;
+      new MutationObserver(function () { decorateAll(body); }).observe(body, { childList: true });
+      decorateAll(body);
+    });
+  })();
+</script>`;
+
+function localAdminLook(req, res, next) {
+  if (req.method !== 'GET' || !/^\/admin(\/|$)/.test(req.path)) return next();
+  const send = res.send;
+  res.send = function sendWithLocalLook(body) {
+    if (typeof body === 'string' && body.includes('window.__ADMIN_ENV = { mode: "local-test" }')) body = body.replace('</head>', `${LOCAL_ADMIN_LOOK}\n</head>`);
+    return send.call(this, body);
+  };
+  next();
+}
+
+// --data-dir: written only once the database is complete.
+const READY_FILE = 'sandbox_ready.json';
+
+/** null (in memory), { existing: false } (new, empty folder) or { existing: true, info }. */
+function persistentState(dataDir) {
+  if (!dataDir) return null;
+  const ready = path.join(dataDir, READY_FILE);
+  if (fs.existsSync(ready)) return { existing: true, info: JSON.parse(fs.readFileSync(ready, 'utf8')) };
+  if (fs.existsSync(dataDir) && fs.readdirSync(dataDir).length) {
+    throw new Error(`${dataDir} is not empty and has no ${READY_FILE}, so it is not a finished sandbox database. It was left untouched; use an empty folder.`);
+  }
+  return { existing: false };
+}
+
+/** Row count + md5 of every row's text, per table (same as the 8106 backups). */
+async function tableFingerprints(db, names) {
+  const out = {};
+  for (const name of names) {
+    const r = (await db.query(`SELECT count(*)::int AS n, md5(COALESCE(string_agg(x::text, '|' ORDER BY x::text), '')) AS h
+      FROM public."${name.replace(/"/g, '""')}" x`)).rows[0];
+    out[name] = { count: r.n, md5: r.h };
+  }
+  return out;
+}
+
+/** A sandbox backup file: table -> rows (every value as database text) and the expected fingerprints. */
+function readDumpFile(file) {
+  const dump = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (!dump || typeof dump.tables !== 'object') throw new Error(`${file} is not a sandbox backup`);
+  const tables = {};
+  const expected = {};
+  for (const [name, t] of Object.entries(dump.tables)) {
+    // Binary columns (uploaded pictures) are stored as \x... hex text; the
+    // database driver needs them as bytes.
+    const binary = (t.columns || []).filter(c => c.type === 'bytea').map(c => c.name);
+    tables[name] = binary.length
+      ? t.rows.map(row => {
+        const copy = { ...row };
+        for (const c of binary) if (typeof copy[c] === 'string' && copy[c].startsWith('\\x')) copy[c] = Buffer.from(copy[c].slice(2), 'hex');
+        return copy;
+      })
+      : t.rows;
+    expected[name] = { count: t.count, md5: t.md5 };
+  }
+  return { tables, expected, takenAt: dump.takenAt || null };
+}
+
+/** Full copy of a sandbox database in the backup format readDumpFile() reads. */
+async function dumpDatabase(db) {
+  const q = async sql => (await db.query(sql)).rows;
+  const out = { takenAt: new Date().toISOString(), source: `local sandbox (pid ${process.pid})`, tables: {} };
+  out.extensions = (await q('SELECT extname FROM pg_extension ORDER BY 1')).map(r => r.extname);
+  const names = (await q(`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY 1`)).map(r => r.table_name);
+  const prints = await tableFingerprints(db, names);
+  for (const t of names) {
+    const reg = `'public."${t.replace(/"/g, '""')}"'::regclass`;
+    const columns = await q(`SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS notnull
+      FROM pg_attribute a WHERE a.attrelid = ${reg} AND a.attnum > 0 AND NOT a.attisdropped ORDER BY a.attnum`);
+    const constraints = await q(`SELECT conname, contype, pg_get_constraintdef(oid) AS def FROM pg_constraint WHERE conrelid = ${reg} ORDER BY contype, conname`);
+    const rows = await q(`SELECT ${columns.map(c => `"${c.name}"::text AS "${c.name}"`).join(', ')} FROM public."${t}"`);
+    out.tables[t] = { columns, constraints, rows, count: prints[t].count, md5: prints[t].md5 };
+  }
+  return out;
+}
+
+/** Table counts for the start-up message. */
+async function currentCounts(db) {
+  const out = {};
+  for (const t of ['users', 'shop_employees', 'orders', 'order_items', 'user_addresses', 'products', 'rewards_history']) {
+    if ((await db.query('SELECT to_regclass($1) AS t', [`public.${t}`])).rows[0].t) {
+      out[t] = (await db.query(`SELECT count(*)::int AS n FROM public."${t}"`)).rows[0].n;
+    }
+  }
+  return out;
+}
+
 /** Same rule as the Phase 1 migration: with one active shop, existing orders go to it. */
 async function assignOrdersToOnlyShop(db) {
   const exists = (await db.query(`SELECT to_regclass('public.shop_order_assignments') AS t`)).rows[0].t;
@@ -233,39 +452,65 @@ function isolateFromEnvFile(keep = []) {
   for (const key of Object.keys(parsed)) if (!keep.includes(key)) process.env[key] = '';
 }
 
-async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, quiet = false, liveSnapshot = false, snapshotLoader = readLiveSnapshot, pdfImport = false, storageBrowse = false } = {}) {
+async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, quiet = false, liveSnapshot = false, snapshotLoader = readLiveSnapshot, pdfImport = false, storageBrowse = false, dataDir = '', seedFrom = '', localLook = false } = {}) {
   const { PGlite } = require('@electric-sql/pglite');
   const { citext } = require('@electric-sql/pglite/contrib/citext');
   const bcrypt = require('bcryptjs');
-  const db = new PGlite({ extensions: { citext } });
-  await db.exec(read('supabase_migration.sql'));
-  await db.exec(read('shop_app_migration.sql'));
-  if (migrated) for (const file of PHASE1) await db.exec(read(file));
-  else await db.exec('DROP TABLE public.shop_order_assignments');
+  const persist = persistentState(dataDir);
+  if (seedFrom && !persist) throw new Error('--seed-from needs --data-dir (a new, empty folder)');
+  if (seedFrom && persist.existing) throw new Error(`${dataDir} already holds a sandbox database; --seed-from only fills a new, empty folder.`);
+  const kept = persist?.existing === true;
+  // A kept database opens the way it was made; a backup of the 8106 sandbox
+  // holds real accounts, so it runs like --live-snapshot (localhost only).
+  if (kept) liveSnapshot = persist.info.liveSnapshot === true;
+  if (seedFrom) liveSnapshot = true;
+  if (persist && !kept) fs.mkdirSync(dataDir, { recursive: true });
+  const db = new PGlite(persist ? { dataDir: path.join(dataDir, 'pgdata'), extensions: { citext } } : { extensions: { citext } });
+  if (!kept) {
+    await db.exec(read('supabase_migration.sql'));
+    await db.exec(read('shop_app_migration.sql'));
+    if (migrated) for (const file of PHASE1) await db.exec(read(file));
+    else await db.exec('DROP TABLE public.shop_order_assignments');
+  }
 
   let seeded;
   let credentials = null;
   let snapshot = null;
   let adminFromEnv = null;
   if (liveSnapshot) {
-    const tables = await snapshotLoader();
+    // Kept database: nothing is read from anywhere. Backup: the file only.
+    const seed = seedFrom ? readDumpFile(seedFrom) : null;
+    const tables = kept ? null : seed ? seed.tables : await snapshotLoader();
     blockRealDatabaseConnections();
     // The admin login stays the one in .env; it is read here and never printed.
     const envFile = path.join(root, '.env');
     const parsed = fs.existsSync(envFile) ? require(path.join(root, 'node_modules', 'dotenv')).parse(fs.readFileSync(envFile)) : {};
     adminFromEnv = { email: process.env.ADMIN_EMAIL || parsed.ADMIN_EMAIL || '', password: process.env.ADMIN_PASSWORD || parsed.ADMIN_PASSWORD || '' };
     if (!adminFromEnv.email || !adminFromEnv.password) throw new Error('ADMIN_EMAIL / ADMIN_PASSWORD are not set in .env');
-    snapshot = { tables: await loadSnapshot(db, tables) };
-    snapshot.ordersAssignedToShop = await assignOrdersToOnlyShop(db);
+    if (kept) {
+      snapshot = { tables: await currentCounts(db), kept: true, createdAt: persist.info.createdAt, source: persist.info.source };
+    } else {
+      snapshot = { tables: await loadSnapshot(db, tables) };
+      if (seed) {
+        // Exactly the backed-up rows, or no start (and the folder is not marked ready).
+        const now = await tableFingerprints(db, Object.keys(seed.expected));
+        const wrong = Object.keys(seed.expected).filter(t => now[t].count !== seed.expected[t].count || now[t].md5 !== seed.expected[t].md5);
+        if (wrong.length) throw new Error(`Restored rows differ from ${seedFrom} in: ${wrong.join(', ')}`);
+        snapshot.seedVerified = Object.keys(seed.expected).length;
+      }
+      snapshot.ordersAssignedToShop = await assignOrdersToOnlyShop(db);
+    }
     seeded = { categories: snapshot.tables.categories || 0, products: snapshot.tables.products || 0 };
   } else {
-    seeded = await seedCatalog(db, catalog);
+    seeded = kept ? await currentCounts(db) : await seedCatalog(db, catalog);
     credentials = {
       admin: { email: 'sandbox-admin@example.test', password: crypto.randomBytes(9).toString('base64url') },
       shop: { loginId: 'SANDBOX', password: crypto.randomBytes(9).toString('base64url'), shopName: 'ROSHOP' },
     };
+    // A kept database already has this employee: only its new test password is set.
     await db.query(`INSERT INTO shop_employees (id, employee_id, shop_name, full_name, password_hash, active)
-      VALUES ($1, $2, $3, 'Sandbox Employee', $4, TRUE)`,
+      VALUES ($1, $2, $3, 'Sandbox Employee', $4, TRUE)
+      ON CONFLICT (employee_id) DO UPDATE SET password_hash = EXCLUDED.password_hash`,
     [crypto.randomUUID(), credentials.shop.loginId, credentials.shop.shopName, await bcrypt.hash(credentials.shop.password, 10)]);
   }
 
@@ -329,13 +574,22 @@ async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, 
     const catchAll = stack.findIndex(l => l.route && l.route.path === '*');
     stack.splice(catchAll >= 0 ? catchAll : stack.length, 0, layer);
   };
+  // localLook: the command line turns it on; in-process tests (some act as a
+  // fake Production behind the 8110 proxy) get the page exactly as admin.html.
+  if (localLook && stack) {
+    // Runs before server.js's /admin route (just after Express sets up req/res).
+    app.use(localAdminLook);
+    const layer = stack.pop();
+    stack.splice(stack.findIndex(l => l.name === 'expressInit') + 1, 0, layer);
+  }
   helper('/__sandbox/outbox', (req, res) => res.json({ success: true, outbox }));
   if (credentials) helper('/__sandbox/credentials', (req, res) => res.json({ success: true, credentials }));
   if (!server.listening) await new Promise(resolve => server.once('listening', resolve));
   if (quiet) console.log = log;
 
   let pdf = null;
-  if (pdfImport) {
+  // A kept database already has the import from its first start.
+  if (pdfImport && !kept) {
     // The prepared PDF import, applied to this in-memory copy only. Pictures
     // are served from assets/product_pdfs/extracted until they are in Storage.
     const express = require('express');
@@ -374,14 +628,27 @@ async function startSandbox({ port = 8091, catalog = 'sample', migrated = true, 
       }
     }
   }
+  if (persist && !kept) {
+    fs.writeFileSync(path.join(dataDir, READY_FILE), JSON.stringify({
+      createdAt: new Date().toISOString(),
+      liveSnapshot,
+      source: seedFrom ? `backup ${path.basename(path.dirname(path.resolve(seedFrom)))}/${path.basename(seedFrom)}` : liveSnapshot ? 'live snapshot (read once)' : `${catalog} catalogue`,
+      tables: snapshot ? snapshot.tables : seeded,
+    }, null, 1));
+  }
   return {
     db, pool, outbox, credentials, seeded, server, snapshot, pdf,
+    persistent: persist ? { dataDir, kept } : null,
     port: server.address().port,
-    close: async () => { server.closeAllConnections?.(); await new Promise(r => server.close(r)); },
+    close: async () => {
+      server.closeAllConnections?.();
+      await new Promise(r => server.close(r));
+      if (persist) await db.close();
+    },
   };
 }
 
-module.exports = { startSandbox, commandOf };
+module.exports = { startSandbox, commandOf, dumpDatabase, readDumpFile, tableFingerprints };
 
 if (require.main === module) {
   const arg = name => process.argv.find(a => a.startsWith(`--${name}`));
@@ -390,10 +657,24 @@ if (require.main === module) {
   // --port=8095 runs a second copy next to one already on 8091.
   const port = Number((arg('port') || '').split('=')[1]) || 8091;
   const storageBrowse = Boolean(arg('storage-browse'));
-  startSandbox({ port, catalog, migrated: !arg('pre-migration'), quiet: true, liveSnapshot, pdfImport: Boolean(arg('pdf-import')), storageBrowse })
+  const value = name => { const a = arg(name); return a && a.includes('=') ? path.resolve(a.slice(a.indexOf('=') + 1)) : ''; };
+  const dataDir = value('data-dir');
+  const seedFrom = value('seed-from');
+  startSandbox({ port, catalog, migrated: !arg('pre-migration'), quiet: true, liveSnapshot, pdfImport: Boolean(arg('pdf-import')), storageBrowse, dataDir, seedFrom, localLook: true })
     .then(s => {
-      console.log(`Sandbox backend on http://localhost:${s.port} (isolated in-memory database, emails captured)`);
-      if (liveSnapshot) {
+      // On Ctrl+C / stop, close the on-disk database cleanly (committed rows are kept either way).
+      for (const signal of ['SIGINT', 'SIGTERM', 'SIGBREAK']) process.once(signal, () => s.close().finally(() => process.exit(0)));
+      console.log(`Sandbox backend on http://localhost:${s.port} (isolated ${s.persistent ? `database kept on disk in ${dataDir}` : 'in-memory database'}, emails captured)`);
+      if (s.persistent?.kept) {
+        const t = s.snapshot ? s.snapshot.tables : s.seeded;
+        console.log(`Kept local database opened as it is (no Production read; live access blocked): ${t.users || 0} dealers, ${t.orders || 0} orders, ${t.order_items || 0} order lines, ${t.rewards_history || 0} reward entries, ${t.products || 0} products. First filled ${s.snapshot?.createdAt || ''} from ${s.snapshot?.source || 'the sample catalogue'}.`);
+        if (s.snapshot) console.log('Logins: real dealer and shop accounts with their usual passwords; admin = ADMIN_EMAIL from .env. Listening on 127.0.0.1 only.');
+        else console.log(`Test logins: GET http://localhost:${s.port}/__sandbox/credentials`);
+      } else if (seedFrom) {
+        const t = s.snapshot.tables;
+        console.log(`Filled from backup ${seedFrom} (no Production read; live access blocked): ${s.snapshot.seedVerified} tables match the backup exactly; ${t.users || 0} dealers, ${t.orders || 0} orders, ${t.order_items || 0} order lines, ${t.products || 0} products`);
+        console.log('Logins: real dealer and shop accounts with their usual passwords; admin = ADMIN_EMAIL from .env. Listening on 127.0.0.1 only.');
+      } else if (liveSnapshot) {
         const t = s.snapshot.tables;
         console.log(`Live snapshot (read once, read-only; live access now blocked): ${t.users || 0} dealers, ${t.shop_employees || 0} shop employees, ${t.orders || 0} orders, ${t.order_items || 0} order lines, ${t.user_addresses || 0} addresses, ${t.products || 0} products`);
         console.log('Logins: real dealer and shop accounts with their usual passwords; admin = ADMIN_EMAIL from .env. Listening on 127.0.0.1 only.');

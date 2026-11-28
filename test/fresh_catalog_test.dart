@@ -62,56 +62,30 @@ void main() {
     GoogleFonts.config.allowRuntimeFetching = false;
     await tester.pumpWidget(scope(const HomeScreen()));
     await tester.pumpAndSettle();
-    // The keyed New Arrivals carousel holds the entire catalog.
-    final arrivals = find.byKey(const ValueKey('home-products-new_arrivals'));
+    // New Arrivals (a 4-item grid since the NeeroPlus redesign) shows the
+    // four newest products.
+    final arrivals = find.byKey(const ValueKey('home-grid-new_arrivals'));
     await tester.ensureVisible(arrivals);
     await tester.pumpAndSettle();
-    final found = <String>{};
-    final scrollable = tester.state<ScrollableState>(
-      find.descendant(of: arrivals, matching: find.byType(Scrollable)).first,
-    );
-    for (var index = 0; index < 60; index++) {
-      for (final product in products) {
-        if (find
-            .descendant(of: arrivals, matching: find.text(product.name))
-            .evaluate()
-            .isNotEmpty) {
-          found.add(product.id);
-        }
-      }
-      if (scrollable.position.pixels >= scrollable.position.maxScrollExtent) {
-        break;
-      }
-      await tester.drag(arrivals, const Offset(-160, 0));
-      await tester.pumpAndSettle();
-    }
-    expect(found.length, 18);
-    expect(tester.takeException(), isNull);
-  });
-  testWidgets('all six live categories count and open their three products', (
-    tester,
-  ) async {
-    GoogleFonts.config.allowRuntimeFetching = false;
-    for (final category in categories) {
-      await tester.pumpWidget(scope(const CategoriesScreen()));
-      await tester.pumpAndSettle();
-      final label = find.text(category.name);
-      await tester.scrollUntilVisible(
-        label,
-        200,
-        scrollable: find
-            .descendant(
-              of: find.byType(GridView),
-              matching: find.byType(Scrollable),
-            )
-            .last,
+    for (final product in ProductModel.newestFirst(products).take(4)) {
+      expect(
+        find.descendant(of: arrivals, matching: find.text(product.name)),
+        findsWidgets,
+        reason: product.name,
       );
+    }
+    // Every product is reachable from Home through its category card.
+    final found = <String>{};
+    for (final category in categories) {
+      await tester.pumpWidget(scope(const HomeScreen()));
       await tester.pumpAndSettle();
-      await tester.tap(label);
+      final card = find.byKey(ValueKey('home-category-${category.id}'));
+      await tester.ensureVisible(card);
       await tester.pumpAndSettle();
-      final expected = products.where(category.matchesProduct).toList();
-      expect(expected.length, 3);
-      for (final product in expected) {
+      await tester.tap(card);
+      await tester.pumpAndSettle();
+      expect(find.byType(ProductListingScreen), findsOneWidget, reason: category.name);
+      for (final product in products.where(category.matchesProduct)) {
         await tester.scrollUntilVisible(
           find.text(product.name),
           200,
@@ -122,7 +96,36 @@ void main() {
               )
               .last,
         );
-        expect(find.text(product.name), findsOneWidget);
+        found.add(product.id);
+      }
+      await tester.pumpWidget(const SizedBox());
+      await tester.pumpAndSettle();
+    }
+    expect(found.length, 18);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('all six live categories count and open their three products', (
+    tester,
+  ) async {
+    GoogleFonts.config.allowRuntimeFetching = false;
+    // Tall window: a category's three products are all on screen.
+    tester.view.physicalSize = const Size(1400, 3000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    for (final category in categories) {
+      await tester.pumpWidget(scope(const CategoriesScreen()));
+      await tester.pumpAndSettle();
+      // The category is selected in place (sidebar), with its live count.
+      final item = find.byKey(ValueKey('category-sidebar-${category.id}'));
+      await tester.ensureVisible(item);
+      await tester.pumpAndSettle();
+      await tester.tap(item);
+      await tester.pumpAndSettle();
+      final expected = products.where(category.matchesProduct).toList();
+      expect(expected.length, 3);
+      expect(find.text('3 Wholesale Items Available'), findsOneWidget, reason: category.name);
+      for (final product in expected) {
+        expect(find.text(product.name), findsWidgets, reason: product.name);
       }
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());

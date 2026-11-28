@@ -109,7 +109,8 @@ void main() {
       ),
     );
 
-    expect(find.byIcon(Icons.image_not_supported_outlined), findsOneWidget);
+    expect(find.byKey(const ValueKey('app-image-placeholder')), findsOneWidget);
+    expect(find.byIcon(Icons.water_drop_rounded), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

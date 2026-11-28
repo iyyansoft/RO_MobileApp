@@ -110,10 +110,15 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('Featured Wholesale Deals'), findsOneWidget);
+    // Home sections since the NeeroPlus redesign (Nov 2026): the old
+    // "Bulk MOQ Deals" row was removed (bulk deals live in Bulk Order).
+    expect(find.text('Categories'), findsWidgets);
     expect(find.text('Best Sellers'), findsOneWidget);
     expect(find.text('New Arrivals 2026'), findsOneWidget);
-    expect(find.text('Bulk MOQ Deals (Max Discount)'), findsOneWidget);
+    expect(find.text('Featured Wholesale Deals'), findsOneWidget);
+    expect(find.text('Bulk MOQ Deals (Max Discount)'), findsNothing);
+    // The loaded products are shown.
+    expect(find.text('Featured Filter One'), findsWidgets);
     final horizontalLists = find.byWidgetPredicate(
       (widget) =>
           widget is ListView && widget.scrollDirection == Axis.horizontal,

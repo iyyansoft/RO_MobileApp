@@ -90,11 +90,33 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('1 Items'), findsNWidgets(3));
-    expect(find.text('0 Items'), findsNothing);
-    await tester.tap(find.text('Membranes'));
+    // Every category (API key + database id) counts and lists its own API
+    // product, despite the stale global filters (category "pumps", brand,
+    // price 10,000–20,000, search) — those must not hide or move anything.
+    for (final (key, name, own, other) in [
+      ('pumps', 'Booster Pumps', 'API Pump', 'API Membrane'),
+      ('pipes', 'Pipes & Tubing', 'API Pipe', 'API Pump'),
+      ('membranes', 'Membranes', 'API Membrane', 'API Pump'),
+    ]) {
+      await tester.ensureVisible(find.byKey(ValueKey('category-sidebar-$key')));
+      await tester.tap(find.byKey(ValueKey('category-sidebar-$key')));
+      await tester.pumpAndSettle();
+      expect(find.text('1 Wholesale Items Available'), findsOneWidget, reason: name);
+      expect(find.text('0 Wholesale Items Available'), findsNothing);
+      expect(find.text(own), findsOneWidget, reason: name);
+      expect(find.text(other), findsNothing, reason: name);
+    }
+    // The category tiles select a category too.
+    await tester.tap(find.byKey(const ValueKey('category-sidebar-for_you')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('popular-store-membranes')));
+    await tester.tap(find.byKey(const ValueKey('popular-store-membranes')));
+    await tester.pumpAndSettle();
+    expect(find.text('API Membrane'), findsOneWidget);
 
+    // "View All" opens the full listing for that category.
+    await tester.tap(find.text('View All').first);
+    await tester.pumpAndSettle();
     final listing = tester.widget<ProductListingScreen>(
       find.byType(ProductListingScreen),
     );
@@ -117,43 +139,28 @@ void main() {
     await tester.tap(find.byIcon(Icons.arrow_back_rounded));
     await tester.pumpAndSettle();
 
-    // Category chips and All Products keep their existing behavior.
-    await tester.ensureVisible(
-      find.widgetWithText(ChoiceChip, 'Booster Pumps'),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Booster Pumps'));
-    await tester.pumpAndSettle();
+    // Category chips (scrolling row) and All Products keep their behaviour.
+    Future<void> tapChip(String id) async {
+      await tester.ensureVisible(find.byKey(ValueKey('category-chip-$id')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('category-chip-$id')));
+      await tester.pumpAndSettle();
+    }
+
+    await tapChip('pumps');
     expect(find.text('API Pump'), findsOneWidget);
     expect(find.text('API Membrane'), findsNothing);
-    final horizontalList = find.byWidgetPredicate(
-      (widget) =>
-          widget is ListView && widget.scrollDirection == Axis.horizontal,
-    );
-    await tester.dragUntilVisible(
-      find.widgetWithText(ChoiceChip, 'Pipes & Tubing'),
-      horizontalList,
-      const Offset(-200, 0),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'Pipes & Tubing'));
-    await tester.pumpAndSettle();
+    await tapChip('pipes');
     expect(find.text('API Pipe'), findsOneWidget);
     expect(find.text('API Pump'), findsNothing);
-    await tester.dragUntilVisible(
-      find.widgetWithText(ChoiceChip, 'All Products'),
-      horizontalList,
-      const Offset(200, 0),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(ChoiceChip, 'All Products'));
-    await tester.pumpAndSettle();
+    await tapChip('all');
     expect(find.text('API Membrane'), findsOneWidget);
     expect(find.text('API Pump'), findsOneWidget);
 
     await tester.pageBack();
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Booster Pumps'));
+    await tester.ensureVisible(find.byKey(const ValueKey('category-sidebar-pumps')));
+    await tester.tap(find.byKey(const ValueKey('category-sidebar-pumps')));
     await tester.pumpAndSettle();
     expect(find.text('API Pump'), findsOneWidget);
     expect(find.text('API Membrane'), findsNothing);

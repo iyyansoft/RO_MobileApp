@@ -30,6 +30,7 @@ import '../../../products/presentation/screens/product_listing_screen.dart';
 import '../../domain/home_best_sellers.dart';
 import '../widgets/home_product_carousel.dart';
 import '../../../products/domain/category_price_view.dart';
+import '../../../products/domain/category_image_source.dart';
 import '../widgets/home_category_card.dart';
 
 const _homeBlue = AppColors.primaryLight;
@@ -1280,6 +1281,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final isCabinet = '${category.id} ${category.name}'.toLowerCase().contains(
       'cab',
     );
+    // The image saved in the Admin Panel wins; the app's own picture for the
+    // category is used when none is saved (or if it cannot be loaded).
+    final savedImage = adminCategoryImage(category.imagePath);
+    final imageUrl = savedImage ?? localImagePath;
     return HomeCategoryCard(
       key: ValueKey('home-category-${category.id}'),
       name: category.name,
@@ -1288,9 +1293,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       accent: iconColor,
       gradient: gradient,
       compact: !isDesktop,
-      imageUrl: localImagePath,
-      // Cabinet has no category picture: the water-drop placeholder is shown.
-      placeholderIcon: localImagePath == null && isCabinet
+      imageUrl: imageUrl,
+      fallbackImageUrl: savedImage != null ? localImagePath : null,
+      // Cabinet without a saved picture: the water-drop placeholder is shown.
+      placeholderIcon: imageUrl == null && isCabinet
           ? Icons.water_drop_rounded
           : null,
       onTap: () => _pushHomeRoute(
@@ -1300,95 +1306,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           initialCategoryName: category.name,
         ),
         useRootNavigator: false,
-      ),
-    );
-  }
-
-  Widget _buildCategoryCard(
-    BuildContext context, {
-    required CategoryModel category,
-    required IconData icon,
-    required Color iconColor,
-    required LinearGradient gradient,
-    required bool isDark,
-    required bool isDesktop,
-  }) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: ValueKey('home-category-${category.id}'),
-        onTap: () => _pushHomeRoute(
-          context,
-          ProductListingScreen(
-            initialCategoryId: category.id,
-            initialCategoryName: category.name,
-          ),
-          useRootNavigator: false,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: isDesktop ? 10 : 6,
-            vertical: isDesktop ? 14 : 10,
-          ),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF142436) : Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F2850)
-                    .withValues(alpha: isDark ? 0.2 : 0.04),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: isDesktop ? 62 : 46,
-                height: isDesktop ? 62 : 46,
-                decoration: BoxDecoration(
-                  gradient: gradient,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(
-                      color: iconColor.withValues(alpha: 0.15),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: Icon(
-                    icon,
-                    size: isDesktop ? 30 : 22,
-                    color: iconColor,
-                  ),
-                ),
-              ),
-              SizedBox(height: isDesktop ? 10 : 6),
-              Text(
-                category.name,
-                maxLines: 2,
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: isDesktop ? 13 : 11,
-                  fontWeight: FontWeight.w700,
-                  color: isDark ? Colors.white : const Color(0xFF0F2850),
-                  height: 1.2,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

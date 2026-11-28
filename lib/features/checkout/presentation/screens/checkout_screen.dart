@@ -1039,10 +1039,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     bool isDark,
     Color primaryColor,
   ) {
-    const methods = [
-      PaymentMethodType.cashOnDelivery,
-      PaymentMethodType.razorpay,
-    ];
+    // Razorpay is hidden for now (owner's choice); its payment code is kept so
+    // it can be shown again by adding PaymentMethodType.razorpay here.
+    const methods = [PaymentMethodType.cashOnDelivery];
     const razorpayBlue = Color(0xFF3478D4);
 
     return RadioGroup<PaymentMethodType>(

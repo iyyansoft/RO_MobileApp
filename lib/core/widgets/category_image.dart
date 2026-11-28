@@ -1,5 +1,22 @@
 import 'package:flutter/material.dart';
 
+/// A category picture: [savedUrl] (the image saved in the Admin Panel) first;
+/// if there is none or it cannot be loaded, [builtInUrl] (the app's own
+/// picture for the category); then [fallback].
+Widget categoryPicture({
+  String? savedUrl,
+  String? builtInUrl,
+  required Widget fallback,
+}) {
+  final builtIn = builtInUrl != null
+      ? CategoryImage(url: builtInUrl, fallback: fallback)
+      : fallback;
+  if (savedUrl != null && savedUrl != builtInUrl) {
+    return CategoryImage(url: savedUrl, fallback: builtIn);
+  }
+  return builtIn;
+}
+
 /// Shows a category image from its backend URL without cropping.
 ///
 /// If the URL fails (offline, server asleep, not yet deployed), falls back to

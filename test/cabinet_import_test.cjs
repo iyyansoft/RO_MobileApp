@@ -9,7 +9,11 @@ const cab = require('../scripts/cabinet_import.cjs');
 
 const root = path.join(__dirname, '..');
 const read = f => fs.readFileSync(path.join(root, f), 'utf8');
-const data = cab.loadData();
+// Needs the git-ignored supplier data (assets/product_pdfs/extracted). Skipped where it is
+// absent (e.g. GitHub Actions); runs fully on the owner's computer.
+const LOCAL_DATA = 'assets/product_pdfs/extracted/cabinet_import.json';
+const SKIP = fs.existsSync(path.join(root, LOCAL_DATA)) ? false : `needs git-ignored local data: ${LOCAL_DATA}`;
+const data = SKIP ? null : cab.loadData();
 
 async function db() {
   const d = new PGlite({ extensions: { citext } });
@@ -26,7 +30,7 @@ async function db() {
 }
 const q = d => async (sql, params) => (await d.query(sql, params)).rows;
 
-test('the data matches the PDF rules', () => {
+test('the data matches the PDF rules', { skip: SKIP }, () => {
   assert.deepEqual(cab.checkData(data), []);
   const first = data.products[0];
   assert.deepEqual([first.sku, first.name, first.dealer_price, first.mrp, first.moq_text], ['CAB-01', 'Dolphin king/ABS', 1100, 0, '10 nos']);
@@ -34,7 +38,7 @@ test('the data matches the PDF rules', () => {
   assert.equal(data.products.find(p => p.sku === 'CAB-36').name, '20”jambo housing-eco jambo204');
 });
 
-test('adds the Cabinet category and 41 products; nothing else changes', async () => {
+test('adds the Cabinet category and 41 products; nothing else changes', { skip: SKIP }, async () => {
   const d = await db();
   const before = JSON.stringify(await q(d)('SELECT * FROM categories ORDER BY id')) + JSON.stringify(await q(d)('SELECT * FROM products ORDER BY id'));
   const result = await cab.applyCabinetImport(d, data);
@@ -51,7 +55,7 @@ test('adds the Cabinet category and 41 products; nothing else changes', async ()
   await d.close();
 });
 
-test('with migration 009: Cabinet Price = PDF Cabinet price, Dealer Price unchanged', async () => {
+test('with migration 009: Cabinet Price = PDF Cabinet price, Dealer Price unchanged', { skip: SKIP }, async () => {
   const d = await db();
   await d.exec(read('supabase/staging/009_product_cabinet_price.sql'));
   const result = await cab.applyCabinetImport(d, data);
@@ -63,7 +67,7 @@ test('with migration 009: Cabinet Price = PDF Cabinet price, Dealer Price unchan
   await d.close();
 });
 
-test('refuses to run twice and leaves everything as it was', async () => {
+test('refuses to run twice and leaves everything as it was', { skip: SKIP }, async () => {
   const d = await db();
   await cab.applyCabinetImport(d, data);
   const snapshot = JSON.stringify(await q(d)('SELECT * FROM products ORDER BY id'));

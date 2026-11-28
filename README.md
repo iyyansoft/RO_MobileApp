@@ -54,13 +54,18 @@ captures the matching payment with Razorpay before saving a paid order.
 Configure the server-only `SUPABASE_DB_URL` and verified PostgreSQL TLS settings
 from `.env.example`. Signup and OTP verification require confirmed PostgreSQL
 writes. OTPs expire after five minutes, allow five attempts, and are stored as
-HMAC hashes. Successful verification preserves the password sign-in flow.
+HMAC hashes. The email code (OTP) is an optional sign-in method; it is not a
+step of signup.
 
-Dealer sign-in flow: create account, verify the email OTP, then sign in with the
-registered email and password to open Home. `status=pending` and
-`is_approved=false` do not block this login. The server compares the password
-against the saved PostgreSQL bcrypt hash; unverified and rejected accounts stay
-blocked. Dealer tokens do not grant admin or shop employee permissions.
+Dealer sign-in flow (current policy since 6 Nov 2026): create account, then
+sign in straight away with the registered email and password to open Home.
+There is no email-verification step: signup saves the account with
+`email_verified=true`, `status=pending` and `is_approved=false`, and none of
+these block password login. The server compares the password against the saved
+PostgreSQL bcrypt hash; wrong passwords and rejected accounts are refused.
+Note: session restore (`GET /api/auth/session`) still refuses a rare older
+account whose `email_verified` is false; such a dealer signs in once with the
+email code. Dealer tokens do not grant admin or shop employee permissions.
 Deploy the updated `server.js` to Render as well as distributing the rebuilt
 APK: an APK update alone cannot remove an approval gate in an older backend.
 Deploy the complete reviewed backend commit, including `email_provider.js`,
@@ -69,7 +74,9 @@ database settings. Use Render's deployment branch, build with `npm ci`, and
 start with `npm start`. No approval backfill or database migration is needed.
 After deployment, `GET /api/auth/config` must report
 `dealerPasswordLogin.requiresAdminApproval=false` and
-`dealerPasswordLogin.requiresEmailVerification=true`. A missing field means
+`dealerPasswordLogin.requiresEmailVerification=false`
+(`scripts/build-phone-release.ps1` and `scripts/run-android.ps1 -LocalBackend`
+refuse a backend reporting anything else). A missing field means
 this diagnostic is not deployed; it does not establish the older policy.
 
 To debug existing dealer login locally, first run `$env:PORT='8081'` and
@@ -78,8 +85,8 @@ To debug existing dealer login locally, first run `$env:PORT='8081'` and
 `http://10.0.2.2:8081/api/` and refuses to proceed if the local backend is absent
 or its policy still requires approval. Enter the existing credentials directly
 in the emulator. Verify the backend's sanitized `[DEALER LOGIN]` result and that
-Home opens before building a release. Existing email verification and rejected
-account checks remain enforced; do not change database flags to make a test pass.
+Home opens before building a release. Rejected-account and password checks
+remain enforced; do not change database flags to make a test pass.
 
 On Render Free, outbound SMTP ports 25, 465 and 587 are blocked. Configure
 `BREVO_API_KEY`, `BREVO_SENDER_EMAIL` (a verified sender/domain), and optionally

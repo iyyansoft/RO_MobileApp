@@ -146,5 +146,10 @@ void main() {
       );
       await client.auth.signOut();
     },
+    // Needs the local Supabase stack and its address at build time; run it
+    // with scripts/test-supabase-catalog-local.ps1 (skipped otherwise, e.g. CI).
+    skip: _url.isEmpty
+        ? 'local Supabase not configured: run scripts/test-supabase-catalog-local.ps1'
+        : false,
   );
 }

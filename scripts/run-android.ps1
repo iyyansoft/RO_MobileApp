@@ -10,8 +10,8 @@ if ($LocalBackend) {
   } catch {
     throw 'Start the current local backend on port 8081 before using -LocalBackend.'
   }
-  if ($policy.requiresAdminApproval -ne $false -or $policy.requiresEmailVerification -ne $true) {
-    throw 'Port 8081 is not serving the current verified-dealer login policy. Restart the backend from this project.'
+  if ($policy.requiresAdminApproval -ne $false -or $policy.requiresEmailVerification -ne $false) {
+    throw 'Port 8081 is not serving the current dealer login policy (no admin approval, no email-verification step). Restart the backend from this project.'
   }
 }
 Write-Host "Running the emulator against $ApiBaseUrl"

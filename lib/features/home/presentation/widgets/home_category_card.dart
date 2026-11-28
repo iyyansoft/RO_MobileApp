@@ -16,6 +16,7 @@ class HomeCategoryCard extends StatefulWidget {
     required this.gradient,
     required this.onTap,
     this.imageUrl,
+    this.fallbackImageUrl,
     this.assetImage,
     this.placeholderIcon,
     this.compact = false,
@@ -32,6 +33,10 @@ class HomeCategoryCard extends StatefulWidget {
 
   /// Server image (falls back to the bundled copy, then to [icon]).
   final String? imageUrl;
+
+  /// Shown if [imageUrl] cannot be loaded (e.g. the app's own category
+  /// picture when [imageUrl] is an Admin-saved image).
+  final String? fallbackImageUrl;
 
   /// Bundled image, used when there is no [imageUrl].
   final String? assetImage;
@@ -246,7 +251,11 @@ class _HomeCategoryCardState extends State<HomeCategoryCard> {
       ),
     );
     if (widget.imageUrl != null) {
-      return CategoryImage(url: widget.imageUrl!, fallback: fallback);
+      return categoryPicture(
+        savedUrl: widget.imageUrl,
+        builtInUrl: widget.fallbackImageUrl,
+        fallback: fallback,
+      );
     }
     if (widget.assetImage != null) {
       return Image.asset(

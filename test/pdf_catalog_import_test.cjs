@@ -37,9 +37,13 @@ async function seededDb() {
 }
 
 const q = db => async (sql, params) => (await db.query(sql, params)).rows;
-const plan = loadPlanData();
+// Needs the git-ignored supplier data (assets/product_pdfs/extracted). Skipped where it is
+// absent (e.g. GitHub Actions); runs fully on the owner's computer.
+const LOCAL_DATA = 'assets/product_pdfs/extracted/catalog_import.json';
+const SKIP = fs.existsSync(path.join(root, LOCAL_DATA)) ? false : `needs git-ignored local data: ${LOCAL_DATA}`;
+const plan = SKIP ? null : loadPlanData();
 
-test('the extracted data is complete and consistent', () => {
+test('the extracted data is complete and consistent', { skip: SKIP }, () => {
   assert.equal(plan.all.length, 80);
   assert.equal(plan.toImport.length, 78);
   assert.deepEqual(plan.pending.map(p => p.sku), ['DOM-53', 'DOM-54']);
@@ -52,7 +56,7 @@ test('the extracted data is complete and consistent', () => {
   assert.deepEqual([pump.dealer_price, pump.moq, pump.mrp], [1050, 10, 2700]);
 });
 
-test('deletes SAMPLE_ products, fills empty order-line SKUs, imports PDF products, keeps history', async () => {
+test('deletes SAMPLE_ products, fills empty order-line SKUs, imports PDF products, keeps history', { skip: SKIP }, async () => {
   const db = await seededDb();
   const info = await inspectDatabase(q(db), plan);
   assert.deepEqual(info.errors, []);
@@ -89,7 +93,7 @@ test('deletes SAMPLE_ products, fills empty order-line SKUs, imports PDF product
   await db.close();
 });
 
-test('a failure part-way rolls everything back', async () => {
+test('a failure part-way rolls everything back', { skip: SKIP }, async () => {
   const db = await seededDb();
   const info = await inspectDatabase(q(db), plan);
   const rows = productRows(plan.toImport, info.categoryIdByKey, 'https://example.supabase.co');
@@ -102,7 +106,7 @@ test('a failure part-way rolls everything back', async () => {
   await db.close();
 });
 
-test('refuses when the SAMPLE_ products differ from the reviewed list', async () => {
+test('refuses when the SAMPLE_ products differ from the reviewed list', { skip: SKIP }, async () => {
   const db = await seededDb();
   const info = await inspectDatabase(q(db), plan);
   const rows = productRows(plan.toImport, info.categoryIdByKey, 'https://example.supabase.co');
@@ -111,7 +115,7 @@ test('refuses when the SAMPLE_ products differ from the reviewed list', async ()
   await db.close();
 });
 
-test('rollback from the pre-import backup returns products, carts and order lines exactly', async () => {
+test('rollback from the pre-import backup returns products, carts and order lines exactly', { skip: SKIP }, async () => {
   const os = require('node:os');
   const { rollbackFromBackup } = require('../scripts/pdf_catalog_import.cjs');
   const db = await seededDb();

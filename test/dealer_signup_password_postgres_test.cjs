@@ -64,7 +64,8 @@ test('PostgreSQL: signup, verify email, sign in with saved password, restore and
     context.process = { env: {} };
     const policy = (await call('config')).body.dealerPasswordLogin;
     assert.equal(policy.requiresAdminApproval, false);
-    assert.equal(policy.requiresEmailVerification, true);
+    // Current policy (Option A): no email-verification step before password login.
+    assert.equal(policy.requiresEmailVerification, false);
     const signup = { name: 'New Dealer', email: 'NewDealer@example.test', mobile: '9876543210',
       companyName: 'Test Business', address: 'Test address', password: 'Exact Password 123!', confirmPassword: 'Exact Password 123!' };
 
@@ -72,21 +73,26 @@ test('PostgreSQL: signup, verify email, sign in with saved password, restore and
     assert.equal((await call('signup', { ...signup, password: 'short', confirmPassword: 'short' })).code, 400);
     const created = await call('signup', signup);
     assert.equal(created.code, 200);
-    assert.equal(created.body.requiresEmailVerification, true);
-    assert.equal(created.body.token, undefined);
+    assert.equal(created.body.requiresEmailVerification, false);
+    assert.equal(created.body.token, undefined, 'signup itself never returns a session; the dealer signs in');
     const saved = (await db.query('SELECT * FROM users WHERE email=$1', ['newdealer@example.test'])).rows[0];
     assert.equal(saved.name, signup.name);
     assert.equal(saved.business_name, signup.companyName);
-    assert.equal(saved.email_verified, false);
+    assert.equal(saved.email_verified, true);
+    assert.equal(saved.status, 'pending');
     assert.equal(saved.is_approved, false);
     assert.notEqual(saved.password_hash, signup.password);
     assert.equal(await bcrypt.compare(signup.password, saved.password_hash), true);
     assert.equal((await db.query('SELECT user_id FROM user_addresses')).rows[0].user_id, saved.id);
 
     const credentials = { identifier: ' NewDealer@EXAMPLE.test ', password: signup.password };
-    assert.equal((await call('login', credentials)).code, 403);
+    // Signs in immediately after signup with the saved password.
+    const firstLogin = await call('login', credentials);
+    assert.equal(firstLogin.code, 200);
+    assert.ok(firstLogin.body.token);
     assert.equal((await call('signup', signup)).code, 409);
     assert.equal((await call('signup', { ...signup, email: 'other@example.test' })).code, 409);
+    // The email-code (OTP) sign-in still works and is single-use.
     assert.equal((await call('send-otp', { email: signup.email })).code, 200);
     const otp = delivered.text.match(/\b\d{6}\b/)[0];
     assert.equal((await call('verify-otp', { email: signup.email, otp: '000000' })).code, 400);

@@ -82,6 +82,8 @@ test.before(async () => {
   }
   uploadsRecorded = true;
   process.env.PORT = '0';
+  // Self-contained: no .env needed (e.g. GitHub Actions); a set value is kept.
+  process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'test-session-secret-not-for-production';
   process.env.ADMIN_EMAIL = 'admin@test.local';
   process.env.ADMIN_PASSWORD = 'test-password';
   delete process.env.PRODUCT_IMAGE_STORE;
@@ -219,16 +221,18 @@ test('share page hides inactive products', async () => {
   assert.equal((await catalog()).some(x => x.id === 'HIDDEN'), false);
 });
 
-test('share page: bundled photos use small 800px JPEG previews and a fixed public address', async () => {
+test('share page: an old demo image name is "no picture yet" (placeholder, no og:image) at a fixed public address', async () => {
   process.env.PUBLIC_BASE_URL = 'https://ro-mobileapp.onrender.com/';
   try {
     const html = await (await fetch(`${base}/share/products/SAMPLE_1`)).text();
     const og = name => (html.match(new RegExp(`<meta property="${name}" content="([^"]*)"`)) || [])[1];
-    // RO-MEM-75 is shown in the app as catalog tile 5, so the preview uses it.
-    assert.equal(og('og:image'), 'https://ro-mobileapp.onrender.com/share-images/catalog-5.jpg');
-    assert.equal(og('og:image:type'), 'image/jpeg');
-    assert.equal(og('og:image:width'), '800');
-    assert.equal(og('og:image:height'), '800');
+    // SAMPLE_1 still stores the shared demo name membrane.jpg: nothing is
+    // substituted (no sprite tile, no other product's photo).
+    assert.equal(og('og:image'), undefined);
+    assert.equal(html.includes('twitter:image'), false);
+    assert.match(html, /<meta name="twitter:card" content="summary">/);
+    assert.match(html, /<div class="photo"><img src="data:image\/svg\+xml,/);
+    assert.equal(html.includes('catalog-'), false);
     assert.equal(og('og:url'), 'https://ro-mobileapp.onrender.com/share/products/SAMPLE_1');
     assert.equal(html.includes('localhost'), false);
     assert.equal(html.includes('127.0.0.1'), false);
@@ -239,11 +243,6 @@ test('share page: bundled photos use small 800px JPEG previews and a fixed publi
   } finally {
     delete process.env.PUBLIC_BASE_URL;
   }
-  // The preview image itself is served and small enough for WhatsApp.
-  const img = await fetch(`${base}/share-images/catalog-5.jpg`);
-  assert.equal(img.status, 200);
-  assert.match(img.headers.get('content-type'), /image\/jpeg/);
-  assert.ok((await img.arrayBuffer()).byteLength < 300 * 1024);
 });
 
 test("each product shares its own picture, never another product's", async () => {
@@ -252,30 +251,25 @@ test("each product shares its own picture, never another product's", async () =>
   add('P_INLINE', 'RO-FLT-INLINE', 'filters', null, 'cat_filter.jpg');
   add('P_PUMP', 'RO-PMP-300', 'pumps', null, 'cat_pump.jpg');
   add('P_NEW_SPARE', 'NEW-SPARE-1', 'spares', 'CAT_SPR', 'purifier.jpg');
+  add('P_EMPTY', 'NEW-EMPTY-1', 'spares', 'CAT_SPR', '');
+  const SUPA = 'https://example.supabase.co/storage/v1/object/public/ro-product-images/pdf-catalog/P-SUPA.jpg';
+  add('P_SUPA', 'P-SUPA', 'spares', 'CAT_SPR', SUPA);
   const ogImage = async id => {
     const html = await (await fetch(`${base}/share/products/${id}`)).text();
     return (html.match(/<meta property="og:image" content="([^"]*)"/) || [])[1];
   };
-  const urls = {
-    cto: await ogImage('P_CTO'),
-    inline: await ogImage('P_INLINE'),
-    pump: await ogImage('P_PUMP'),
-    newSpare: await ogImage('P_NEW_SPARE'),
-    uploaded: await ogImage((await catalog()).find(x => x.sku === 'AQUA-001').id),
-  };
-  // Same stored placeholder, different products -> different pictures (as in the app).
-  assert.match(urls.cto, /\/share-images\/catalog-0\.jpg$/);
-  assert.match(urls.inline, /\/share-images\/catalog-1\.jpg$/);
-  assert.match(urls.pump, /\/share-images\/catalog-12\.jpg$/);
-  // Unknown SKU: the app's category rule (Spare Parts & Valves -> tile 13).
-  assert.match(urls.newSpare, /\/share-images\/catalog-13\.jpg$/);
-  // A real uploaded photo is shared as-is.
-  assert.match(urls.uploaded, /\/uploads\/prod_\d+_\d+\.png$/);
-  for (const u of Object.values(urls)) {
-    const res = await fetch(base + new URL(u).pathname);
-    assert.equal(res.status, 200, u);
-    assert.match(res.headers.get('content-type'), /^image\//, u);
+  // Old shared demo names and empty images: no picture, nothing substituted.
+  for (const id of ['P_CTO', 'P_INLINE', 'P_PUMP', 'P_NEW_SPARE', 'P_EMPTY']) {
+    assert.equal(await ogImage(id), undefined, id);
   }
+  // A Supabase Storage address is shared exactly as stored.
+  assert.equal(await ogImage('P_SUPA'), SUPA);
+  // A real uploaded photo is shared as-is.
+  const uploaded = await ogImage((await catalog()).find(x => x.sku === 'AQUA-001').id);
+  assert.match(uploaded, /\/uploads\/prod_\d+_\d+\.png$/);
+  const res = await fetch(base + new URL(uploaded).pathname);
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^image\//);
 });
 
 test('GET /share/products/:id/image returns each product\'s own image file', async () => {
@@ -283,22 +277,15 @@ test('GET /share/products/:id/image returns each product\'s own image file', asy
     const res = await fetch(`${base}/share/products/${id}/image`);
     return { status: res.status, type: res.headers.get('content-type'), cors: res.headers.get('access-control-allow-origin'), disposition: res.headers.get('content-disposition'), bytes: Buffer.from(await res.arrayBuffer()) };
   };
-  const tile = n => fs.readFileSync(path.join(root, 'web_preview', 'share-images', `catalog-${n}.jpg`));
-
-  const cto = await get('P_CTO');
-  assert.equal(cto.status, 200);
-  assert.equal(cto.type, 'image/jpeg');
-  assert.equal(cto.cors, '*');
-  assert.match(cto.disposition, /filename="RO-FLT-CTO\.jpg"/);
-  assert.deepEqual(cto.bytes, tile(0));
-
-  const inline = await get('P_INLINE');
-  assert.deepEqual(inline.bytes, tile(1));
-  assert.notDeepEqual(inline.bytes, cto.bytes, 'same stored placeholder, different product picture');
+  // No picture yet (old demo name or empty): 404, never a substitute picture.
+  for (const id of ['P_CTO', 'P_INLINE', 'P_EMPTY']) assert.equal((await get(id)).status, 404, id);
 
   const uploadedId = (await catalog()).find(x => x.sku === 'AQUA-001').id;
   const uploaded = await get(uploadedId);
+  assert.equal(uploaded.status, 200);
   assert.equal(uploaded.type, 'image/png');
+  assert.equal(uploaded.cors, '*');
+  assert.match(uploaded.disposition, /filename="AQUA-001\.png"/);
   assert.deepEqual(uploaded.bytes, png, 'the uploaded photo itself');
 
   assert.equal((await get('does-not-exist')).status, 404);

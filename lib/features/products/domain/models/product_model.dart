@@ -230,29 +230,11 @@ class ProductModel {
     createdAt: createdAt,
   );
 
-  static const Map<String, int> _catalogSpriteBySku = {
-    'RO-FLT-CTO': 0,
-    'RO-FLT-INLINE': 1,
-    'RO-FLT-SED': 2,
-    'ABC': 3,
-    'RO-MEM-100': 6,
-    'RO-MEM-4040': 4,
-    'RO-MEM-75': 5,
-    'RO-PIPE-14': 7,
-    'RO-PIPE-38': 8,
-    'RO-PIPE-KIT': 9,
-    'RO-PMP-100': 11,
-    'RO-PMP-300': 12,
-    'RO-PMP-75': 10,
-    'RO-SPR-HOUSING': 13,
-    'RO-SPR-SMPS': 14,
-    'RO-SPR-SV': 15,
-    'RO-SYS-25': 17,
-    'RO-SYS-50': 18,
-    'RO-SYS-10L': 16,
-  };
-
-  static const Set<String> _categoryPlaceholderImages = {
+  /// Old shared demo picture names stored before real product photos
+  /// existed. They are not this product's photo, so nothing is substituted
+  /// for them: the product shows the water-drop "no picture yet" placeholder
+  /// until a real image (e.g. Supabase Storage) is saved in the Admin Panel.
+  static const Set<String> legacyPlaceholderImages = {
     'purifier.jpg',
     'cat_filter.jpg',
     'cat_pump.jpg',
@@ -260,38 +242,22 @@ class ProductModel {
     'membrane.jpg',
   };
 
-  /// Uses distinct category-appropriate art for the bundled demo placeholders,
-  /// while leaving actual uploaded product images untouched.
+  /// The product's own picture, or '' when it has none (shown as the
+  /// water-drop placeholder). A full web address saved by the admin (e.g. a
+  /// Supabase Storage URL) is always shown as-is, even if its file name
+  /// happens to be "membrane.jpg"; only bare legacy names are "no picture".
   String get displayImageUrl {
-    // A full web address saved by the admin (e.g. a Supabase Storage URL) is
-    // always shown as-is, even if its file name happens to be "membrane.jpg";
-    // only the old bundled demo names (no scheme) get the built-in art.
     final trimmed = imageUrl.trim();
+    if (trimmed.isEmpty) return '';
     if (RegExp(r'^https?://', caseSensitive: false).hasMatch(trimmed)) {
       return trimmed;
     }
-    final parsedSource = Uri.tryParse(imageUrl);
+    final parsedSource = Uri.tryParse(trimmed);
     final sourcePath = parsedSource?.pathSegments.isNotEmpty == true
         ? parsedSource!.pathSegments.last.toLowerCase()
-        : imageUrl.toLowerCase();
-    if (!_categoryPlaceholderImages.contains(sourcePath)) return imageUrl;
-
-    final spriteIndex = _catalogSpriteBySku[sku.toUpperCase()];
-    if (spriteIndex != null) return 'catalog-sprite://$spriteIndex';
-
-    final category = '$categoryId $categoryName'.toLowerCase();
-    final fallbackIndex = category.contains('membrane')
-        ? 4
-        : category.contains('filter')
-        ? 0
-        : category.contains('pipe') || category.contains('tubing')
-        ? 7
-        : category.contains('pump')
-        ? 10
-        : category.contains('spare') || category.contains('valve')
-        ? 13
-        : 16;
-    return 'catalog-sprite://$fallbackIndex';
+        : trimmed.toLowerCase();
+    if (legacyPlaceholderImages.contains(sourcePath)) return '';
+    return imageUrl;
   }
 
   List<String> get allImages {

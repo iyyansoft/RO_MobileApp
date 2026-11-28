@@ -4,10 +4,11 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ro_wholesale_dealer_app/features/products/domain/models/product_model.dart';
 
-/// The share page (server.js) picks a product's preview picture from
-/// web_preview/share-images/catalog-image-map.json. It must pick exactly the
-/// picture the app shows (ProductModel.displayImageUrl), or WhatsApp would
-/// show a different product's image.
+/// The share page (server.js productShareImagePath) reads the list of old
+/// shared demo image names from web_preview/share-images/catalog-image-map.json.
+/// The app (ProductModel.displayImageUrl) and the share page must agree: a
+/// demo name or an empty image is "no picture yet" (placeholder) – never a
+/// sprite tile or another product's photo – and a real image is used as stored.
 void main() {
   final map =
       jsonDecode(
@@ -17,20 +18,6 @@ void main() {
           )
           as Map<String, dynamic>;
   final placeholders = (map['placeholders'] as List).cast<String>();
-  final bySku = (map['bySku'] as Map).cast<String, int>();
-  final rules = (map['byCategoryText'] as List).cast<Map>();
-
-  int? serverTile(String sku, String categoryKey, String categoryTitle) {
-    final direct = bySku[sku.toUpperCase()];
-    if (direct != null) return direct;
-    final text = '$categoryKey $categoryTitle'.toLowerCase();
-    for (final rule in rules) {
-      if ((rule['contains'] as List).any((w) => text.contains(w as String))) {
-        return rule['tile'] as int;
-      }
-    }
-    return map['defaultTile'] as int;
-  }
 
   ProductModel product(String sku, String key, String title, String img) =>
       ProductModel.fromJson({
@@ -44,39 +31,39 @@ void main() {
         'mrp': 2,
       });
 
-  test('every mapped SKU gets the same picture in the app and on share pages', () {
-    for (final entry in bySku.entries) {
-      for (final img in placeholders) {
-        final app = product(entry.key, 'x', 'x', img).displayImageUrl;
-        expect(app, 'catalog-sprite://${entry.value}', reason: entry.key);
-        expect(
-          File('web_preview/share-images/catalog-${entry.value}.jpg').existsSync(),
-          isTrue,
-        );
-      }
-    }
+  test('the share page and the app use the same list of old demo names', () {
+    expect(placeholders.toSet(), ProductModel.legacyPlaceholderImages);
   });
 
-  test('unmapped SKUs follow the same category rule in the app and on share pages', () {
+  test('an old demo name or an empty image shows no picture (placeholder), for every SKU and category', () {
     const categories = [
       ('systems', 'RO Systems'),
       ('membranes', 'Membranes'),
       ('filters', 'Filters & Cartridges'),
       ('pumps', 'Booster Pumps'),
-      ('pipes', 'Pipes & Tubing'),
       ('spares', 'Spare Parts & Valves'),
-      ('accessories', 'Accessories'),
     ];
-    for (final (key, title) in categories) {
-      final app = product('NEW-SKU-1', key, title, 'purifier.jpg').displayImageUrl;
-      expect(app, 'catalog-sprite://${serverTile('NEW-SKU-1', key, title)}', reason: key);
+    for (final sku in ['RO-FLT-CTO', 'RO-SYS-10L', 'RO-SYS-25', 'PUMP-100GPD-24V', 'NEW-SKU-1']) {
+      for (final (key, title) in categories) {
+        for (final img in [...placeholders, '', '  ', '/purifier.jpg', 'PURIFIER.JPG']) {
+          expect(
+            product(sku, key, title, img).displayImageUrl,
+            '',
+            reason: '$sku $key "$img"',
+          );
+        }
+      }
     }
   });
 
-  test('uploaded photos are used as they are, in the app and on share pages', () {
+  test('uploaded photos are used as they are', () {
     final p = product('RO-FLT-CTO', 'filters', 'Filters', '/uploads/prod_1_2.jpg');
     expect(p.displayImageUrl, '/uploads/prod_1_2.jpg');
     expect(placeholders.contains('prod_1_2.jpg'), isFalse);
+    expect(
+      product('X', 'systems', 'RO Systems', 'tank.jpg').displayImageUrl,
+      'tank.jpg',
+    );
   });
 
   test('a full image URL saved in Admin is always shown as-is, even with a placeholder file name', () {
@@ -85,29 +72,11 @@ void main() {
     for (final url in [
       '$supabase/booster-pumps/Max%20flow%20pump%201%20year%20warranty%20100%20gpd.jpg',
       '$supabase/membrane/membrane.jpg',
+      '$supabase/pdf-catalog/CAB-36.jpg',
       'https://ro-mobileapp.onrender.com/purifier.jpg',
     ]) {
       expect(product('MUK-02', 'pumps', 'Booster Pumps', url).displayImageUrl, url);
       expect(product('RO-PMP-100', 'pumps', 'Booster Pumps', url).allImages, [url]);
     }
-    // Bare demo names keep the built-in picture.
-    expect(
-      product('RO-PMP-100', 'pumps', 'Booster Pumps', 'cat_pump.jpg').displayImageUrl,
-      startsWith('catalog-sprite://'),
-    );
-  });
-
-  test('placeholder list matches the app', () {
-    for (final img in placeholders) {
-      expect(
-        product('UNMAPPED', 'systems', 'RO Systems', img).displayImageUrl,
-        startsWith('catalog-sprite://'),
-        reason: img,
-      );
-    }
-    expect(
-      product('UNMAPPED', 'systems', 'RO Systems', 'tank.jpg').displayImageUrl,
-      'tank.jpg',
-    );
   });
 }

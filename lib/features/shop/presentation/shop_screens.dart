@@ -14,6 +14,17 @@ import 'shop_ui.dart';
 const _shopOrdersPreviewEnabled = bool.fromEnvironment('SHOP_ORDERS_PREVIEW');
 const _ink = Color(0xFF17345B);
 const _muted = Color(0xFF71839D);
+const _datePresets = [
+  'Today',
+  'Yesterday',
+  'Last 7 Days',
+  'Last 30 Days',
+  'This Month',
+  'Last Month',
+  'Custom Date',
+];
+/// The server returns at most this many orders per request (shop_routes.js).
+const _shopOrderLimit = 500;
 
 class ShopEmployeeLoginScreen extends StatefulWidget {
   const ShopEmployeeLoginScreen({super.key});
@@ -26,6 +37,7 @@ class _ShopEmployeeLoginScreenState extends State<ShopEmployeeLoginScreen> {
   final _id = TextEditingController();
   final _password = TextEditingController();
   bool _busy = false;
+  bool _showPassword = false;
   String? _error;
   final _repo = ShopEmployeeRepository.instance;
   @override
@@ -77,23 +89,23 @@ class _ShopEmployeeLoginScreenState extends State<ShopEmployeeLoginScreen> {
   Widget _form() => Column(
     crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      const Center(child: BrandLogo(width: 220, height: 80)),
-      const SizedBox(height: 18),
+      const Center(child: BrandLogo(width: 180, height: 66)),
+      const SizedBox(height: 24),
       const Text(
-        'Shop Employee Login',
+        'Welcome Back',
         textAlign: TextAlign.center,
         style: TextStyle(
           fontSize: 22,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w700,
           color: ShopColors.ink,
-          letterSpacing: -0.2,
+          letterSpacing: -0.3,
         ),
       ),
-      const SizedBox(height: 8),
+      const SizedBox(height: 6),
       const Text(
-        'Sign in with the Login ID and password provided by your administrator.',
+        'Sign in to your employee account',
         textAlign: TextAlign.center,
-        style: TextStyle(color: ShopColors.muted, height: 1.45),
+        style: TextStyle(color: ShopColors.muted, fontSize: 14, height: 1.4),
       ),
       const SizedBox(height: 26),
       TextField(
@@ -108,11 +120,20 @@ class _ShopEmployeeLoginScreenState extends State<ShopEmployeeLoginScreen> {
       const SizedBox(height: 14),
       TextField(
         controller: _password,
-        obscureText: true,
+        obscureText: !_showPassword,
         onSubmitted: (_) => _login(),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           labelText: 'Password',
-          prefixIcon: Icon(Icons.lock_outline),
+          prefixIcon: const Icon(Icons.lock_outline),
+          suffixIcon: IconButton(
+            tooltip: _showPassword ? 'Hide password' : 'Show password',
+            icon: Icon(
+              _showPassword
+                  ? Icons.visibility_off_outlined
+                  : Icons.visibility_outlined,
+            ),
+            onPressed: () => setState(() => _showPassword = !_showPassword),
+          ),
         ),
       ),
       Align(
@@ -151,9 +172,9 @@ class _ShopEmployeeLoginScreenState extends State<ShopEmployeeLoginScreen> {
             ],
           ),
         ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 8),
       SizedBox(
-        height: 50,
+        height: 48,
         child: FilledButton(
           onPressed: _busy ? null : _login,
           child: _busy
@@ -168,85 +189,22 @@ class _ShopEmployeeLoginScreenState extends State<ShopEmployeeLoginScreen> {
               : const Text('Login'),
         ),
       ),
-    ],
-  );
-
-  Widget _brandPanel() => Container(
-    decoration: const BoxDecoration(
-      gradient: LinearGradient(
-        colors: [Color(0xFF0E2340), Color(0xFF0F4C9E), Color(0xFF1F7AE0)],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      ),
-    ),
-    padding: const EdgeInsets.all(48),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const BrandLogo(
-          width: 180,
-          height: 64,
-          onDark: true,
-          alignment: Alignment.centerLeft,
-        ),
-        const Spacer(),
-        const Text(
-          'SHOP APP',
-          style: TextStyle(
-            color: Color(0xFFBFD6FF),
-            fontSize: 12.5,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 2,
-          ),
-        ),
-        const SizedBox(height: 12),
-        const Text(
-          'Orders, deliveries and\nenquiries in one place.',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 32,
-            height: 1.2,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
-          ),
-        ),
-        const SizedBox(height: 26),
-        for (final (icon, text) in const [
-          (Icons.receipt_long_outlined, 'Track current orders and supply'),
-          (
-            Icons.local_shipping_outlined,
-            'Confirm deliveries and cash collection',
-          ),
-          (Icons.query_stats_outlined, 'Review daily and monthly sales'),
-        ])
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              children: [
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: Colors.white, size: 18),
-                ),
-                const SizedBox(width: 12),
-                Text(
-                  text,
-                  style: const TextStyle(
-                    color: Color(0xFFDCE8FF),
-                    fontSize: 14.5,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+      const SizedBox(height: 22),
+      const Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.lock_outline_rounded, size: 14, color: ShopColors.muted),
+          SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              'Secure Employee Access',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: ShopColors.muted, fontSize: 12),
             ),
           ),
-        const Spacer(),
-      ],
-    ),
+        ],
+      ),
+    ],
   );
 
   @override
@@ -256,25 +214,26 @@ class _ShopEmployeeLoginScreenState extends State<ShopEmployeeLoginScreen> {
       backgroundColor: ShopColors.background,
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final wide = constraints.maxWidth >= 900;
-          final card = Center(
+          final narrow = constraints.maxWidth < 480;
+          return Center(
             child: SingleChildScrollView(
-              padding: EdgeInsets.all(constraints.maxWidth < 480 ? 16 : 32),
+              padding: EdgeInsets.symmetric(
+                horizontal: narrow ? 16 : 24,
+                vertical: 24,
+              ),
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 420),
+                constraints: const BoxConstraints(maxWidth: 380),
                 child: ShopPanel(
-                  padding: EdgeInsets.all(constraints.maxWidth < 480 ? 22 : 32),
+                  padding: EdgeInsets.fromLTRB(
+                    narrow ? 22 : 32,
+                    32,
+                    narrow ? 22 : 32,
+                    26,
+                  ),
                   child: _form(),
                 ),
               ),
             ),
-          );
-          if (!wide) return card;
-          return Row(
-            children: [
-              Expanded(flex: 5, child: _brandPanel()),
-              Expanded(flex: 6, child: card),
-            ],
           );
         },
       ),
@@ -1419,7 +1378,14 @@ class _ShopOrdersScreenState extends State<ShopOrdersScreen> {
   final _search = TextEditingController();
   String _status = 'All';
   String _datePreset = 'Last 7 Days';
+  // True while the Custom Date panel is open (until Apply Filter or Clear).
+  bool _showCustomPanel = false;
+  String get _shownDatePreset => _showCustomPanel ? 'Custom Date' : _datePreset;
   DateTimeRange? _customDateRange;
+  // The From/To choice on screen; applied to the list only by Apply Filter.
+  DateTime? _draftFrom;
+  DateTime? _draftTo;
+  String? _rangeError;
   bool _busy = false;
   String? _error;
   List<Map<String, dynamic>> _orders = [];
@@ -1542,16 +1508,34 @@ class _ShopOrdersScreenState extends State<ShopOrdersScreen> {
     }
   }
 
+  /// Today in Asia/Kolkata, the shop's business day (not the device's clock).
+  DateTime _shopToday() {
+    final ist = DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    return DateTime(ist.year, ist.month, ist.day);
+  }
+
+  static const _monthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _prettyDate(DateTime day) =>
+      '${day.day} ${_monthNames[day.month - 1]} ${day.year}';
+
+  /// Inclusive first and last day of the selected period (null = no date filter).
   (DateTime?, DateTime?) _dateBounds() {
-    final today = DateUtils.dateOnly(DateTime.now());
+    final today = _shopToday();
+    final yesterday = today.subtract(const Duration(days: 1));
     return switch (_datePreset) {
       'Today' => (today, today),
-      'Yesterday' => (
-        today.subtract(const Duration(days: 1)),
-        today.subtract(const Duration(days: 1)),
-      ),
+      'Yesterday' => (yesterday, yesterday),
       'Last 7 Days' => (today.subtract(const Duration(days: 6)), today),
+      'Last 30 Days' => (today.subtract(const Duration(days: 29)), today),
       'This Month' => (DateTime(today.year, today.month), today),
+      'Last Month' => (
+        DateTime(today.year, today.month - 1),
+        DateTime(today.year, today.month, 0),
+      ),
       'Custom Date' => (_customDateRange?.start, _customDateRange?.end),
       _ => (null, null),
     };
@@ -1560,38 +1544,93 @@ class _ShopOrdersScreenState extends State<ShopOrdersScreen> {
   String _dateRangeLabel() {
     final bounds = _dateBounds();
     if (bounds.$1 == null || bounds.$2 == null) return 'All dates';
-    if (_datePreset == 'Today' || _datePreset == 'Yesterday') {
-      return 'Selected date: ${_isoDate(bounds.$1!)}';
+    if (bounds.$1 == bounds.$2) return _prettyDate(bounds.$1!);
+    return '${_prettyDate(bounds.$1!)} – ${_prettyDate(bounds.$2!)}';
+  }
+
+  /// Why the From/To choice cannot be applied, or null when it can.
+  String? _draftProblem() {
+    final from = _draftFrom;
+    final to = _draftTo;
+    if (from == null || to == null) {
+      return 'Choose both a From Date and a To Date.';
     }
-    return '${_isoDate(bounds.$1!)} – ${_isoDate(bounds.$2!)}';
+    if (to.isBefore(from)) {
+      return 'To Date cannot be earlier than From Date.';
+    }
+    return null;
   }
 
   Future<void> _selectDatePreset(String preset) async {
     if (preset == 'Custom Date') {
-      final today = DateUtils.dateOnly(DateTime.now());
-      final picked = await showDateRangePicker(
-        context: context,
-        firstDate: DateTime(2000),
-        lastDate: today,
-        initialDateRange:
-            _customDateRange ??
-            DateTimeRange(
-              start: today.subtract(const Duration(days: 6)),
-              end: today,
-            ),
-      );
-      if (picked == null || !mounted) return;
+      // Opens the panel only. The list keeps the applied range until Apply
+      // Filter is pressed. The fields open empty unless a range is applied.
       setState(() {
-        _datePreset = preset;
-        _customDateRange = DateTimeRange(
-          start: DateUtils.dateOnly(picked.start),
-          end: DateUtils.dateOnly(picked.end),
-        );
+        _showCustomPanel = true;
+        _draftFrom = _customDateRange?.start;
+        _draftTo = _customDateRange?.end;
+        _rangeError = null;
       });
-    } else {
-      setState(() => _datePreset = preset);
+      return;
     }
+    setState(() {
+      _showCustomPanel = false;
+      _datePreset = preset;
+      _rangeError = null;
+    });
     await _load();
+  }
+
+  Future<void> _pickDraftDate({required bool isFrom}) async {
+    final today = _shopToday();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: (isFrom ? _draftFrom : _draftTo) ?? _draftTo ?? today,
+      firstDate: DateTime(2000),
+      lastDate: today,
+      helpText: isFrom ? 'Select From Date' : 'Select To Date',
+    );
+    if (picked == null || !mounted) return;
+    final day = DateTime(picked.year, picked.month, picked.day);
+    setState(() {
+      if (isFrom) {
+        _draftFrom = day;
+        // A single day: To follows From until a To Date is chosen.
+        _draftTo ??= day;
+      } else {
+        _draftTo = day;
+      }
+      _rangeError = (_draftFrom != null && _draftTo != null)
+          ? _draftProblem()
+          : null;
+    });
+  }
+
+  void _applyCustomRange() {
+    final problem = _draftProblem();
+    if (problem != null) {
+      setState(() => _rangeError = problem);
+      return;
+    }
+    setState(() {
+      _datePreset = 'Custom Date';
+      _customDateRange = DateTimeRange(start: _draftFrom!, end: _draftTo!);
+      _showCustomPanel = false;
+      _rangeError = null;
+    });
+    _load();
+  }
+
+  void _clearDateFilter() {
+    setState(() {
+      _showCustomPanel = false;
+      _datePreset = 'Last 7 Days';
+      _customDateRange = null;
+      _draftFrom = null;
+      _draftTo = null;
+      _rangeError = null;
+    });
+    _load();
   }
 
   Widget _searchField() => TextField(
@@ -1609,7 +1648,9 @@ class _ShopOrdersScreenState extends State<ShopOrdersScreen> {
   );
 
   Widget _dateFilter() => DropdownButtonFormField<String>(
-    initialValue: _datePreset,
+    // Keyed by the selection so Clear (and any other change) shows correctly.
+    key: ValueKey('order-date-$_shownDatePreset'),
+    initialValue: _shownDatePreset,
     isExpanded: true,
     borderRadius: BorderRadius.circular(12),
     dropdownColor: Colors.white,
@@ -1617,14 +1658,140 @@ class _ShopOrdersScreenState extends State<ShopOrdersScreen> {
       labelText: 'Order date',
       prefixIcon: Icon(Icons.calendar_month_outlined),
     ),
-    items:
-        const ['Today', 'Yesterday', 'Last 7 Days', 'This Month', 'Custom Date']
-            .map((value) => DropdownMenuItem(value: value, child: Text(value)))
-            .toList(),
+    items: _datePresets
+        .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+        .toList(),
     onChanged: (value) {
       if (value != null) _selectDatePreset(value);
     },
   );
+
+  Widget _dateField({
+    required String label,
+    required DateTime? value,
+    required VoidCallback onTap,
+  }) => InkWell(
+    key: ValueKey('date-field-$label'),
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(12),
+    child: InputDecorator(
+      isEmpty: value == null,
+      decoration: InputDecoration(
+        labelText: label,
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        suffixIcon: const Icon(
+          Icons.calendar_month_outlined,
+          color: ShopColors.primary,
+        ),
+      ),
+      child: Text(
+        value == null ? 'DD/MM/YYYY' : _prettyDate(value),
+        style: TextStyle(
+          fontSize: 15,
+          color: value == null ? _muted : ShopColors.ink,
+        ),
+      ),
+    ),
+  );
+
+  /// The "Custom Date Selection" panel: From and To calendar fields, then
+  /// Clear (bottom left) and Apply Filter (bottom right). Stays open until the
+  /// user applies or clears, or picks another preset.
+  Widget _customRangePanel(bool wide) {
+    final from = _dateField(
+      label: 'From Date',
+      value: _draftFrom,
+      onTap: () => _pickDraftDate(isFrom: true),
+    );
+    final to = _dateField(
+      label: 'To Date',
+      value: _draftTo,
+      onTap: () => _pickDraftDate(isFrom: false),
+    );
+    final clear = OutlinedButton(
+      onPressed: _clearDateFilter,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 44),
+        foregroundColor: ShopColors.ink,
+        side: const BorderSide(color: ShopColors.border),
+      ),
+      child: const Text('Clear'),
+    );
+    final apply = FilledButton(
+      onPressed: _applyCustomRange,
+      style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+      child: const Text('Apply Filter'),
+    );
+    return Container(
+      key: const ValueKey('custom-date-panel'),
+      margin: const EdgeInsets.only(top: 12),
+      padding: EdgeInsets.all(wide ? 16 : 14),
+      decoration: BoxDecoration(
+        color: ShopColors.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: ShopColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'Custom Date Selection',
+            style: TextStyle(
+              color: ShopColors.ink,
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 12),
+          if (wide)
+            Row(
+              children: [
+                Expanded(child: from),
+                const SizedBox(width: 12),
+                Expanded(child: to),
+              ],
+            )
+          else ...[
+            from,
+            const SizedBox(height: 10),
+            to,
+          ],
+          if (_rangeError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.error_outline_rounded,
+                    color: ShopColors.danger,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _rangeError!,
+                      style: const TextStyle(
+                        color: ShopColors.danger,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              SizedBox(width: wide ? 120 : 110, child: clear),
+              const Spacer(),
+              SizedBox(width: wide ? 150 : 140, child: apply),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _statusTabs({bool scrollable = false}) {
     final chips = ['All', 'Pending', 'Partially Delivered', 'Delivered']
@@ -1652,12 +1819,8 @@ class _ShopOrdersScreenState extends State<ShopOrdersScreen> {
     return Wrap(spacing: 8, runSpacing: 8, children: chips);
   }
 
-  Widget _rangeLabel() {
-    final text = _datePreset == 'Custom Date' && _customDateRange != null
-        ? '${_isoDate(_customDateRange!.start)} – ${_isoDate(_customDateRange!.end)}'
-        : _dateRangeLabel();
-    return ShopPill(label: text, icon: Icons.event_outlined);
-  }
+  Widget _rangeLabel() =>
+      ShopPill(label: _dateRangeLabel(), icon: Icons.event_outlined);
 
   Widget _newEnquiryButton({bool expand = false}) {
     final button = FilledButton.tonalIcon(
@@ -1705,13 +1868,12 @@ class _ShopOrdersScreenState extends State<ShopOrdersScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 4),
             child: Text(
-              _datePreset == 'Custom Date' && _customDateRange != null
-                  ? '${_isoDate(_customDateRange!.start)} – ${_isoDate(_customDateRange!.end)}'
-                  : _dateRangeLabel(),
+              _dateRangeLabel(),
               style: const TextStyle(color: _muted, fontSize: 11.5),
             ),
           ),
         ],
+        if (_showCustomPanel) _customRangePanel(wide),
         SizedBox(height: wide ? 14 : 10),
         if (wide)
           Row(
@@ -1783,16 +1945,23 @@ class _ShopOrdersScreenState extends State<ShopOrdersScreen> {
           Padding(
             padding: EdgeInsets.fromLTRB(gutter, 6, gutter, 8),
             child: ShopContent(
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  '${_orders.length} ${_orders.length == 1 ? 'order' : 'orders'}',
-                  style: const TextStyle(
-                    color: _muted,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${_orders.length} ${_orders.length == 1 ? 'order' : 'orders'}',
+                    style: const TextStyle(
+                      color: _muted,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
                   ),
-                ),
+                  if (_orders.length >= _shopOrderLimit)
+                    const Text(
+                      'Showing the newest $_shopOrderLimit orders for these dates. Narrow the date range to see older ones.',
+                      style: TextStyle(color: ShopColors.danger, fontSize: 12),
+                    ),
+                ],
               ),
             ),
           ),

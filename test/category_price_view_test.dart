@@ -13,7 +13,6 @@ import 'package:ro_wholesale_dealer_app/features/products/presentation/providers
 import 'package:ro_wholesale_dealer_app/features/products/presentation/screens/categories_screen.dart';
 import 'package:ro_wholesale_dealer_app/features/products/presentation/screens/product_details_screen.dart';
 import 'package:ro_wholesale_dealer_app/features/products/presentation/screens/product_listing_screen.dart';
-import 'package:ro_wholesale_dealer_app/features/products/presentation/widgets/listing_product_card.dart';
 
 /// Records cart additions instead of calling the backend.
 class _RecordingCart extends CartNotifier {

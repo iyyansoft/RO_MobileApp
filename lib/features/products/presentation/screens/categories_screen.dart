@@ -19,6 +19,7 @@ import 'product_listing_screen.dart';
 import '../widgets/cabinet_price_text.dart';
 import '../../domain/cabinet_display_order.dart';
 import '../../domain/category_price_view.dart';
+import '../../domain/category_image_source.dart';
 
 class CategoriesScreen extends ConsumerStatefulWidget {
   const CategoriesScreen({super.key});
@@ -252,7 +253,11 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
                       isDark: isDark,
                       primaryColor: primaryColor,
                       localImagePath: localImg,
-                      imagePath: cabinet ? null : cat.imagePath,
+                      // Cabinet: only a picture saved in the Admin Panel
+                      // (otherwise the water-drop placeholder).
+                      imagePath: cabinet
+                          ? adminCategoryImage(cat.imagePath)
+                          : cat.imagePath,
                       fallbackIcon: cabinet
                           ? Icons.water_drop_rounded
                           : _getCategoryFallbackIcon(cat.name, cat.id),
@@ -494,9 +499,15 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
 
     Widget buildThumb() {
       if (customIcon != null) return customIcon;
-      // Actual category photo, shown whole (contain) and centred.
-      final Widget inner = localImagePath != null
-          ? CategoryImage(url: localImagePath, fallback: fallback)
+      // Actual category photo, shown whole (contain) and centred: the image
+      // saved in the Admin Panel first, then the app's own picture.
+      final savedImage = adminCategoryImage(imagePath);
+      final Widget inner = (savedImage != null || localImagePath != null)
+          ? categoryPicture(
+              savedUrl: savedImage,
+              builtInUrl: localImagePath,
+              fallback: fallback,
+            )
           : (imagePath != null && imagePath.isNotEmpty)
           ? AppImage(
               imagePath,
@@ -1053,8 +1064,16 @@ class _CategoriesScreenState extends ConsumerState<CategoriesScreen> {
         size: 36,
       ),
     );
-    // Actual category photo, whole (contain) and centred.
-    final Widget image = cabinet
+    // Actual category photo, whole (contain) and centred: the image saved in
+    // the Admin Panel first (Cabinet too), then the app's own picture.
+    final savedImage = adminCategoryImage(cat.imagePath);
+    final Widget image = savedImage != null
+        ? categoryPicture(
+            savedUrl: savedImage,
+            builtInUrl: cabinet ? null : localImage,
+            fallback: fallback,
+          )
+        : cabinet
         ? fallback
         : localImage != null
         ? CategoryImage(url: localImage, fallback: fallback)

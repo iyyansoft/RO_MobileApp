@@ -13,13 +13,12 @@ import 'package:ro_wholesale_dealer_app/features/auth/presentation/screens/otp_v
 
 void main() {
   testWidgets(
-    'create account, verify, reject wrong password, then password sign-in opens Home',
+    'create account (no email-verification step), reject wrong password, then password sign-in opens Home',
     (tester) async {
       FlutterSecureStorage.setMockInitialValues({});
       ApiClient.sessionToken = null;
       addTearDown(() => ApiClient.sessionToken = null);
       Map<String, dynamic>? registered;
-      var verified = false;
       final paths = <String>[];
       final api = ApiClient(
         interceptors: [
@@ -35,37 +34,16 @@ void main() {
                   Response(
                     requestOptions: options,
                     statusCode: 200,
-                    data: {'success': true, 'requiresEmailVerification': true},
-                  ),
-                );
-              } else if (options.path == 'auth/send-otp') {
-                expect(registered, isNotNull);
-                handler.resolve(
-                  Response(
-                    requestOptions: options,
-                    statusCode: 200,
-                    data: {'success': true},
-                  ),
-                );
-              } else if (options.path == 'auth/verify-otp') {
-                expect(body['otp'], '123456');
-                verified = true;
-                handler.resolve(
-                  Response(
-                    requestOptions: options,
-                    statusCode: 200,
                     data: {
                       'success': true,
-                      'user': {
-                        'id': 'test-dealer',
-                        'email': registered!['email'],
-                        'token': 'test-otp-session',
-                      },
+                      'status': 'pending',
+                      'isApproved': false,
+                      'requiresEmailVerification': false,
                     },
                   ),
                 );
               } else if (options.path == 'auth/login') {
-                expect(verified, true);
+                expect(registered, isNotNull);
                 expect(body['identifier'], registered!['email']);
                 if (body['password'] != registered!['password']) {
                   handler.reject(
@@ -162,14 +140,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(registered, isNotNull);
       expect(auth.state.isLoggedIn, false);
-      expect(find.text('Verify Email'), findsOneWidget);
-      for (var i = 0; i < 6; i++) {
-        await tester.enterText(find.byType(TextField).at(i), '${i + 1}');
-      }
-      await tester.ensureVisible(find.text('Verify Email'));
-      await tester.tap(find.text('Verify Email'));
-      await tester.pumpAndSettle();
-      expect(auth.state.isLoggedIn, false);
+      // Current policy: no "Verify Email" step; straight to password sign-in.
+      expect(find.text('Verify Email'), findsNothing);
+      expect(find.byType(OtpVerificationScreen), findsNothing);
+      expect(find.byType(LoginScreen), findsOneWidget);
       expect(ApiClient.sessionToken, isNull);
       expect(find.text('dealer@example.test'), findsOneWidget);
       await fill('Password', 'wrong-password');
@@ -187,8 +161,6 @@ void main() {
       expect(auth.state.currentUser!.isGstVerified, false);
       expect(paths, [
         'auth/signup',
-        'auth/send-otp',
-        'auth/verify-otp',
         'auth/login',
         'auth/login',
       ]);

@@ -60,14 +60,17 @@ test('real email code is hashed, verified once, and preserves registered name/GS
   const login = await api.call('verify-otp', {email:'dealer@example.test',otp:code}); assert.equal(login.body.user.name, 'Registered Name'); assert.equal(login.body.user.gstNumber, '27AAPFU0939F1ZV');
   assert.equal((await api.call('verify-otp', {email:'dealer@example.test',otp:code})).code, 400);
 });
-test('signup requires confirmation and email verification, and writes PostgreSQL first', async () => {
+// Current policy (Option A, since 6 Nov 2026): no email-verification step at
+// signup. The account is saved as verified and pending; the dealer signs in
+// with email + password straight away. Rejected dealers are still refused.
+test('signup requires password confirmation, saves a verified pending account (no email step), and writes PostgreSQL first', async () => {
   const body = {name:'Dealer',email:'new@example.test',mobile:'9876543210',address:'Saved address',password:'Password1',confirmPassword:'Password1'};
   const api = setup(); assert.equal((await api.call('signup', {...body,confirmPassword:'wrong'})).code, 400);
   assert.equal((await api.call('signup', body)).code, 200);
   const userInsert = api.queries.find(([sql]) => sql.startsWith('INSERT INTO users'));
   assert.match(userInsert[0], /'pending', FALSE, 0\)/i);
-  assert.match(userInsert[0], /VALUES \(\?, \?, \?, \?, \?, FALSE,/);
-  assert.equal((await api.call('signup', body)).body.requiresEmailVerification, true);
+  assert.match(userInsert[0], /VALUES \(\?, \?, \?, \?, \?, TRUE,/);
+  assert.equal((await api.call('signup', body)).body.requiresEmailVerification, false);
   assert.equal((await api.call('signup', body)).body.isApproved, false);
   assert.ok(userInsert); assert.equal(userInsert[1][5], ''); assert.equal(userInsert[1][7], body.address);
   assert.equal(await require('bcryptjs').compare(body.password, userInsert[1][4]), true);
@@ -99,12 +102,19 @@ test('pending dealers receive an app session immediately after email verificatio
   assert.ok(response.body.token);
 });
 
-test('unverified and rejected dealers still cannot password-login', async () => {
+test('email verification is not a password-login prerequisite; rejected dealers and wrong passwords are still refused', async () => {
   const passwordHash = await require('bcryptjs').hash('ActualPassword1', 4);
-  for (const options of [{ emailVerified: false }, { status: 'rejected' }]) {
-    const api = setup({ registered: true, passwordHash, ...options });
-    const response = await api.call('login', { email: 'dealer@example.test', password: 'ActualPassword1' });
-    assert.equal(response.code, 403);
-    assert.equal(response.body.token, undefined);
-  }
+  const notVerified = setup({ registered: true, passwordHash, emailVerified: false, status: 'pending', isApproved: false });
+  const allowed = await notVerified.call('login', { email: 'dealer@example.test', password: 'ActualPassword1' });
+  assert.equal(allowed.code, 200);
+  assert.ok(allowed.body.token);
+  assert.equal(allowed.body.user.isApproved, false);
+  const wrong = await notVerified.call('login', { email: 'dealer@example.test', password: 'WrongPassword1' });
+  assert.equal(wrong.code, 400);
+  assert.equal(wrong.body.token, undefined);
+
+  const rejected = setup({ registered: true, passwordHash, status: 'rejected' });
+  const refused = await rejected.call('login', { email: 'dealer@example.test', password: 'ActualPassword1' });
+  assert.equal(refused.code, 403);
+  assert.equal(refused.body.token, undefined);
 });

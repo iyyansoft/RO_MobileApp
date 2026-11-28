@@ -5,6 +5,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const bcrypt = require('bcryptjs');
 const { startSandbox } = require('../scripts/local_sandbox.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
+
+// This mode also applies the PDF catalogue import, which needs the
+// git-ignored supplier data. Skipped where it is absent (e.g. GitHub
+// Actions); runs fully on the owner's computer.
+const LOCAL_DATA = 'assets/product_pdfs/extracted/catalog_import.json';
+const SKIP = fs.existsSync(path.join(__dirname, '..', LOCAL_DATA)) ? false : `needs git-ignored local data: ${LOCAL_DATA}`;
 
 const DEALER_PASSWORD = 'Existing#Pass2026';
 const SHOP_PASSWORD = 'Shop#Pass2026';
@@ -21,6 +29,7 @@ async function http(method, url, body, token) {
 }
 
 test.before(async () => {
+  if (SKIP) return;
   const dealerHash = await bcrypt.hash(DEALER_PASSWORD, 10);
   const shopHash = await bcrypt.hash(SHOP_PASSWORD, 10);
   // Shape of what readLiveSnapshot() returns: table -> rows, dates as database text.
@@ -50,7 +59,7 @@ test.before(async () => {
 });
 test.after(async () => { await sandbox?.close(); });
 
-test('existing dealer logs in with the password behind the copied hash; details kept', async () => {
+test('existing dealer logs in with the password behind the copied hash; details kept', { skip: SKIP }, async () => {
   assert.equal((await http('POST', '/api/auth/login', { identifier: 'real.dealer@example.test', password: 'wrong-password' })).body.token, undefined);
   const login = await http('POST', '/api/auth/login', { identifier: 'real.dealer@example.test', password: DEALER_PASSWORD });
   assert.equal(login.status, 200, JSON.stringify(login.body));
@@ -67,7 +76,7 @@ test('existing dealer logs in with the password behind the copied hash; details 
   assert.equal(pending.body.user.status, 'pending');
 });
 
-test('admin login is the one from .env; shop employee logs in with the copied hash', async () => {
+test('admin login is the one from .env; shop employee logs in with the copied hash', { skip: SKIP }, async () => {
   const admin = await http('POST', '/api/admin/login', { email: 'owner@example.test', password: 'Admin#Pass2026' });
   assert.equal(admin.status, 200);
   const dealers = await http('GET', '/api/admin/dealers', null, admin.body.token);
@@ -78,7 +87,7 @@ test('admin login is the one from .env; shop employee logs in with the copied ha
   assert.ok(shopOrders.body.orders.some(o => (o.orderId || o.order_id) === 'RO-old-1'), 'existing order visible in the Shop App');
 });
 
-test('new local rows continue after the copied ids', async () => {
+test('new local rows continue after the copied ids', { skip: SKIP }, async () => {
   const login = await http('POST', '/api/auth/login', { identifier: 'real.dealer@example.test', password: DEALER_PASSWORD });
   const add = await http('POST', '/api/cart/add', { userId: login.body.user.id, productId: 'prod_genuine_1', quantity: 1 }, login.body.token);
   assert.equal(add.status, 200, JSON.stringify(add.body));
@@ -90,7 +99,7 @@ test('new local rows continue after the copied ids', async () => {
   assert.ok(ids.at(-1) > 41, `new order line id ${ids.at(-1)} follows the copied 41`);
 });
 
-test('PDF import applied to the local copy only; pictures served locally', async () => {
+test('PDF import applied to the local copy only; pictures served locally', { skip: SKIP }, async () => {
   assert.equal(sandbox.pdf.inserted, 78);
   const products = (await http('GET', '/api/products')).body.products;
   assert.equal(products.length, 79 + 41, '1 kept + 78 PDF products + 41 Cabinet products');
@@ -104,7 +113,7 @@ test('PDF import applied to the local copy only; pictures served locally', async
   assert.match(pic.headers.get('content-type'), /image\/jpeg/);
 });
 
-test('isolated: localhost only, no credentials page, no live database, no .env secrets', async () => {
+test('isolated: localhost only, no credentials page, no live database, no .env secrets', { skip: SKIP }, async () => {
   assert.equal(sandbox.server.address().address, '127.0.0.1');
   // No credentials route: the address falls through to the normal web page.
   const page = await fetch(base + '/__sandbox/credentials');
@@ -119,7 +128,7 @@ test('isolated: localhost only, no credentials page, no live database, no .env s
   assert.equal(sandbox.credentials, null);
 });
 
-test('PDF preview: stock-0 products can be ordered 1..max; stock is not changed; max enforced', async () => {
+test('PDF preview: stock-0 products can be ordered 1..max; stock is not changed; max enforced', { skip: SKIP }, async () => {
   const login = await http('POST', '/api/auth/login', { identifier: 'real.dealer@example.test', password: DEALER_PASSWORD });
   const { token } = login.body;
   const userId = login.body.user.id;

@@ -2220,33 +2220,25 @@ function loadCatalogImageMap() {
 }
 
 /**
- * The picture the customer app shows for this product. Uploaded images are
- * used as they are. Products whose stored image is a shared placeholder
- * (purifier.jpg, cat_filter.jpg, ...) are shown in the app as their own tile
- * of the catalog sprite (ProductModel.displayImageUrl); the share page uses
- * the same tile so WhatsApp shows the same product picture.
+ * The picture the customer app shows for this product, or '' when it has
+ * none. Same rule as the app (ProductModel.displayImageUrl): a full web
+ * address (e.g. Supabase Storage) or an uploaded file is used as it is; an
+ * empty value or an old shared demo name (purifier.jpg, cat_filter.jpg, ...)
+ * is "no picture yet" – nothing is substituted, and the share page shows its
+ * water-drop placeholder.
  */
 function productShareImagePath(product) {
   const img = String(product.img || '').trim();
   const name = img.split(/[?#]/)[0].split('/').pop().toLowerCase();
-  const map = loadCatalogImageMap();
-  // A full web address saved by the admin is always used as-is (same rule as the app).
   if (/^https?:\/\//i.test(img)) return img;
-  if (img && !map.placeholders.includes(name)) return img;
-  let tile = map.bySku[String(product.sku || '').toUpperCase()];
-  if (tile === undefined) {
-    const categoryText = `${product.category_key || ''} ${product.category_title || ''}`.toLowerCase();
-    const rule = map.byCategoryText.find(r => r.contains.some(word => categoryText.includes(word)));
-    tile = rule ? rule.tile : map.defaultTile;
-  }
-  if (Number.isInteger(tile) && fs.existsSync(path.join(__dirname, 'web_preview', 'share-images', `catalog-${tile}.jpg`))) {
-    return `/share-images/catalog-${tile}.jpg`;
-  }
-  return img || 'purifier.jpg';
+  if (!img || loadCatalogImageMap().placeholders.includes(name)) return '';
+  return img;
 }
 
 function sharePreviewImage(img, origin) {
-  const clean = String(img || '').trim() || 'purifier.jpg';
+  const clean = String(img || '').trim();
+  // No picture yet: no preview (the page shows its placeholder, no og:image).
+  if (!clean) return null;
   let file = null;
   let urlPath = null;
   if (/^\/share-images\/[A-Za-z0-9_.-]+$/.test(clean)) {
@@ -2290,6 +2282,8 @@ app.get('/share/products/:id/image', async (req, res) => {
   }
 
   const imagePath = productShareImagePath(product);
+  // No picture yet: nothing is substituted (the app shares its placeholder card).
+  if (!imagePath) return res.status(404).json({ success: false, error: 'This product has no picture yet.' });
   const safeName = String(product.sku || product.id).replace(/[^A-Za-z0-9_-]+/g, '-') || 'product';
   res.set('Cache-Control', 'public, max-age=300');
   // Lets the web app read the bytes when it is hosted on another origin.
@@ -2382,7 +2376,7 @@ app.get(['/share/products/:id', '/share/products/:id/'], async (req, res) => {
   const origin = requestOrigin(req);
   const pageUrl = `${origin}/share/products/${encodeURIComponent(product.id)}${viewQuery}`;
   const preview = sharePreviewImage(productShareImagePath(product), origin);
-  const imageUrl = preview.url;
+  const imageUrl = preview ? preview.url : '';
   // One price, as in the app's share: the Cabinet Price only when shared from
   // the Cabinet page (and the product has one), otherwise MRP. Never the
   // dealer or purchase price.
@@ -2413,16 +2407,16 @@ app.get(['/share/products/:id', '/share/products/:id/'], async (req, res) => {
 <meta property="og:title" content="${e(product.name)}${mrp ? ` — ${priceLabel} ${e(mrp)}` : ''}">
 <meta property="og:description" content="${e(ogDescription)}">
 <meta property="og:url" content="${e(pageUrl)}">
-<meta property="og:image" content="${e(imageUrl)}">
+${preview ? `<meta property="og:image" content="${e(imageUrl)}">
 <meta property="og:image:secure_url" content="${e(imageUrl)}">
 <meta property="og:image:type" content="${preview.type}">
 ${preview.width && preview.height ? `<meta property="og:image:width" content="${preview.width}">
 <meta property="og:image:height" content="${preview.height}">` : ''}
 <meta property="og:image:alt" content="${e(product.name)}">
-<meta name="twitter:card" content="summary_large_image">
+` : ''}<meta name="twitter:card" content="${preview ? 'summary_large_image' : 'summary'}">
 <meta name="twitter:title" content="${e(product.name)}">
 <meta name="twitter:description" content="${e(ogDescription)}">
-<meta name="twitter:image" content="${e(imageUrl)}">
+${preview ? `<meta name="twitter:image" content="${e(imageUrl)}">` : ''}
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
@@ -2445,7 +2439,7 @@ ${preview.width && preview.height ? `<meta property="og:image:width" content="${
 <body>
 <main>
   <article class="card">
-    <div class="photo"><img src="${e(imageUrl)}" alt="${e(product.name)}" onerror="this.onerror=null;this.src='${SHARE_PLACEHOLDER_SVG}'"></div>
+    <div class="photo"><img src="${imageUrl ? e(imageUrl) : SHARE_PLACEHOLDER_SVG}" alt="${e(product.name)}" onerror="this.onerror=null;this.src='${SHARE_PLACEHOLDER_SVG}'"></div>
     <div class="body">
       ${product.brand ? `<div class="brand">${e(product.brand)}</div>` : ''}
       <h1>${e(product.name)}</h1>

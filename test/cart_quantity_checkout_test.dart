@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -43,11 +44,21 @@ class _TestGateway extends RazorpayCheckout {
 
 void main() {
   FlutterSecureStorage.setMockInitialValues({});
-  testWidgets('checkout displays and selects every supported payment option', (
+  // Android phone layout and the wide layout the website shows on a desktop
+  // browser: both must offer Cash on Delivery only (Razorpay hidden).
+  final layouts = ValueVariant<String>({'android-phone', 'web-desktop'});
+  testWidgets('checkout shows Cash on Delivery only (Razorpay hidden)', (
     tester,
   ) async {
     GoogleFonts.config.allowRuntimeFetching = false;
-    tester.view.physicalSize = const Size(320, 720);
+    final layout = layouts.currentValue!;
+    if (layout == 'android-phone') {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    }
+    tester.view.physicalSize = layout == 'android-phone'
+        ? const Size(320, 720)
+        : const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -94,35 +105,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Company / business name'), findsOneWidget);
     expect(find.text('PAN (optional)'), findsOneWidget);
+    // Razorpay is hidden: only Cash on Delivery is offered (and selected).
     expect(
       find.text('Credit/Debit Card, UPI, Net Banking, Wallets'),
-      findsOneWidget,
+      findsNothing,
     );
-    expect(find.byType(Radio<PaymentMethodType>), findsNWidgets(2));
-    expect(find.byIcon(Icons.account_balance_wallet_rounded), findsOneWidget);
+    expect(find.text(PaymentMethodType.razorpay.label), findsNothing);
+    expect(find.byType(Radio<PaymentMethodType>), findsNWidgets(1));
+    expect(find.byIcon(Icons.account_balance_wallet_rounded), findsNothing);
     expect(find.byIcon(Icons.local_shipping_rounded), findsOneWidget);
-    for (final method in [
+    final cod = find.text(PaymentMethodType.cashOnDelivery.label);
+    expect(cod, findsOneWidget);
+    await tester.ensureVisible(cod);
+    await tester.pumpAndSettle();
+    await tester.tap(cod);
+    await tester.pumpAndSettle();
+    expect(
+      container.read(checkoutProvider).selectedPaymentMethod,
       PaymentMethodType.cashOnDelivery,
-      PaymentMethodType.razorpay,
-    ]) {
-      final option = find.text(method.label);
-      expect(option, findsOneWidget);
-      await tester.ensureVisible(option);
-      await tester.pumpAndSettle();
-      await tester.tap(option);
-      await tester.pumpAndSettle();
-      expect(container.read(checkoutProvider).selectedPaymentMethod, method);
-    }
-    final razorpayContainer = tester.widget<Container>(
-      find
-          .ancestor(
-            of: find.text(PaymentMethodType.razorpay.label),
-            matching: find.byType(Container),
-          )
-          .first,
     );
-    final razorpayDecoration = razorpayContainer.decoration! as BoxDecoration;
-    expect(razorpayDecoration.border!.top.color, const Color(0xFF3478D4));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(
       MaterialApp(
@@ -138,7 +139,8 @@ void main() {
     expect(find.text('Confirmed'), findsNothing);
     expect(find.text(PaymentMethodType.razorpay.label), findsOneWidget);
     expect(tester.takeException(), isNull);
-  });
+    debugDefaultTargetPlatformOverride = null;
+  }, variant: layouts);
   test(
     'single-unit cart changes and checkout use the same quantities and totals',
     () async {

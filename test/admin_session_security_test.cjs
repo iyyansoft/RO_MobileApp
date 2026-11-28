@@ -82,6 +82,8 @@ test('rate limiter answers 429 after the limit and resets with the window', () =
 test('real /api/admin/login: lockout, signed session, logout', async () => {
   const root = path.join(__dirname, '..');
   process.env.PORT = '0';
+  // Self-contained: no .env needed (e.g. GitHub Actions); a set value is kept.
+  process.env.SESSION_SECRET = process.env.SESSION_SECRET || 'test-session-secret-not-for-production';
   process.env.ADMIN_EMAIL = 'admin@test.local';
   process.env.ADMIN_PASSWORD = 'right-password';
   const dbPath = require.resolve(path.join(root, 'db'));

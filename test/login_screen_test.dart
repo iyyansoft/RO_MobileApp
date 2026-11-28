@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ro_wholesale_dealer_app/core/widgets/brand_logo.dart';
 import 'package:ro_wholesale_dealer_app/features/auth/presentation/screens/login_screen.dart';
 
 void main() {
@@ -42,7 +43,14 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('desktop web displays two-column layout with left hero panel and right form', (
+  // The sign-in page (NeeroPlus redesign, Nov 2026) is one centred card, at
+  // most 480 px wide, on every screen size: brand logo, "Welcome Back", a
+  // code/password switch, the form and the account links.
+  Rect signInCard(WidgetTester tester) => tester.getRect(find.byWidgetPredicate(
+        (w) => w is ConstrainedBox && w.constraints.maxWidth == 480,
+      ));
+
+  testWidgets('desktop web displays the centred sign-in card with every control', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(1280, 800);
@@ -55,25 +63,28 @@ void main() {
     );
     await tester.pump();
 
-    // Verify left column branding & visual elements
-    expect(find.text("India's Premier RO Wholesale Network"), findsOneWidget);
-    expect(find.text('B2B PORTAL'), findsOneWidget);
-    expect(find.text('Factory-Direct Pricing'), findsOneWidget);
-    expect(find.text('100% Tax Compliant GST Billing'), findsOneWidget);
-    expect(find.text('Priority Dealer Dispatch'), findsOneWidget);
+    // Centred card, never wider than 480 px on a wide screen.
+    final card = signInCard(tester);
+    expect(card.width, lessThanOrEqualTo(480));
+    expect(card.center.dx, closeTo(640, 1));
 
-    // Verify right column login form elements
-    expect(find.text('AUTHORIZED DEALER ACCESS'), findsOneWidget);
-    expect(find.text('Welcome back, partner'), findsOneWidget);
+    // Branding, heading and both sign-in modes.
+    expect(find.byType(BrandLogo), findsOneWidget);
+    expect(find.text('Welcome Back'), findsOneWidget);
+    expect(find.text('Sign in with password'), findsOneWidget);
+    expect(find.text('Sign in with code (OTP)'), findsOneWidget);
+    expect(find.text('Email address'), findsOneWidget);
     expect(find.text('Send sign in code'), findsOneWidget);
     expect(find.text('Create a dealer account'), findsOneWidget);
     expect(find.text('Shop Employee Login'), findsOneWidget);
 
-    // Test switching to password mode on desktop
+    // Switching to password mode on desktop.
     await tester.tap(find.text('Sign in with password'));
     await tester.pump();
     expect(find.text('Password'), findsOneWidget);
     expect(find.text('Sign in'), findsOneWidget);
+    expect(find.text('Forgot password?'), findsOneWidget);
+    expect(find.text('Send sign in code'), findsNothing);
 
     final error = tester.takeException();
     expect(error, isNull);
@@ -92,8 +103,12 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('Dealer Sign In'), findsOneWidget);
-    expect(find.text('Welcome back, partner'), findsOneWidget);
+    final card = signInCard(tester);
+    expect(card.width, lessThanOrEqualTo(480));
+    expect(card.center.dx, closeTo(400, 1));
+    expect(card.left, greaterThan(0));
+    expect(card.right, lessThan(800));
+    expect(find.text('Welcome Back'), findsOneWidget);
     expect(find.text('Send sign in code'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

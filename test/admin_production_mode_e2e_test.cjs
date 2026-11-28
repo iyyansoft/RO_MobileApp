@@ -37,7 +37,8 @@ test.before(async () => {
   await new Promise(r => staticServer.listen(0, '127.0.0.1', r));
   staticBase = `http://127.0.0.1:${staticServer.address().port}`;
   const puppeteer = require('puppeteer-core');
-  browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new' });
+  // GitHub's Ubuntu runners need Chrome's sandbox off (AppArmor); local runs keep it.
+  browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: process.env.CI ? ['--no-sandbox'] : [] });
 });
 test.after(async () => {
   await browser?.close();

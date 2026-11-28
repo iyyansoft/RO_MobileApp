@@ -22,12 +22,21 @@ class AppImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // No picture (empty, legacy name or a file that fails to load): the
+    // app's water-drop placeholder, never another product's picture.
     Widget fallback(BuildContext context, Object error, StackTrace? stack) =>
         errorBuilder?.call(context, error, stack) ??
         SizedBox(
+          key: const ValueKey('app-image-placeholder'),
           width: width,
           height: height,
-          child: const Icon(Icons.image_not_supported_outlined),
+          child: Center(
+            child: Icon(
+              Icons.water_drop_rounded,
+              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.35),
+              size: 40,
+            ),
+          ),
         );
     if (source.trim().isEmpty) {
       return fallback(
