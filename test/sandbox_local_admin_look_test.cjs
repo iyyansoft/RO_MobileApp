@@ -34,7 +34,7 @@ test('the sandbox Admin page gets the local look; the shared admin.html does not
   assert.doesNotMatch(await api.text(), /sandbox-local-admin/);
 });
 
-test('in a browser: each order shows its first product picture left of the Order ID (+N, fallbacks, search kept)', { skip: CHROME ? false : 'Chrome not installed' }, async () => {
+test('in a browser: each order shows its first product picture left of the Order ID (no +N, fallbacks, search kept)', { skip: CHROME ? false : 'Chrome not installed' }, async () => {
   const db = sandbox.db;
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
   const pic = id => `/api/product-images/img_1764230400_${id}.png`;
@@ -76,12 +76,14 @@ test('in a browser: each order shows its first product picture left of the Order
       await Promise.all([page.waitForResponse(r => r.url().includes('/api/admin/products')), page.keyboard.press('Enter')]);
       await page.evaluate(() => window.switchSection('orders', null));
       await page.waitForFunction(() => document.querySelectorAll('#ordersTableBody .order-id-cell').length === 5);
-      await page.waitForFunction(() => !document.querySelector('#ordersTableBody img[src*="dead"]'), { timeout: 5000 });
+      await page.waitForFunction(() => { const i = document.querySelector('#ordersTableBody img[src*="dead"]'); return !i || i.style.display === 'none'; }, { timeout: 5000 });
       const rows = await page.evaluate(() => [...document.querySelectorAll('#ordersTableBody tr')].map(tr => {
         const cell = tr.cells[0].querySelector('.order-id-cell');
-        const thumb = cell.querySelector('.order-thumb');
-        const img = thumb.querySelector('img');
-        const box = (img || thumb.querySelector('.order-thumb-fallback')).getBoundingClientRect();
+        const thumb = cell.querySelector('.order-id-cell > .order-thumb-wrap, .order-id-cell > .order-thumb-fallback');
+        const img = thumb.querySelector('img.order-thumb');
+        const candidates = thumb.matches('.order-thumb-fallback') ? [thumb] : [...thumb.querySelectorAll('img.order-thumb, .order-thumb-fallback')];
+        const visible = candidates.find(el => getComputedStyle(el).display !== 'none');
+        const box = visible.getBoundingClientRect();
         const code = cell.querySelector('code').getBoundingClientRect();
         return {
           id: cell.querySelector('code').textContent,
@@ -89,8 +91,10 @@ test('in a browser: each order shows its first product picture left of the Order
           alt: img ? img.alt : null,
           loaded: img ? img.complete && img.naturalWidth > 0 : null,
           fit: img ? getComputedStyle(img).objectFit : null,
-          fallback: thumb.querySelector('.order-thumb-fallback')?.getAttribute('aria-label') || null,
-          more: thumb.querySelector('.order-thumb-more')?.textContent || null,
+          shownAsImage: visible.tagName === 'IMG',
+          fallback: visible.classList.contains('order-thumb-fallback') ? visible.getAttribute('aria-label') : null,
+          more: cell.querySelector('.order-thumb-more')?.textContent || null,
+          thumbs: [...cell.querySelectorAll('img.order-thumb, .order-thumb-fallback')].filter(el => getComputedStyle(el).display !== 'none').length,
           size: [Math.round(box.width), Math.round(box.height)],
           leftOfId: box.right <= code.left,
           centred: Math.abs((box.top + box.bottom) / 2 - (code.top + code.bottom) / 2) <= 2,
@@ -100,18 +104,20 @@ test('in a browser: each order shows its first product picture left of the Order
       const byId = Object.fromEntries(rows.map(r => [r.id, r]));
       assert.deepEqual(Object.keys(byId).sort(), Object.keys(orders).sort(), `${width}px: one row per order`);
       for (const r of rows) {
-        assert.deepEqual(r.size, [48, 48], `${width}px ${r.id}: 48 x 48`);
+        assert.deepEqual(r.size, [44, 44], `${width}px ${r.id}: 44 x 44`);
         assert.ok(r.leftOfId && r.centred, `${width}px ${r.id}: left of the Order ID, vertically centred`);
         assert.ok(r.statusSelect, `${width}px ${r.id}: order actions kept`);
       }
       assert.equal(byId.ORDA01.src, '/api/product-images/img_1764230400_aa01.png');
       assert.equal(byId.ORDA01.alt, 'Product image: First Filter');
       assert.equal(byId.ORDA01.loaded, true);
-      assert.equal(byId.ORDA01.fit, 'cover');
+      assert.equal(byId.ORDA01.fit, 'contain');
       assert.equal(byId.ORDA01.more, null);
       assert.equal(byId.ORDB02.src, '/api/product-images/img_1764230400_bb02.png', 'first product of a multi-product order');
-      assert.equal(byId.ORDB02.more, '+2');
+      assert.equal(byId.ORDB02.more, null, 'Production shows only the first product picture: no +N badge');
+      assert.equal(byId.ORDB02.thumbs, 1, 'one thumbnail per order');
       assert.equal(byId.ORDC03.fallback, 'No product image: Removed Product');
+      assert.equal(byId.ORDD04.shownAsImage, false, 'a picture that fails to load is replaced');
       assert.equal(byId.ORDD04.fallback, 'No product image: Broken Picture', 'a picture that fails to load falls back');
       assert.equal(byId.ORDE05.src, '/api/product-images/img_1764230400_ee05.png', "no saved picture: the same product's own picture");
 

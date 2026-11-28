@@ -1849,6 +1849,17 @@
     }
 
 
+    /* Orders table: the first product's picture left of the Order ID. */
+    .order-id-cell { display: flex; align-items: center; gap: 10px; white-space: nowrap; }
+    .order-thumb-wrap { position: relative; flex: 0 0 44px; width: 44px; height: 44px; display: inline-block; }
+    .order-thumb, .order-thumb-fallback {
+      width: 44px; height: 44px; box-sizing: border-box; border-radius: 8px;
+      border: 1px solid #E2E8F0; background: #FFFFFF; display: block;
+    }
+    .order-thumb { object-fit: contain; padding: 2px; }
+    .order-thumb-fallback { display: flex; align-items: center; justify-content: center; color: #94A3B8; font-size: 18px; background: #F8FAFC; }
+    .order-id-cell > .order-thumb-wrap, .order-id-cell > .order-thumb-fallback { flex: 0 0 44px; }
+
     /* Where saves go: PRODUCTION / LOCAL TEST COPY / test target / unknown. */
     .admin-env-banner {
       position: fixed; top: 0; left: 0; right: 0; z-index: 20000;
@@ -5702,6 +5713,35 @@
       return `<span class="status-badge ${badgeClass}">${escapeHtml(label)}</span>`;
     }
 
+    /**
+     * Picture of the order's FIRST product, left of the Order ID. It is the
+     * picture saved on that order line (or the same product's own picture when
+     * the line has none). Nothing is substituted: no picture means a placeholder.
+     */
+    function orderThumbImageUrl(order) {
+      const first = Array.isArray(order.items) ? order.items[0] : null;
+      if (!first) return '';
+      const usable = value => {
+        const text = String(value || '').trim();
+        return /^(https?:\/\/|\/)/i.test(text) ? text : '';
+      };
+      const own = usable(first.imgSrc);
+      if (own) return own;
+      const product = (Array.isArray(allProducts) ? allProducts : []).find(p => String(p.id) === String(first.id));
+      return usable(product && product.img);
+    }
+
+    function orderThumbHtml(order) {
+      const first = Array.isArray(order.items) ? order.items[0] : null;
+      const name = first && first.name ? first.name : 'product';
+      const placeholder = `<span class="order-thumb-fallback" role="img" aria-label="No product image: ${escapeHtml(name)}" title="No product image"><i class="fa-solid fa-box-open" aria-hidden="true"></i></span>`;
+      const src = orderThumbImageUrl(order);
+      if (!src) return placeholder;
+      // If the picture cannot be loaded, the placeholder takes its place.
+      return `<span class="order-thumb-wrap"><img class="order-thumb" src="${escapeHtml(src)}" width="44" height="44" loading="lazy" decoding="async" alt="Product image: ${escapeHtml(name)}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">`
+        + `<span class="order-thumb-fallback" role="img" aria-label="No product image: ${escapeHtml(name)}" title="No product image" style="display:none"><i class="fa-solid fa-box-open" aria-hidden="true"></i></span></span>`;
+    }
+
     function renderOrdersTable() {
       const q = document.getElementById('orderSearchInput').value.toLowerCase().trim();
       const statusFilter = document.getElementById('orderStatusFilter').value;
@@ -5721,7 +5761,7 @@
       }
       tbody.innerHTML = filtered.map(o => `
         <tr>
-          <td><code>${escapeHtml(o.orderId || '')}</code></td>
+          <td><div class="order-id-cell">${orderThumbHtml(o)}<code>${escapeHtml(o.orderId || '')}</code></div></td>
           <td><strong>${escapeHtml(o.userName || 'B2B Customer')}</strong><div style="font-size:.75rem;color:var(--text-muted);">${escapeHtml(o.userEmail || '')}</div></td>
           <td>${o.createdAt ? new Date(o.createdAt).toLocaleString() : '?'}</td>
           <td><strong>${String.fromCharCode(8377)}${Number(o.grandTotal || 0).toLocaleString('en-IN')}</strong></td>
